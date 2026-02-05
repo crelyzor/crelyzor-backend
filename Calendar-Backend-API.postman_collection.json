@@ -1,0 +1,2429 @@
+{
+  "info": {
+    "name": "Calendar Backend API",
+    "description": "Complete API collection for Calendar Backend with all endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "calendar-backend-v1"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "organization_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "🔐 Authentication",
+      "item": [
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/refresh-token",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "refresh-token"]
+            },
+            "description": "Refresh access token using refresh token"
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "logout"]
+            },
+            "description": "Logout current user session"
+          }
+        },
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/profile",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "profile"]
+            },
+            "description": "Get current user profile"
+          }
+        },
+        {
+          "name": "Get Sessions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/sessions",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "sessions"]
+            },
+            "description": "Get all active sessions for current user"
+          }
+        },
+        {
+          "name": "Revoke Session",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/sessions/:sessionId",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "sessions", ":sessionId"],
+              "variable": [
+                {
+                  "key": "sessionId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Revoke a specific session"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔑 Google OAuth",
+      "item": [
+        {
+          "name": "Google Login",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/google/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "google", "login"]
+            },
+            "description": "Redirect to Google OAuth login (no JWT needed)"
+          }
+        },
+        {
+          "name": "Google Login Callback",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/google/login/callback",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "google", "login", "callback"]
+            },
+            "description": "Handle Google OAuth callback (no JWT needed)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🏢 Organizations",
+      "item": [
+        {
+          "name": "Create Organization",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My Organization\",\n  \"description\": \"Organization description\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations",
+              "host": ["{{base_url}}"],
+              "path": ["organizations"]
+            },
+            "description": "Create a new team organization"
+          }
+        },
+        {
+          "name": "Get User Organizations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/organizations/list",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "list"]
+            },
+            "description": "Get all organizations for current user (personal + teams)"
+          }
+        },
+        {
+          "name": "Get Organization Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/organizations",
+              "host": ["{{base_url}}"],
+              "path": ["organizations"]
+            },
+            "description": "Get organization details (requires x-organization-id header)"
+          }
+        },
+        {
+          "name": "Update Organization",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Organization Name\",\n  \"description\": \"Updated description\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations",
+              "host": ["{{base_url}}"],
+              "path": ["organizations"]
+            },
+            "description": "Update organization (Owner/Admin only)"
+          }
+        },
+        {
+          "name": "Delete Organization",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/organizations",
+              "host": ["{{base_url}}"],
+              "path": ["organizations"]
+            },
+            "description": "Delete organization (Owner only)"
+          }
+        },
+        {
+          "name": "List Organization Members",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/organizations/members",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "members"]
+            },
+            "description": "Get all members in organization"
+          }
+        },
+        {
+          "name": "Get Organization Member",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/organizations/members/:memberId",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "members", ":memberId"],
+              "variable": [
+                {
+                  "key": "memberId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get single member details"
+          }
+        },
+        {
+          "name": "Remove Member",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/organizations/members/:memberId",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "members", ":memberId"],
+              "variable": [
+                {
+                  "key": "memberId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Remove member from organization (Owner/Admin only)"
+          }
+        },
+        {
+          "name": "Update Member Role",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"ADMIN\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations/members/:memberId/role",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "members", ":memberId", "role"],
+              "variable": [
+                {
+                  "key": "memberId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Update member role (Owner/Admin only)"
+          }
+        },
+        {
+          "name": "Get Email Config",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/organizations/email-config",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "email-config"]
+            },
+            "description": "Get Brevo email configuration (Owner/Admin only)"
+          }
+        },
+        {
+          "name": "Update Email Config",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"brevoApiKey\": \"your-brevo-api-key\",\n  \"senderEmail\": \"sender@example.com\",\n  \"senderName\": \"Your Organization\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations/email-config",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "email-config"]
+            },
+            "description": "Update Brevo email configuration (Owner/Admin only)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "⚙️ Organization Settings",
+      "item": [
+        {
+          "name": "Get Meeting Preference",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/organizations/settings/meeting-preference",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "settings", "meeting-preference"]
+            },
+            "description": "Get meeting preferences for organization"
+          }
+        },
+        {
+          "name": "Update Meeting Preference",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"defaultDuration\": 30,\n  \"bufferTime\": 10,\n  \"autoAccept\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations/settings/meeting-preference",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "settings", "meeting-preference"]
+            },
+            "description": "Update meeting preferences"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📧 Invite Tokens",
+      "item": [
+        {
+          "name": "Send Invite",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"role\": \"MEMBER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations/invite-tokens/send",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "invite-tokens", "send"]
+            },
+            "description": "Send invitation to join organization (Owner/Admin only)"
+          }
+        },
+        {
+          "name": "Get Invite Details",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"invite-token-here\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations/invite-tokens/details",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "invite-tokens", "details"]
+            },
+            "description": "Get invite details (public - no auth required)"
+          }
+        },
+        {
+          "name": "Accept Invite",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"invite-token-here\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/organizations/invite-tokens/accept",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "invite-tokens", "accept"]
+            },
+            "description": "Accept invite and join organization"
+          }
+        },
+        {
+          "name": "List Pending Invites",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/organizations/invite-tokens/pending",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "invite-tokens", "pending"]
+            },
+            "description": "List all pending invites (Owner/Admin only)"
+          }
+        },
+        {
+          "name": "Cancel Invite",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/organizations/invite-tokens/:inviteId",
+              "host": ["{{base_url}}"],
+              "path": ["organizations", "invite-tokens", ":inviteId"],
+              "variable": [
+                {
+                  "key": "inviteId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Cancel/revoke an invite (Owner/Admin only)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "👤 Users",
+      "item": [
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Doe\",\n  \"bio\": \"Software Engineer\",\n  \"timezone\": \"America/New_York\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/users/profile",
+              "host": ["{{base_url}}"],
+              "path": ["users", "profile"]
+            },
+            "description": "Update user profile"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔗 Google Calendar Integration",
+      "item": [
+        {
+          "name": "Connect Google Calendar",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/integrations/calendar/connect",
+              "host": ["{{base_url}}"],
+              "path": ["integrations", "calendar", "connect"]
+            },
+            "description": "Redirect to Google Calendar OAuth"
+          }
+        },
+        {
+          "name": "Google Calendar Callback",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/integrations/calendar/connect/callback",
+              "host": ["{{base_url}}"],
+              "path": ["integrations", "calendar", "connect", "callback"]
+            },
+            "description": "Handle Google Calendar OAuth callback"
+          }
+        },
+        {
+          "name": "Check Calendar Access",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/integrations/calendar/status",
+              "host": ["{{base_url}}"],
+              "path": ["integrations", "calendar", "status"]
+            },
+            "description": "Check if user has connected Google Calendar"
+          }
+        },
+        {
+          "name": "Get Scopes Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/integrations/calendar/scopes/status",
+              "host": ["{{base_url}}"],
+              "path": ["integrations", "calendar", "scopes", "status"]
+            },
+            "description": "Check Google OAuth scopes status"
+          }
+        },
+        {
+          "name": "Get Events by Date",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"startDate\": \"2024-01-01T00:00:00Z\",\n  \"endDate\": \"2024-01-31T23:59:59Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/integrations/calendar/events-by-date",
+              "host": ["{{base_url}}"],
+              "path": ["integrations", "calendar", "events-by-date"]
+            },
+            "description": "Get Google Calendar events by date range"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔄 Calendar Sync",
+      "item": [
+        {
+          "name": "Trigger Sync",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/integrations/calendar/sync",
+              "host": ["{{base_url}}"],
+              "path": ["integrations", "calendar", "sync"]
+            },
+            "description": "Manually trigger Google Calendar sync"
+          }
+        },
+        {
+          "name": "Get Sync Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/integrations/calendar/sync/status",
+              "host": ["{{base_url}}"],
+              "path": ["integrations", "calendar", "sync", "status"]
+            },
+            "description": "Get current sync status"
+          }
+        },
+        {
+          "name": "Get Synced Events",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/integrations/calendar/sync/events?startDate=2024-01-01&endDate=2024-01-31&limit=50&offset=0",
+              "host": ["{{base_url}}"],
+              "path": ["integrations", "calendar", "sync", "events"],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2024-01-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-01-31"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Get synced Google Calendar events with filters"
+          }
+        },
+        {
+          "name": "Link Event to Meeting",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"googleEventId\": \"google-event-id\",\n  \"meetingId\": \"meeting-id\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/integrations/calendar/sync/link-event",
+              "host": ["{{base_url}}"],
+              "path": ["integrations", "calendar", "sync", "link-event"]
+            },
+            "description": "Link a Google Calendar event to a Meeting in DB"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📅 Meetings",
+      "item": [
+        {
+          "name": "Create Meeting",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Team Sync\",\n  \"description\": \"Weekly team synchronization\",\n  \"startTime\": \"2024-02-10T10:00:00Z\",\n  \"endTime\": \"2024-02-10T11:00:00Z\",\n  \"participants\": [\"user-id-1\", \"user-id-2\"],\n  \"guestEmails\": [\"guest@example.com\"],\n  \"location\": \"Conference Room A\",\n  \"meetingLink\": \"https://meet.google.com/abc-defg-hij\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/meetings",
+              "host": ["{{base_url}}"],
+              "path": ["meetings"]
+            },
+            "description": "Create meeting with assigned participants"
+          }
+        },
+        {
+          "name": "Request Meeting",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"1:1 Meeting Request\",\n  \"description\": \"Need to discuss project updates\",\n  \"startTime\": \"2024-02-10T14:00:00Z\",\n  \"endTime\": \"2024-02-10T14:30:00Z\",\n  \"consultantId\": \"consultant-user-id\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/meetings/request",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", "request"]
+            },
+            "description": "Request meeting from consultant (pending acceptance)"
+          }
+        },
+        {
+          "name": "Get Meetings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/meetings?status=CONFIRMED&startDate=2024-01-01&endDate=2024-12-31&page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["meetings"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "CONFIRMED"
+                },
+                {
+                  "key": "startDate",
+                  "value": "2024-01-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-12-31"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Get meetings with filters (paginated)"
+          }
+        },
+        {
+          "name": "Get Meetings Without Pagination",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/meetings/without-pagination?startDate=2024-01-01&endDate=2024-12-31",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", "without-pagination"],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2024-01-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-12-31"
+                }
+              ]
+            },
+            "description": "Get meetings without pagination (max 1000 for calendar view)"
+          }
+        },
+        {
+          "name": "Get Meeting by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/meetings/:meetingId",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", ":meetingId"],
+              "variable": [
+                {
+                  "key": "meetingId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get single meeting details"
+          }
+        },
+        {
+          "name": "Update Meeting",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Meeting Title\",\n  \"description\": \"Updated description\",\n  \"startTime\": \"2024-02-10T15:00:00Z\",\n  \"endTime\": \"2024-02-10T16:00:00Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/meetings/:meetingId",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", ":meetingId"],
+              "variable": [
+                {
+                  "key": "meetingId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Update meeting details"
+          }
+        },
+        {
+          "name": "Accept Meeting",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/meetings/:meetingId/accept",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", ":meetingId", "accept"],
+              "variable": [
+                {
+                  "key": "meetingId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Accept meeting request"
+          }
+        },
+        {
+          "name": "Decline Meeting",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Not available at this time\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/meetings/:meetingId/decline",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", ":meetingId", "decline"],
+              "variable": [
+                {
+                  "key": "meetingId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Decline meeting request"
+          }
+        },
+        {
+          "name": "Cancel Meeting",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Meeting cancelled due to conflict\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/meetings/:meetingId/cancel",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", ":meetingId", "cancel"],
+              "variable": [
+                {
+                  "key": "meetingId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Cancel meeting"
+          }
+        },
+        {
+          "name": "Complete Meeting",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/meetings/:meetingId/complete",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", ":meetingId", "complete"],
+              "variable": [
+                {
+                  "key": "meetingId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Mark meeting as completed"
+          }
+        },
+        {
+          "name": "Propose Reschedule",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newStartTime\": \"2024-02-11T10:00:00Z\",\n  \"newEndTime\": \"2024-02-11T11:00:00Z\",\n  \"reason\": \"Schedule conflict\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/meetings/:meetingId/reschedule",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", ":meetingId", "reschedule"],
+              "variable": [
+                {
+                  "key": "meetingId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Propose meeting reschedule"
+          }
+        },
+        {
+          "name": "Get Reschedule Requests",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/meetings/:meetingId/reschedule",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", ":meetingId", "reschedule"],
+              "variable": [
+                {
+                  "key": "meetingId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get pending reschedule requests for a meeting"
+          }
+        },
+        {
+          "name": "Respond to Reschedule",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"ACCEPT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/meetings/:meetingId/reschedule/:requestId/respond",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", ":meetingId", "reschedule", ":requestId", "respond"],
+              "variable": [
+                {
+                  "key": "meetingId",
+                  "value": ""
+                },
+                {
+                  "key": "requestId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Accept or decline reschedule request"
+          }
+        },
+        {
+          "name": "Generate Public Booking Link",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expiresInDays\": 30\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/meetings/public-booking/generate",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", "public-booking", "generate"]
+            },
+            "description": "Generate public booking link for consultant"
+          }
+        },
+        {
+          "name": "Get Public Booking Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/meetings/public-booking/status",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", "public-booking", "status"]
+            },
+            "description": "Get public booking status"
+          }
+        },
+        {
+          "name": "Disable Public Booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/meetings/public-booking/disable",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", "public-booking", "disable"]
+            },
+            "description": "Disable public booking"
+          }
+        },
+        {
+          "name": "Guest Accept Invitation (Public)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Guest Name\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/meetings/:meetingId/guests/:guestEmail/accept",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", ":meetingId", "guests", ":guestEmail", "accept"],
+              "variable": [
+                {
+                  "key": "meetingId",
+                  "value": ""
+                },
+                {
+                  "key": "guestEmail",
+                  "value": "guest@example.com"
+                }
+              ]
+            },
+            "description": "Guest accepts meeting invitation (no auth required)"
+          }
+        },
+        {
+          "name": "Guest Decline Invitation (Public)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Not available\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/meetings/:meetingId/guests/:guestEmail/decline",
+              "host": ["{{base_url}}"],
+              "path": ["meetings", ":meetingId", "guests", ":guestEmail", "decline"],
+              "variable": [
+                {
+                  "key": "meetingId",
+                  "value": ""
+                },
+                {
+                  "key": "guestEmail",
+                  "value": "guest@example.com"
+                }
+              ]
+            },
+            "description": "Guest declines meeting invitation (no auth required)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📆 Availability",
+      "item": [
+        {
+          "name": "Create Recurring Availability",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dayOfWeek\": \"MONDAY\",\n  \"startTime\": \"09:00:00\",\n  \"endTime\": \"17:00:00\",\n  \"orgMemberId\": \"optional-member-id\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/availability/recurring",
+              "host": ["{{base_url}}"],
+              "path": ["availability", "recurring"]
+            },
+            "description": "Create recurring availability pattern (e.g., Mon-Fri 9-5)"
+          }
+        },
+        {
+          "name": "Create Batch Recurring Availability",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slots\": [\n    {\n      \"dayOfWeek\": \"MONDAY\",\n      \"startTime\": \"09:00:00\",\n      \"endTime\": \"12:00:00\"\n    },\n    {\n      \"dayOfWeek\": \"MONDAY\",\n      \"startTime\": \"13:00:00\",\n      \"endTime\": \"17:00:00\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/availability/recurring/batch",
+              "host": ["{{base_url}}"],
+              "path": ["availability", "recurring", "batch"]
+            },
+            "description": "Create multiple recurring availability patterns in one request"
+          }
+        },
+        {
+          "name": "Get Recurring Availability",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/availability/recurring?orgMemberId=",
+              "host": ["{{base_url}}"],
+              "path": ["availability", "recurring"],
+              "query": [
+                {
+                  "key": "orgMemberId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get recurring availability patterns for an org member"
+          }
+        },
+        {
+          "name": "Update Recurring Availability",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dayOfWeek\": \"TUESDAY\",\n  \"startTime\": \"10:00:00\",\n  \"endTime\": \"18:00:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/availability/recurring/:availabilityId",
+              "host": ["{{base_url}}"],
+              "path": ["availability", "recurring", ":availabilityId"],
+              "variable": [
+                {
+                  "key": "availabilityId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Update recurring availability pattern"
+          }
+        },
+        {
+          "name": "Delete Recurring Availability",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/availability/recurring/:availabilityId",
+              "host": ["{{base_url}}"],
+              "path": ["availability", "recurring", ":availabilityId"],
+              "variable": [
+                {
+                  "key": "availabilityId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Delete recurring availability pattern"
+          }
+        },
+        {
+          "name": "Create Custom Slot",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"date\": \"2024-02-15\",\n  \"startTime\": \"14:00:00\",\n  \"endTime\": \"16:00:00\",\n  \"orgMemberId\": \"optional-member-id\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/availability/custom",
+              "host": ["{{base_url}}"],
+              "path": ["availability", "custom"]
+            },
+            "description": "Create custom slot for specific date (overrides recurring)"
+          }
+        },
+        {
+          "name": "Get Custom Slots",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/availability/custom?startDate=2024-01-01&endDate=2024-01-31&orgMemberId=",
+              "host": ["{{base_url}}"],
+              "path": ["availability", "custom"],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2024-01-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-01-31"
+                },
+                {
+                  "key": "orgMemberId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get custom slots for date range"
+          }
+        },
+        {
+          "name": "Delete Custom Slot",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/availability/custom/:slotId",
+              "host": ["{{base_url}}"],
+              "path": ["availability", "custom", ":slotId"],
+              "variable": [
+                {
+                  "key": "slotId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Delete custom slot"
+          }
+        },
+        {
+          "name": "Create Blocked Time",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"startDate\": \"2024-02-20\",\n  \"endDate\": \"2024-02-20\",\n  \"startTime\": \"12:00:00\",\n  \"endTime\": \"13:00:00\",\n  \"reason\": \"Lunch break\",\n  \"recurrenceType\": \"WEEKLY\",\n  \"orgMemberId\": \"optional-member-id\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/availability/blocked",
+              "host": ["{{base_url}}"],
+              "path": ["availability", "blocked"]
+            },
+            "description": "Create blocked time (supports recurring)"
+          }
+        },
+        {
+          "name": "Get Blocked Times",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/availability/blocked?startDate=2024-01-01&endDate=2024-01-31&orgMemberId=",
+              "host": ["{{base_url}}"],
+              "path": ["availability", "blocked"],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2024-01-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-01-31"
+                },
+                {
+                  "key": "orgMemberId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get blocked times for date range"
+          }
+        },
+        {
+          "name": "Delete Blocked Time",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/availability/blocked/:blockedTimeId",
+              "host": ["{{base_url}}"],
+              "path": ["availability", "blocked", ":blockedTimeId"],
+              "variable": [
+                {
+                  "key": "blockedTimeId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Delete blocked time"
+          }
+        },
+        {
+          "name": "Get Available Slots",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/availability/slots/:orgMemberId?startDate=2024-02-01&endDate=2024-02-29&slotDuration=30",
+              "host": ["{{base_url}}"],
+              "path": ["availability", "slots", ":orgMemberId"],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2024-02-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-02-29"
+                },
+                {
+                  "key": "slotDuration",
+                  "value": "30"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "orgMemberId",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get available slots (complex algorithm combining all rules)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🌐 Public Booking",
+      "item": [
+        {
+          "name": "Get Public Booking Profile",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/public/booking/:shareToken",
+              "host": ["{{base_url}}"],
+              "path": ["public", "booking", ":shareToken"],
+              "variable": [
+                {
+                  "key": "shareToken",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get consultant profile and available slots (no auth required)"
+          }
+        },
+        {
+          "name": "Request Meeting Public",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"guestName\": \"John Doe\",\n  \"guestEmail\": \"john@example.com\",\n  \"startTime\": \"2024-02-15T10:00:00Z\",\n  \"endTime\": \"2024-02-15T10:30:00Z\",\n  \"notes\": \"Looking forward to discussing the project\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/public/booking/:shareToken/request",
+              "host": ["{{base_url}}"],
+              "path": ["public", "booking", ":shareToken", "request"],
+              "variable": [
+                {
+                  "key": "shareToken",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Guest requests meeting from consultant (no auth required)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🤖 SMA (Smart Meeting Assistant)",
+      "item": [
+        {
+          "name": "📹 Recordings",
+          "item": [
+            {
+              "name": "Upload Recording",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "multipart/form-data"
+                  }
+                ],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "src": []
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{base_url}}/sma/meetings/:meetingId/recordings",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "meetings", ":meetingId", "recordings"],
+                  "variable": [
+                    {
+                      "key": "meetingId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Upload recording for a meeting"
+              }
+            },
+            {
+              "name": "Get Recordings",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/sma/meetings/:meetingId/recordings",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "meetings", ":meetingId", "recordings"],
+                  "variable": [
+                    {
+                      "key": "meetingId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Get recordings for a meeting"
+              }
+            },
+            {
+              "name": "Delete Recording",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/sma/recordings/:recordingId",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "recordings", ":recordingId"],
+                  "variable": [
+                    {
+                      "key": "recordingId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Delete a recording"
+              }
+            },
+            {
+              "name": "Trigger AI Processing",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/sma/meetings/:meetingId/process-ai",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "meetings", ":meetingId", "process-ai"],
+                  "variable": [
+                    {
+                      "key": "meetingId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Trigger AI processing for a meeting"
+              }
+            }
+          ]
+        },
+        {
+          "name": "📝 Transcripts",
+          "item": [
+            {
+              "name": "Get Transcript",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/sma/meetings/:meetingId/transcript",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "meetings", ":meetingId", "transcript"],
+                  "variable": [
+                    {
+                      "key": "meetingId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Get transcript for a meeting"
+              }
+            },
+            {
+              "name": "Get Transcription Status",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/sma/meetings/:meetingId/transcript/status",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "meetings", ":meetingId", "transcript", "status"],
+                  "variable": [
+                    {
+                      "key": "meetingId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Get transcription status"
+              }
+            }
+          ]
+        },
+        {
+          "name": "🤖 AI Features",
+          "item": [
+            {
+              "name": "Get Summary",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/sma/meetings/:meetingId/summary",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "meetings", ":meetingId", "summary"],
+                  "variable": [
+                    {
+                      "key": "meetingId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Get AI-generated summary"
+              }
+            },
+            {
+              "name": "Regenerate Summary",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/sma/meetings/:meetingId/summary/regenerate",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "meetings", ":meetingId", "summary", "regenerate"],
+                  "variable": [
+                    {
+                      "key": "meetingId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Regenerate AI summary"
+              }
+            },
+            {
+              "name": "Get Action Items",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/sma/meetings/:meetingId/action-items",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "meetings", ":meetingId", "action-items"],
+                  "variable": [
+                    {
+                      "key": "meetingId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Get action items for meeting"
+              }
+            },
+            {
+              "name": "Create Action Item",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Follow up with client\",\n  \"description\": \"Send proposal document\",\n  \"assignedTo\": \"user-id\",\n  \"dueDate\": \"2024-02-20T00:00:00Z\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/sma/meetings/:meetingId/action-items",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "meetings", ":meetingId", "action-items"],
+                  "variable": [
+                    {
+                      "key": "meetingId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Create new action item"
+              }
+            },
+            {
+              "name": "Update Action Item",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Updated action item\",\n  \"status\": \"COMPLETED\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/sma/action-items/:actionItemId",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "action-items", ":actionItemId"],
+                  "variable": [
+                    {
+                      "key": "actionItemId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Update action item"
+              }
+            },
+            {
+              "name": "Get Notes",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/sma/meetings/:meetingId/notes",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "meetings", ":meetingId", "notes"],
+                  "variable": [
+                    {
+                      "key": "meetingId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Get notes for meeting"
+              }
+            },
+            {
+              "name": "Create Note",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"content\": \"Important discussion point\",\n  \"timestamp\": \"2024-02-10T10:30:00Z\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{base_url}}/sma/meetings/:meetingId/notes",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "meetings", ":meetingId", "notes"],
+                  "variable": [
+                    {
+                      "key": "meetingId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Create new note"
+              }
+            },
+            {
+              "name": "Delete Note",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/sma/notes/:noteId",
+                  "host": ["{{base_url}}"],
+                  "path": ["sma", "notes", ":noteId"],
+                  "variable": [
+                    {
+                      "key": "noteId",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Delete a note"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "📦 Storage",
+      "item": [
+        {
+          "name": "Generate Image Upload URL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fileName\": \"profile-picture.jpg\",\n  \"contentType\": \"image/jpeg\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/storage/generate-upload-url/image",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "generate-upload-url", "image"]
+            },
+            "description": "Generate signed URL for image upload"
+          }
+        },
+        {
+          "name": "Generate File Upload URL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fileName\": \"document.docx\",\n  \"contentType\": \"application/vnd.openxmlformats-officedocument.wordprocessingml.document\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/storage/generate-upload-url/file",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "generate-upload-url", "file"]
+            },
+            "description": "Generate signed URL for file upload"
+          }
+        },
+        {
+          "name": "Generate PDF Upload URL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fileName\": \"report.pdf\",\n  \"contentType\": \"application/pdf\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/storage/generate-upload-url/pdf",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "generate-upload-url", "pdf"]
+            },
+            "description": "Generate signed URL for PDF upload"
+          }
+        },
+        {
+          "name": "Generate Report Upload URL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fileName\": \"monthly-report.pdf\",\n  \"contentType\": \"application/pdf\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/storage/generate-upload-url/report",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "generate-upload-url", "report"]
+            },
+            "description": "Generate signed URL for report upload"
+          }
+        },
+        {
+          "name": "Generate Flexible Upload URL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fileName\": \"custom-file.txt\",\n  \"contentType\": \"text/plain\",\n  \"folder\": \"custom-folder\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/storage/generate-upload-url",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "generate-upload-url"]
+            },
+            "description": "Generate signed URL with custom folder specification"
+          }
+        },
+        {
+          "name": "Delete File",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fileUrl\": \"https://storage.googleapis.com/bucket/path/to/file.jpg\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/storage/delete",
+              "host": ["{{base_url}}"],
+              "path": ["storage", "delete"]
+            },
+            "description": "Delete file from storage (Owner/Admin only)"
+          }
+        }
+      ]
+    }
+  ]
+}
