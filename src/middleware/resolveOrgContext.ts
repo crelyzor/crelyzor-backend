@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { ErrorFactory, globalErrorHandler } from "../utils/globalErrorHandler";
 import { AuthenticatedUser } from "../types/authTypes";
 import { UserRoleEnum } from "@prisma/client";
-import prisma from "../db/prismaClient";
+import { determineUserRole } from "../utils/roleUtils";
 
 declare module "express" {
   export interface Request {
@@ -14,10 +14,9 @@ declare module "express" {
         role: {
           roleName: UserRoleEnum | null;
           roleId: string;
-          permissions: string[];
         };
       }[];
-      activePermissions?: string[];
+      highestRole: UserRoleEnum;
     };
   }
 }
@@ -25,8 +24,10 @@ declare module "express" {
 /**
  * Middleware to resolve the organization context.
  *
- * Simplified for flat organization structure (no hierarchy).
- * User must be a direct member of the target organization.
+ * Simplified role-based authorization:
+ * - User must be a direct member of the target organization
+ * - Determines user's highest priority role (OWNER > ADMIN > MEMBER)
+ * - No permission fetching from database
  */
 export const resolveOrgContext = async (
   req: Request,
@@ -51,41 +52,23 @@ export const resolveOrgContext = async (
       );
     }
 
-    // Fetch permissions from database for user's roles
-    const roleIds = directMembershipRoles.map((r) => r.roleId);
-
-    const rolesWithPermissions = await prisma.role.findMany({
-      where: { id: { in: roleIds } },
-      include: {
-        permissions: {
-          where: { isActive: true },
-          select: { name: true },
-        },
+    // Map roles to simplified structure (no permissions)
+    const orgRoles = directMembershipRoles.map((r) => ({
+      orgMemberId: r.orgMemberId,
+      roleId: r.roleId,
+      role: {
+        roleName: r.role.roleName,
+        roleId: r.roleId,
       },
-    });
+    }));
 
-    // Aggregate permissions from all roles
-    const allPermissions = new Set<string>();
-    const rolePermissionsMap = new Map<string, string[]>();
-
-    rolesWithPermissions.forEach((role) => {
-      const perms = role.permissions.map((p) => p.name);
-      rolePermissionsMap.set(role.id, perms);
-      perms.forEach((perm) => allPermissions.add(perm));
-    });
+    // Determine highest priority role (pass full directMembershipRoles which includes orgId)
+    const highestRole = await determineUserRole(directMembershipRoles);
 
     (req as any).org = {
       orgId: targetOrgId,
-      orgRoles: directMembershipRoles.map((r) => ({
-        orgMemberId: r.orgMemberId,
-        roleId: r.roleId,
-        role: {
-          roleName: r.role.roleName,
-          roleId: r.roleId,
-          permissions: rolePermissionsMap.get(r.roleId) || [],
-        },
-      })),
-      activePermissions: Array.from(allPermissions),
+      orgRoles,
+      highestRole,
     };
 
     return next();

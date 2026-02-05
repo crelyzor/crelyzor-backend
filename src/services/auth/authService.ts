@@ -18,11 +18,7 @@ type UserWithOrganizations = Prisma.UserGetPayload<{
         organization: true;
         userRoles: {
           include: {
-            role: {
-              include: {
-                permissions: true;
-              };
-            };
+            role: true;
           };
         };
       };
@@ -34,9 +30,6 @@ type OrganizationMemberWithDetails =
   UserWithOrganizations["organizationMembers"][number];
 type UserRoleWithPermissions =
   OrganizationMemberWithDetails["userRoles"][number];
-type PermissionType = NonNullable<
-  UserRoleWithPermissions["role"]
->["permissions"][number];
 
 class AuthService {
   async refreshToken(
@@ -101,13 +94,7 @@ class AuthService {
             userRoles: {
               where: { isActive: true },
               include: {
-                role: {
-                  include: {
-                    permissions: {
-                      where: { isActive: true },
-                    },
-                  },
-                },
+                role: true,
               },
             },
           },
@@ -233,8 +220,7 @@ class AuthService {
                   description: role.role.description,
                 }
               : null,
-            permissions:
-              role.role?.permissions.map((p: PermissionType) => p.name) || [],
+            permissions: [],
           })),
         }),
       );
@@ -274,9 +260,6 @@ class AuthService {
                     name: true,
                     description: true,
                     systemRoleType: true,
-                    permissions: {
-                      where: { isActive: true },
-                    },
                   },
                 },
               },
@@ -298,7 +281,7 @@ class AuthService {
         role: {
           roleName: userRole.role?.systemRoleType || null,
           roleId: userRole.roleId,
-          permissions: userRole.role?.permissions.map((p) => p.name) || [],
+          permissions: [],
         },
       })),
     );
@@ -345,9 +328,6 @@ class AuthService {
                       name: true,
                       description: true,
                       systemRoleType: true,
-                      permissions: {
-                        where: { isActive: true },
-                      },
                     },
                   },
                 },
@@ -419,9 +399,6 @@ class AuthService {
                 name: true,
                 description: true,
                 systemRoleType: true,
-                permissions: {
-                  where: { isActive: true },
-                },
               },
             },
           },
@@ -438,7 +415,7 @@ class AuthService {
       roles: orgMember.userRoles.map((userRole) => ({
         roleId: userRole.roleId,
         roleName: userRole.role?.systemRoleType || null,
-        permissions: userRole.role?.permissions.map((p) => p.name) || [],
+        permissions: [],
       })),
     };
   }
@@ -454,13 +431,7 @@ class AuthService {
             userRoles: {
               where: { isActive: true },
               include: {
-                role: {
-                  include: {
-                    permissions: {
-                      where: { isActive: true },
-                    },
-                  },
-                },
+                role: true,
               },
             },
           },
@@ -475,15 +446,7 @@ class AuthService {
     const permissionsByOrg: { [orgId: string]: string[] } = {};
 
     user.organizationMembers.forEach((member) => {
-      const permissions = new Set<string>();
-
-      member.userRoles.forEach((userRole) => {
-        userRole.role?.permissions.forEach((permission) => {
-          permissions.add(permission.name);
-        });
-      });
-
-      permissionsByOrg[member.orgId] = Array.from(permissions);
+      permissionsByOrg[member.orgId] = [];
     });
 
     return permissionsByOrg;

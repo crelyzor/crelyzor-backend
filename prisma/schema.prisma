@@ -216,7 +216,6 @@ model Role {
   updatedAt      DateTime      @updatedAt
   organization   Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   userRoles      UserRole[]
-  permissions    Permission[]  @relation("RoleToPermission")
 
   @@unique([orgId, name])
   @@index([orgId])
@@ -237,14 +236,6 @@ model UserRole {
   @@unique([roleId, orgMemberId])
   @@index([orgMemberId])
   @@index([roleId])
-}
-
-model Permission {
-  id       String  @id @default(uuid()) @db.Uuid
-  name     String  @unique
-  module   String  @default("Miscellaneous")
-  isActive Boolean @default(true)
-  roles    Role[]  @relation("RoleToPermission")
 }
 
 // ================================

@@ -2,7 +2,8 @@ import { resolveOrgContext } from "./../middleware/resolveOrgContext";
 import { Router } from "express";
 import { organizationController } from "../controllers/organizationController";
 import { verifyJWT } from "../middleware/authMiddleware";
-import { requirePermission } from "../middleware/accessMiddleware";
+import { requireRole } from "../middleware/roleMiddleware";
+import { UserRoleEnum } from "@prisma/client";
 
 const organizationRouter = Router();
 
@@ -22,7 +23,7 @@ organizationRouter.get("/list", organizationController.getUserOrganizations);
 organizationRouter.get(
   "/",
   resolveOrgContext,
-  requirePermission("READ_ORGANIZATION"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   organizationController.getOrganizationDetails,
 );
 
@@ -30,7 +31,7 @@ organizationRouter.get(
 organizationRouter.patch(
   "/",
   resolveOrgContext,
-  requirePermission("MANAGE_ORGANIZATION"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN]),
   organizationController.updateOrganization,
 );
 
@@ -38,7 +39,7 @@ organizationRouter.patch(
 organizationRouter.delete(
   "/",
   resolveOrgContext,
-  requirePermission("DELETE_ORGANIZATION"),
+  requireRole([UserRoleEnum.OWNER]),
   organizationController.deleteOrganization,
 );
 
@@ -50,7 +51,7 @@ organizationRouter.delete(
 organizationRouter.get(
   "/members",
   resolveOrgContext,
-  requirePermission("READ_USER"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   organizationController.getUsersInOrganization,
 );
 
@@ -58,7 +59,7 @@ organizationRouter.get(
 organizationRouter.get(
   "/members/:memberId",
   resolveOrgContext,
-  requirePermission("READ_USER"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   organizationController.getUserInOrganization,
 );
 
@@ -66,7 +67,7 @@ organizationRouter.get(
 organizationRouter.delete(
   "/members/:memberId",
   resolveOrgContext,
-  requirePermission("DELETE_USER"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN]),
   organizationController.removeMember,
 );
 
@@ -74,7 +75,7 @@ organizationRouter.delete(
 organizationRouter.patch(
   "/members/:memberId/role",
   resolveOrgContext,
-  requirePermission("MANAGE_USER"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN]),
   organizationController.updateMemberRole,
 );
 
@@ -85,14 +86,14 @@ organizationRouter.patch(
 organizationRouter.get(
   "/email-config",
   resolveOrgContext,
-  requirePermission("MANAGE_ORGANIZATION"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN]),
   organizationController.getEmailConfig,
 );
 
 organizationRouter.put(
   "/email-config",
   resolveOrgContext,
-  requirePermission("MANAGE_ORGANIZATION"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN]),
   organizationController.updateEmailConfig,
 );
 

@@ -7,8 +7,7 @@ export interface orgPayload {
     role: {
       roleName: UserRoleEnum | null;
       roleId: string;
-      permissions: string[];
     };
   }[];
-  activePermissions?: string[];
+  highestRole: UserRoleEnum;
 }

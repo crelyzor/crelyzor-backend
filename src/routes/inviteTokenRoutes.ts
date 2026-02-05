@@ -2,7 +2,8 @@ import { Router } from "express";
 import { inviteTokenController } from "../controllers/inviteTokenController";
 import { verifyJWT } from "../middleware/authMiddleware";
 import { resolveOrgContext } from "../middleware/resolveOrgContext";
-import { requirePermission } from "../middleware/accessMiddleware";
+import { requireRole } from "../middleware/roleMiddleware";
+import { UserRoleEnum } from "@prisma/client";
 
 const router = Router();
 
@@ -21,7 +22,7 @@ router.post(
   "/send",
   verifyJWT,
   resolveOrgContext,
-  requirePermission("CREATE_USER"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN]),
   inviteTokenController.sendInvite,
 );
 
@@ -40,7 +41,7 @@ router.get(
   "/pending",
   verifyJWT,
   resolveOrgContext,
-  requirePermission("READ_USER"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN]),
   inviteTokenController.listPendingInvites,
 );
 
@@ -49,7 +50,7 @@ router.delete(
   "/:inviteId",
   verifyJWT,
   resolveOrgContext,
-  requirePermission("DELETE_USER"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN]),
   inviteTokenController.cancelInvite,
 );
 

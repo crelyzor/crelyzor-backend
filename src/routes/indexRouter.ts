@@ -1,10 +1,8 @@
 import { Router } from "express";
 import authRouter from "./authRoutes";
 import organizationRouter from "./organizationRoutes";
-import permissionRouter from "./permissionRoutes";
 import inviteTokenRouter from "./inviteTokenRoutes";
 import userRouter from "./userUpdateRoutes";
-import roleRouter from "./roleRoutes";
 import googleRouter from "./googleRoutes";
 import storageRouter from "./storageRoutes";
 import organizationSettingsRouter from "./organizationSettingsRoutes";
@@ -20,8 +18,6 @@ const indexRouter = Router();
 
 indexRouter.use("/auth", authRouter);
 indexRouter.use("/organization", organizationRouter);
-indexRouter.use("/permissions", permissionRouter);
-indexRouter.use("/roles", roleRouter);
 indexRouter.use("/invite-tokens", inviteTokenRouter);
 indexRouter.use("/update-user", userRouter);
 indexRouter.use("/google", googleRouter);

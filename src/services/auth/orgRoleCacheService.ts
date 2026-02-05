@@ -50,13 +50,7 @@ class OrgRoleCacheService {
         userRoles: {
           where: { isActive: true },
           include: {
-            role: {
-              include: {
-                permissions: {
-                  where: { isActive: true },
-                },
-              },
-            },
+            role: true,
           },
         },
       },
@@ -71,7 +65,6 @@ class OrgRoleCacheService {
         role: {
           roleName: userRole.role?.systemRoleType || null,
           roleId: userRole.roleId,
-          permissions: userRole.role?.permissions.map((p) => p.name) || [],
         },
       })),
     );
@@ -201,7 +194,7 @@ class OrgRoleCacheService {
 
   /**
    * Invalidate cache for all users with a specific role
-   * Call this when role is deleted or permissions are updated
+   * Call this when role is deleted or modified
    */
   async invalidateUsersWithRole(roleId: string): Promise<void> {
     try {

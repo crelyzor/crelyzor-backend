@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { verifyJWT } from "../middleware/authMiddleware";
 import { resolveOrgContext } from "../middleware/resolveOrgContext";
-import { requirePermission } from "../middleware/accessMiddleware";
+import { requireRole } from "../middleware/roleMiddleware";
+import { UserRoleEnum } from "@prisma/client";
 import { availabilityController } from "../controllers/availabilityController";
 
 const availabilityRouter = Router();
@@ -21,7 +22,7 @@ availabilityRouter.use(resolveOrgContext);
  */
 availabilityRouter.post(
   "/recurring",
-  requirePermission("MANAGE_MEETING"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   (req, res) => availabilityController.createRecurringAvailability(req, res),
 );
 
@@ -33,7 +34,7 @@ availabilityRouter.post(
  */
 availabilityRouter.post(
   "/recurring/batch",
-  requirePermission("MANAGE_MEETING"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   (req, res) =>
     availabilityController.createBatchRecurringAvailability(req, res),
 );
@@ -46,7 +47,7 @@ availabilityRouter.post(
  */
 availabilityRouter.get(
   "/recurring",
-  requirePermission("MANAGE_MEETING"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   (req, res) => availabilityController.getRecurringAvailability(req, res),
 );
 
@@ -57,7 +58,7 @@ availabilityRouter.get(
  */
 availabilityRouter.put(
   "/recurring/:availabilityId",
-  requirePermission("MANAGE_MEETING"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   (req, res) => availabilityController.updateRecurringAvailability(req, res),
 );
 
@@ -68,7 +69,7 @@ availabilityRouter.put(
  */
 availabilityRouter.delete(
   "/recurring/:availabilityId",
-  requirePermission("MANAGE_MEETING"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   (req, res) => availabilityController.deleteRecurringAvailability(req, res),
 );
 
@@ -83,7 +84,7 @@ availabilityRouter.delete(
  */
 availabilityRouter.post(
   "/custom",
-  requirePermission("MANAGE_MEETING"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   (req, res) => availabilityController.createCustomSlot(req, res),
 );
 
@@ -95,7 +96,7 @@ availabilityRouter.post(
  */
 availabilityRouter.get(
   "/custom",
-  requirePermission("MANAGE_MEETING"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   (req, res) => availabilityController.getCustomSlots(req, res),
 );
 
@@ -106,7 +107,7 @@ availabilityRouter.get(
  */
 availabilityRouter.delete(
   "/custom/:slotId",
-  requirePermission("MANAGE_MEETING"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   (req, res) => availabilityController.deleteCustomSlot(req, res),
 );
 
@@ -122,7 +123,7 @@ availabilityRouter.delete(
  */
 availabilityRouter.post(
   "/blocked",
-  requirePermission("MANAGE_MEETING"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   (req, res) => availabilityController.createBlockedTime(req, res),
 );
 
@@ -134,7 +135,7 @@ availabilityRouter.post(
  */
 availabilityRouter.get(
   "/blocked",
-  requirePermission("MANAGE_MEETING"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   (req, res) => availabilityController.getBlockedTimes(req, res),
 );
 
@@ -145,7 +146,7 @@ availabilityRouter.get(
  */
 availabilityRouter.delete(
   "/blocked/:blockedTimeId",
-  requirePermission("MANAGE_MEETING"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   (req, res) => availabilityController.deleteBlockedTime(req, res),
 );
 
@@ -166,7 +167,7 @@ availabilityRouter.delete(
  */
 availabilityRouter.get(
   "/slots/:orgMemberId",
-  requirePermission("MANAGE_MEETING"),
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   (req, res) => availabilityController.getAvailableSlots(req, res),
 );
 

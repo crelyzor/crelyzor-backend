@@ -1,7 +1,6 @@
-import { Permission, UserRoleEnum } from "@prisma/client";
+import { UserRoleEnum } from "@prisma/client";
 import { ErrorFactory } from "./globalErrorHandler";
 import { Prisma } from "@prisma/client";
-import { PERMISSIONS, getModuleForPermission } from "../constants/permissions";
 
 interface AssignRoleParams {
   userId: string;
@@ -17,7 +16,6 @@ interface RoleAssignmentResult {
   data?: {
     userRole: any;
     orgMember: any;
-    permissions: string[];
   };
   message: string;
   errors?: string[];
@@ -95,7 +93,6 @@ export async function assignUserRole(
     if (roleId) {
       foundRole = await tx.role.findFirst({
         where: { id: roleId, orgId, isActive: true },
-        include: { permissions: { where: { isActive: true } } },
       });
     } else if (effectiveRoleName) {
       // Backward compatibility: look up by systemRoleType
@@ -106,7 +103,6 @@ export async function assignUserRole(
           isSystemRole: true,
           isActive: true,
         },
-        include: { permissions: { where: { isActive: true } } },
       });
     }
 
@@ -119,14 +115,11 @@ export async function assignUserRole(
     // Check if user already has this role
     const existingUserRole = await tx.userRole.findFirst({
       where: {
-        userId: userId,
         roleId: foundRole.id,
         orgMemberId: orgMember.id,
       },
       include: {
-        role: {
-          include: { permissions: { where: { isActive: true } } },
-        },
+        role: true,
       },
     });
 
@@ -140,7 +133,6 @@ export async function assignUserRole(
         data: {
           userRole: existingUserRole,
           orgMember,
-          permissions: existingUserRole.role.permissions.map((p) => p.name),
         },
         message: `User ${user.name} already has role ${foundRole.name} in organization ${organization.name}`,
       };
@@ -149,15 +141,12 @@ export async function assignUserRole(
     // Create UserRole
     const userRole = await tx.userRole.create({
       data: {
-        userId: userId,
         roleId: foundRole.id,
         orgMemberId: orgMember.id,
         isActive: true,
       },
       include: {
-        role: {
-          include: { permissions: { where: { isActive: true } } },
-        },
+        role: true,
       },
     });
 
@@ -181,7 +170,6 @@ export async function assignUserRole(
       data: {
         userRole,
         orgMember,
-        permissions: foundRole.permissions.map((p) => p.name),
       },
       message: `Successfully assigned role ${foundRole.name} to user ${user.name} in organization ${organization.name}`,
     };
@@ -212,7 +200,6 @@ export async function assignMultipleRoles(
 
   const existingRoles = await tx.userRole.findMany({
     where: {
-      userId,
       orgMemberId,
       isActive: true,
     },
@@ -233,9 +220,6 @@ export async function assignMultipleRoles(
           isSystemRole: true,
           isActive: true,
         },
-        include: {
-          permissions: { where: { isActive: true } },
-        },
       });
 
       if (!role) {
@@ -247,14 +231,11 @@ export async function assignMultipleRoles(
 
       const existingUserRole = await tx.userRole.findFirst({
         where: {
-          userId,
           orgMemberId,
           roleId: role.id,
         },
         include: {
-          role: {
-            include: { permissions: { where: { isActive: true } } },
-          },
+          role: true,
         },
       });
 
@@ -264,7 +245,6 @@ export async function assignMultipleRoles(
         );
         assignedRoles.push({
           roleName,
-          permissions: existingUserRole.role.permissions.map((p) => p.name),
         });
         continue;
       }
@@ -277,28 +257,22 @@ export async function assignMultipleRoles(
               updatedAt: new Date(),
             },
             include: {
-              role: {
-                include: { permissions: { where: { isActive: true } } },
-              },
+              role: true,
             },
           })
         : await tx.userRole.create({
             data: {
-              userId,
               roleId: role.id,
               orgMemberId,
               isActive: true,
             },
             include: {
-              role: {
-                include: { permissions: { where: { isActive: true } } },
-              },
+              role: true,
             },
           });
 
       assignedRoles.push({
         roleName,
-        permissions: userRole.role.permissions.map((p) => p.name),
       });
 
       console.log(
@@ -332,7 +306,6 @@ export async function createRolePermission(
   // For backward compatibility during migration, just return the role
   const role = await tx.role.findFirst({
     where: { orgId, systemRoleType: roleName, isSystemRole: true },
-    include: { permissions: { where: { isActive: true } } },
   });
 
   if (!role) {
@@ -344,7 +317,7 @@ export async function createRolePermission(
 
 /**
  * Create default system roles for a new organization.
- * This creates Role records for all system role types with their default permissions.
+ * This creates Role records for all system role types (OWNER, ADMIN, MEMBER).
  */
 export async function createDefaultRoleTemplates(
   orgId: string,
@@ -381,9 +354,6 @@ export async function createDefaultRoleTemplates(
       continue;
     }
 
-    // Get default permissions for this role
-    const defaultPermissions = await getDefaultPermissionsForRole(roleName, tx);
-
     // Create system role
     const newRole = await tx.role.create({
       data: {
@@ -393,9 +363,6 @@ export async function createDefaultRoleTemplates(
         systemRoleType: roleName,
         orgId,
         isActive: true,
-        permissions: {
-          connect: defaultPermissions.map((p) => ({ id: p.id })),
-        },
       },
     });
 
@@ -413,112 +380,3 @@ export async function createDefaultRoleTemplates(
   return createdRoles;
 }
 
-/**
- * Create default permissions for each role type.
- * This function defines the permission templates for your specific roles:
- * ADMIN, CONSULTANT, STUDENT, MENTOR, TEAM_MEMBER
- */
-export async function getDefaultPermissionsForRole(
-  roleName: UserRoleEnum,
-  tx: any,
-): Promise<{ id: string; name: string }[]> {
-  // Simplified permissions for calendar system
-  const rolePermissionMap: Record<string, string[]> = {
-    [UserRoleEnum.OWNER]: [
-      // Full organization control
-      PERMISSIONS.READ_ORGANIZATION,
-      PERMISSIONS.MANAGE_ORGANIZATION,
-      PERMISSIONS.MANAGE_ROLES,
-      PERMISSIONS.READ_MEMBERS,
-      PERMISSIONS.MANAGE_MEMBERS,
-      PERMISSIONS.INVITE_MEMBERS,
-      PERMISSIONS.CREATE_MEETING,
-      PERMISSIONS.READ_MEETING,
-      PERMISSIONS.MANAGE_MEETING,
-      PERMISSIONS.DELETE_MEETING,
-      PERMISSIONS.READ_ALL_MEETINGS,
-      PERMISSIONS.UPLOAD_RECORDING,
-      PERMISSIONS.READ_TRANSCRIPT,
-      PERMISSIONS.MANAGE_ACTION_ITEMS,
-      PERMISSIONS.READ_AI_SUMMARY,
-    ],
-
-    [UserRoleEnum.ADMIN]: [
-      // Organization management
-      PERMISSIONS.READ_ORGANIZATION,
-      PERMISSIONS.MANAGE_ORGANIZATION,
-      PERMISSIONS.READ_MEMBERS,
-      PERMISSIONS.MANAGE_MEMBERS,
-      PERMISSIONS.INVITE_MEMBERS,
-      PERMISSIONS.CREATE_MEETING,
-      PERMISSIONS.READ_MEETING,
-      PERMISSIONS.MANAGE_MEETING,
-      PERMISSIONS.DELETE_MEETING,
-      PERMISSIONS.READ_ALL_MEETINGS,
-      PERMISSIONS.UPLOAD_RECORDING,
-      PERMISSIONS.READ_TRANSCRIPT,
-      PERMISSIONS.MANAGE_ACTION_ITEMS,
-      PERMISSIONS.READ_AI_SUMMARY,
-    ],
-
-    [UserRoleEnum.MEMBER]: [
-      // Basic member permissions
-      PERMISSIONS.READ_ORGANIZATION,
-      PERMISSIONS.READ_MEMBERS,
-      PERMISSIONS.CREATE_MEETING,
-      PERMISSIONS.READ_MEETING,
-      PERMISSIONS.UPLOAD_RECORDING,
-      PERMISSIONS.READ_TRANSCRIPT,
-      PERMISSIONS.READ_AI_SUMMARY,
-    ],
-  };
-
-  const permissionNames = rolePermissionMap[roleName.toString()] || [
-    "READ_ORGANIZATION",
-  ];
-
-  const existingPermissions = await tx.permission.findMany({
-    where: {
-      name: { in: permissionNames },
-      isActive: true,
-    },
-    select: { id: true, name: true },
-  });
-
-  const existingPermissionNames = existingPermissions.map(
-    (p: Permission) => p.name,
-  );
-  const missingPermissionNames = permissionNames.filter(
-    (name) => !existingPermissionNames.includes(name),
-  );
-
-  if (missingPermissionNames.length > 0) {
-    console.log(
-      `Creating ${missingPermissionNames.length} missing permissions for role ${roleName}:`,
-      missingPermissionNames,
-    );
-
-    // Use createMany for better performance
-    await tx.permission.createMany({
-      data: missingPermissionNames.map((name) => ({
-        name,
-        module: getModuleForPermission(name),
-        isActive: true,
-      })),
-      skipDuplicates: true,
-    });
-
-    // Fetch the newly created permissions
-    const newPermissions = await tx.permission.findMany({
-      where: {
-        name: { in: missingPermissionNames },
-        isActive: true,
-      },
-      select: { id: true, name: true },
-    });
-
-    return [...existingPermissions, ...newPermissions];
-  }
-
-  return existingPermissions;
-}

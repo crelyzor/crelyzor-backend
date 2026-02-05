@@ -16,11 +16,10 @@ export interface TokenPayload {
 export interface orgRole {
   orgId: string;
   orgMemberId: string;
-  roleId: string; // Role ID for fetching permissions from database
+  roleId: string; // Role ID for referencing the user's role
   role: {
     roleName: UserRoleEnum | null;
     roleId: string;
-    permissions: string[];
   };
 }
 
@@ -94,7 +93,6 @@ export interface UserResponse {
     roles: Array<{
       roleId: string;
       roleName: string | null;
-      permissions: string[];
     }>;
   }>;
 }
