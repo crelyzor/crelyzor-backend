@@ -1,36 +1,63 @@
 import { Router } from "express";
 import authRouter from "./authRoutes";
+import googleOAuthRouter from "./auth/googleOAuthRoutes";
 import organizationRouter from "./organizationRoutes";
-import inviteTokenRouter from "./inviteTokenRoutes";
-import userRouter from "./userUpdateRoutes";
-import googleRouter from "./googleRoutes";
-import storageRouter from "./storageRoutes";
 import organizationSettingsRouter from "./organizationSettingsRoutes";
+import inviteTokenRouter from "./inviteTokenRoutes";
+import userRouter from "./userRoutes";
+import googleCalendarRouter from "./integrations/googleCalendarRoutes";
+import syncRouter from "./syncRoutes";
+import storageRouter from "./storageRoutes";
 import meetingRouter from "./meetingRoutes";
 import availabilityRouter from "./availabilityRoutes";
-import syncRouter from "./syncRoutes";
 import publicBookingRouter from "./publicBookingRoutes";
-import recordingRouter from "./recordingRoutes";
-import transcriptRouter from "./transcriptRoutes";
-import aiRouter from "./aiRoutes";
+import smaRouter from "./smaRoutes";
 
 const indexRouter = Router();
 
+// ========================================
+// 🔐 AUTHENTICATION ROUTES
+// ========================================
 indexRouter.use("/auth", authRouter);
-indexRouter.use("/organization", organizationRouter);
-indexRouter.use("/invite-tokens", inviteTokenRouter);
-indexRouter.use("/update-user", userRouter);
-indexRouter.use("/google", googleRouter);
-indexRouter.use("/storage", storageRouter);
-indexRouter.use("/organization-settings", organizationSettingsRouter);
+indexRouter.use("/auth/google", googleOAuthRouter);
+
+// ========================================
+// 🏢 ORGANIZATION ROUTES
+// ========================================
+indexRouter.use("/organizations", organizationRouter);
+indexRouter.use("/organizations/settings", organizationSettingsRouter);
+indexRouter.use("/organizations/invite-tokens", inviteTokenRouter);
+
+// ========================================
+// 👤 USER ROUTES
+// ========================================
+indexRouter.use("/users", userRouter);
+
+// ========================================
+// 🔗 INTEGRATION ROUTES
+// ========================================
+indexRouter.use("/integrations/calendar", googleCalendarRouter);
+indexRouter.use("/integrations/calendar/sync", syncRouter);
+
+// ========================================
+// 📅 MEETING & AVAILABILITY ROUTES
+// ========================================
 indexRouter.use("/meetings", meetingRouter);
 indexRouter.use("/availability", availabilityRouter);
-indexRouter.use("/sync", syncRouter);
+
+// ========================================
+// 🌐 PUBLIC ROUTES
+// ========================================
 indexRouter.use("/public", publicBookingRouter);
 
-// SMA (Smart Meeting Assistant) routes
-indexRouter.use("/sma", recordingRouter);
-indexRouter.use("/sma", transcriptRouter);
-indexRouter.use("/sma", aiRouter);
+// ========================================
+// 🤖 SMA (Smart Meeting Assistant) ROUTES
+// ========================================
+indexRouter.use("/sma", smaRouter);
+
+// ========================================
+// 📦 STORAGE ROUTES
+// ========================================
+indexRouter.use("/storage", storageRouter);
 
 export default indexRouter;

@@ -12,19 +12,19 @@ syncRouter.use(verifyJWT);
 syncRouter.use(resolveOrgContext);
 
 /**
- * POST /api/v1/sync/google-calendar
+ * POST /api/v1/integrations/calendar/sync
  * Manually trigger Google Calendar sync
  * Fetches all events from user's Google Calendar and syncs to DB
  * Authorization: All authenticated users (OWNER, ADMIN, MEMBER)
  */
 syncRouter.post(
-  "/google-calendar",
+  "/",
   requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   (req, res) => syncController.syncGoogleCalendar(req, res),
 );
 
 /**
- * GET /api/v1/sync/status
+ * GET /api/v1/integrations/calendar/sync/status
  * Get current sync status
  * Shows when last sync occurred and if full sync is complete
  * Authorization: All authenticated users (OWNER, ADMIN, MEMBER)
@@ -34,7 +34,7 @@ syncRouter.get("/status", requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, U
 );
 
 /**
- * GET /api/v1/sync/events
+ * GET /api/v1/integrations/calendar/sync/events
  * Get synced Google Calendar events with filters
  * Authorization: All authenticated users (OWNER, ADMIN, MEMBER)
  * Query params: startDate, endDate, limit, offset
@@ -44,7 +44,7 @@ syncRouter.get("/events", requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, U
 );
 
 /**
- * POST /api/v1/sync/link-event
+ * POST /api/v1/integrations/calendar/sync/link-event
  * Link a Google Calendar event to a Meeting in our DB
  * Authorization: All authenticated users (OWNER, ADMIN, MEMBER)
  */

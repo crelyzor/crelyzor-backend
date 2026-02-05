@@ -15,4 +15,5 @@ userRouter.patch(
   requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
   userController.updateProfile,
 );
+
 export default userRouter;
