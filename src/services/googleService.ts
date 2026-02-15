@@ -22,7 +22,7 @@ function getOAuthClient(redirectUri?: string) {
 export const googleService = {
   // 🔹 1. Google Sign-In
   getLoginUrl(redirectUrl: string) {
-    const redirectUri = `${process.env.BASE_URL}/google/login/callback`;
+    const redirectUri = `${process.env.BASE_URL}/auth/google/login/callback`;
     console.log("Google Login Redirect URI:", redirectUri);
     const client = getOAuthClient(redirectUri);
     console.log("Generated Google OAuth Client:", client);
@@ -35,7 +35,7 @@ export const googleService = {
   },
 
   async handleLoginCallback(code: string) {
-    const redirectUri = `${process.env.BASE_URL}/google/login/callback`;
+    const redirectUri = `${process.env.BASE_URL}/auth/google/login/callback`;
     const client = getOAuthClient(redirectUri);
     const { tokens } = await client.getToken(code);
     client.setCredentials(tokens);
@@ -61,7 +61,7 @@ export const googleService = {
     redirectUrl: string,
     organizationId?: string,
   ) {
-    const redirectUri = `${process.env.BASE_URL}/google/oauth/callback`;
+    const redirectUri = `${process.env.BASE_URL}/integrations/calendar/connect/callback`;
     const client = getOAuthClient(redirectUri);
     return client.generateAuthUrl({
       access_type: "offline",
@@ -72,7 +72,7 @@ export const googleService = {
   },
 
   async handleCalendarOAuthCallback(userId: string, code: string) {
-    const redirectUri = `${process.env.BASE_URL}/google/oauth/callback`;
+    const redirectUri = `${process.env.BASE_URL}/integrations/calendar/connect/callback`;
     const client = getOAuthClient(redirectUri);
     const { tokens } = await client.getToken(code);
     client.setCredentials(tokens);

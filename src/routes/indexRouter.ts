@@ -18,15 +18,17 @@ const indexRouter = Router();
 // ========================================
 // 🔐 AUTHENTICATION ROUTES
 // ========================================
-indexRouter.use("/auth", authRouter);
+// Google OAuth (public, no JWT) must be registered BEFORE auth routes
 indexRouter.use("/auth/google", googleOAuthRouter);
+indexRouter.use("/auth", authRouter);
 
 // ========================================
 // 🏢 ORGANIZATION ROUTES
 // ========================================
-indexRouter.use("/organizations", organizationRouter);
+// More specific paths first to avoid prefix conflicts
 indexRouter.use("/organizations/settings", organizationSettingsRouter);
 indexRouter.use("/organizations/invite-tokens", inviteTokenRouter);
+indexRouter.use("/organizations", organizationRouter);
 
 // ========================================
 // 👤 USER ROUTES
@@ -36,8 +38,8 @@ indexRouter.use("/users", userRouter);
 // ========================================
 // 🔗 INTEGRATION ROUTES
 // ========================================
-indexRouter.use("/integrations/calendar", googleCalendarRouter);
 indexRouter.use("/integrations/calendar/sync", syncRouter);
+indexRouter.use("/integrations/calendar", googleCalendarRouter);
 
 // ========================================
 // 📅 MEETING & AVAILABILITY ROUTES
