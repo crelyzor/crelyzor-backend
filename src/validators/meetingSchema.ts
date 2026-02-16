@@ -133,8 +133,8 @@ export const getMeetingsSchema = z.object({
     .optional()
     .refine((date) => !date || !isNaN(Date.parse(date)), "Invalid end date")
     .transform((date) => (date ? new Date(date) : undefined)),
-  limit: z.number().int().positive().optional().default(20),
-  offset: z.number().int().nonnegative().optional().default(0),
+  limit: z.coerce.number().int().positive().optional().default(20),
+  offset: z.coerce.number().int().nonnegative().optional().default(0),
 });
 
 export const getMeetingsWithoutPaginationSchema = z.object({

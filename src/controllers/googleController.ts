@@ -43,15 +43,72 @@ export const googleController = {
       const { email, name, picture, googleId, tokens } =
         await googleService.handleLoginCallback(String(code));
 
-      // 2️⃣ Find existing user (manual onboarding required)
-      const user = await prisma.user.findUnique({
+      // 2️⃣ Find or create user
+      let user = await prisma.user.findUnique({
         where: { email },
       });
 
       if (!user) {
-        throw ErrorFactory.notFound(
-          "No account found with this email. Please register first.",
+        // Auto-create user on first Google login
+        user = await prisma.user.create({
+          data: {
+            email,
+            name,
+            avatarUrl: picture,
+            isActive: true,
+          },
+        });
+
+        // 🆕 Auto-create personal organization for new user
+        const personalOrg = await prisma.organization.create({
+          data: {
+            name: `${name}'s Workspace`,
+            description: "Personal workspace",
+            organizationDetails: {},
+            isPersonal: true,
+          },
+        });
+
+        // Add user as OWNER of their personal organization
+        await prisma.organizationMember.create({
+          data: {
+            orgId: personalOrg.id,
+            userId: user.id,
+            accessLevel: "OWNER",
+          },
+        });
+
+        // Create default OWNER role for the organization
+        const ownerRole = await prisma.role.create({
+          data: {
+            name: "Owner",
+            description: "Organization owner with full access",
+            isSystemRole: true,
+            systemRoleType: "OWNER",
+            orgId: personalOrg.id,
+            isActive: true,
+          },
+        });
+
+        // Link the role to the organization member
+        await prisma.userRole.create({
+          data: {
+            orgMemberId: (
+              await prisma.organizationMember.findFirst({
+                where: { userId: user.id, orgId: personalOrg.id },
+                select: { id: true },
+              })
+            )!.id,
+            roleId: ownerRole.id,
+            isActive: true,
+          },
+        });
+
+        // 🔑 Invalidate cache so new org data is loaded
+        const { orgRoleCacheService } = await import(
+          "../services/auth/orgRoleCacheService"
         );
+        await orgRoleCacheService.invalidateUserOrgRoles(user.id);
       }
 
       if (!user.isActive) {
@@ -88,12 +145,17 @@ export const googleController = {
         },
       });
 
-      // 4️⃣ Generate your app's tokens
+      // 4️⃣ Get user's organization (for personal workspace)
+      const userOrg = await prisma.organizationMember.findFirst({
+        where: { userId: user.id },
+        select: { orgId: true },
+      });
+
+      // 5️⃣ Generate your app's tokens
       const jwtTokens = await authService.generateTokens(user);
 
-      // 5️⃣ Sync all CRM events to Google Calendar after Google login
-      // 6️⃣ Redirect to frontend with access + refresh token
-      const finalRedirectUrl = `${redirectUrl}?accessToken=${jwtTokens.accessToken}&refreshToken=${jwtTokens.refreshToken}`;
+      // 6️⃣ Redirect to frontend with access token, refresh token, and organization ID
+      const finalRedirectUrl = `${redirectUrl}?accessToken=${jwtTokens.accessToken}&refreshToken=${jwtTokens.refreshToken}&organizationId=${userOrg?.orgId || ""}`;
 
       res.redirect(finalRedirectUrl);
     } catch (error) {
