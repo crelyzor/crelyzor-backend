@@ -9,7 +9,12 @@ import {
   globalErrorHandler,
 } from "../utils/globalErrorHandler";
 import { refreshTokenSchema, logoutSchema } from "../validators/authSchema";
+import {
+  usernameSchema,
+  checkUsernameSchema,
+} from "../validators/usernameSchema";
 import { getClientIP, getDeviceInfo } from "../middleware/authMiddleware";
+import prisma from "../db/prismaClient";
 
 export const authController = {
   refreshToken: async (req: Request, res: Response): Promise<void> => {
@@ -176,6 +181,110 @@ export const authController = {
       });
     } catch (err) {
       console.error("Get auth status error:", err);
+      globalErrorHandler(err as BaseError, req, res);
+    }
+  },
+
+  checkUsernameAvailability: async (
+    req: Request,
+    res: Response,
+  ): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        throw ErrorFactory.unauthorized("User not authenticated");
+      }
+
+      const parsed = checkUsernameSchema.safeParse(req.query);
+      if (!parsed.success) {
+        throw ErrorFactory.validation(parsed.error);
+      }
+
+      const existing = await prisma.user.findUnique({
+        where: { username: parsed.data.username },
+        select: { id: true },
+      });
+
+      const available = !existing || existing.id === userId;
+
+      apiResponse(res, {
+        statusCode: 200,
+        message: available ? "Username is available" : "Username is taken",
+        data: { available },
+      });
+    } catch (err) {
+      globalErrorHandler(err as BaseError, req, res);
+    }
+  },
+
+  setUsername: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        throw ErrorFactory.unauthorized("User not authenticated");
+      }
+
+      const parsed = usernameSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw ErrorFactory.validation(parsed.error);
+      }
+
+      const { username } = parsed.data;
+
+      // Check availability
+      const existing = await prisma.user.findUnique({
+        where: { username },
+        select: { id: true },
+      });
+      if (existing && existing.id !== userId) {
+        throw ErrorFactory.conflict("Username is already taken");
+      }
+
+      // Update user username and sync personal org name
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: userId },
+          data: { username },
+        });
+
+        // Find personal org and update its name
+        const personalMember = await tx.organizationMember.findFirst({
+          where: { userId },
+          include: {
+            organization: { select: { id: true, isPersonal: true } },
+          },
+        });
+
+        if (personalMember?.organization.isPersonal) {
+          await tx.organization.update({
+            where: { id: personalMember.organization.id },
+            data: { name: username },
+          });
+        }
+      });
+
+      // Invalidate cache
+      const { orgRoleCacheService } = await import(
+        "../services/auth/orgRoleCacheService"
+      );
+      await orgRoleCacheService.invalidateUserOrgRoles(userId);
+
+      const profile = await authService.getUserProfile(userId);
+
+      apiResponse(res, {
+        statusCode: 200,
+        message: "Username set successfully",
+        data: profile,
+      });
+    } catch (err: any) {
+      if (err.code === "P2002") {
+        globalErrorHandler(
+          ErrorFactory.conflict("Username is already taken"),
+          req,
+          res,
+        );
+        return;
+      }
       globalErrorHandler(err as BaseError, req, res);
     }
   },

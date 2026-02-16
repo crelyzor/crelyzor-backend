@@ -16,11 +16,7 @@ export interface TokenPayload {
 export interface orgRole {
   orgId: string;
   orgMemberId: string;
-  roleId: string; // Role ID for referencing the user's role
-  role: {
-    roleName: UserRoleEnum | null;
-    roleId: string;
-  };
+  accessLevel: UserRoleEnum;
 }
 
 // Redis cache structure for user org/role data
@@ -73,6 +69,7 @@ export interface TokenResponse {
 export interface UserResponse {
   id: string;
   email: string;
+  username?: string | null;
   emailVerified: boolean;
   name: string;
   avatarUrl: string | null;
@@ -82,7 +79,6 @@ export interface UserResponse {
   state?: string;
   lastLoginAt?: Date;
   isActive: boolean;
-  role?: UserRoleEnum;
   organizations?: Array<{
     orgMemberId: string;
     orgId: string;
@@ -90,10 +86,7 @@ export interface UserResponse {
     orgLogoUrl: string | null;
     orgDescription?: string;
     accessLevel: string;
-    roles: Array<{
-      roleId: string;
-      roleName: string | null;
-    }>;
+    isPersonal?: boolean;
   }>;
 }
 

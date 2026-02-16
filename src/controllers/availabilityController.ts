@@ -29,16 +29,15 @@ export class AvailabilityController {
       // Validate input
       const validatedData = createRecurringAvailabilitySchema.parse(req.body);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
       // Create recurring availability
       const availability =
         await availabilityService.createRecurringAvailability({
-          orgMemberId: orgMember.orgMemberId,
+          orgMemberId: orgMemberId,
           ...validatedData,
         });
 
@@ -68,16 +67,15 @@ export class AvailabilityController {
         req.body,
       );
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
       // Create batch recurring availability
       const availabilities =
         await availabilityService.createBatchRecurringAvailability(
-          orgMember.orgMemberId,
+          orgMemberId,
           validatedData.slots,
         );
 
@@ -98,19 +96,13 @@ export class AvailabilityController {
     try {
       const user = req.user as TokenPayload;
       const org = req.org as orgPayload;
-      const { orgMemberId } = req.query;
-
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
+      const queryMemberId = req.query.orgMemberId as string | undefined;
 
       // Only allow viewing own availability or if admin
-      const targetMemberId = (orgMemberId as string) || orgMember.orgMemberId;
+      const targetMemberId = queryMemberId || org.orgMemberId;
       if (
-        targetMemberId !== orgMember.orgMemberId &&
-        !orgMember.role.roleName?.includes("ADMIN")
+        targetMemberId !== org.orgMemberId &&
+        !["ADMIN", "OWNER"].includes(org.accessLevel)
       ) {
         throw ErrorFactory.forbidden("Can only view your own availability");
       }
@@ -144,9 +136,8 @@ export class AvailabilityController {
       // Validate input
       const validatedData = updateRecurringAvailabilitySchema.parse(req.body);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
@@ -154,7 +145,7 @@ export class AvailabilityController {
       const availability =
         await availabilityService.updateRecurringAvailability({
           availabilityId,
-          orgMemberId: orgMember.orgMemberId,
+          orgMemberId: orgMemberId,
           ...validatedData,
         });
 
@@ -205,15 +196,14 @@ export class AvailabilityController {
       // Validate input
       const validatedData = createCustomSlotSchema.parse(req.body);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
       // Create custom slot
       const customSlot = await availabilityService.createCustomSlot({
-        orgMemberId: orgMember.orgMemberId,
+        orgMemberId: orgMemberId,
         ...validatedData,
       });
 
@@ -235,20 +225,15 @@ export class AvailabilityController {
   async getCustomSlots(req: Request, res: Response): Promise<void> {
     try {
       const org = req.org as orgPayload;
-      const { orgMemberId, startDate, endDate } = req.query;
-
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
+      const { startDate, endDate } = req.query;
+      const queryMemberId = req.query.orgMemberId as string | undefined;
+      const targetMemberId = queryMemberId || org.orgMemberId;
 
       // Determine date range
       let start: Date;
       let end: Date;
 
       if (startDate && endDate) {
-        // Both dates provided - validate and use them
         start = new Date(startDate as string);
         end = new Date(endDate as string);
 
@@ -256,19 +241,17 @@ export class AvailabilityController {
           throw ErrorFactory.validation("Invalid date format");
         }
       } else if (startDate || endDate) {
-        // Only one date provided - error
         throw ErrorFactory.validation(
           "Both startDate and endDate must be provided together, or neither",
         );
       } else {
-        // No dates provided - get all custom slots
-        start = new Date(0); // Unix epoch
-        end = new Date("2099-12-31"); // Far future
+        start = new Date(0);
+        end = new Date("2099-12-31");
       }
 
       // Get custom slots
       const customSlots = await availabilityService.getCustomSlots(
-        (orgMemberId as string) || orgMember.orgMemberId,
+        targetMemberId,
         start,
         end,
       );
@@ -314,15 +297,14 @@ export class AvailabilityController {
       // Validate input
       const validatedData = createBlockedTimeSchema.parse(req.body);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
       // Create blocked time
       const blockedTime = await availabilityService.createBlockedTime({
-        orgMemberId: orgMember.orgMemberId,
+        orgMemberId: orgMemberId,
         ...validatedData,
       });
 
@@ -344,20 +326,15 @@ export class AvailabilityController {
   async getBlockedTimes(req: Request, res: Response): Promise<void> {
     try {
       const org = req.org as orgPayload;
-      const { orgMemberId, startDate, endDate } = req.query;
-
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
+      const { startDate, endDate } = req.query;
+      const queryMemberId = req.query.orgMemberId as string | undefined;
+      const targetMemberId = queryMemberId || org.orgMemberId;
 
       // Determine date range
       let start: Date;
       let end: Date;
 
       if (startDate && endDate) {
-        // Both dates provided - validate and use them
         start = new Date(startDate as string);
         end = new Date(endDate as string);
 
@@ -365,19 +342,17 @@ export class AvailabilityController {
           throw ErrorFactory.validation("Invalid date format");
         }
       } else if (startDate || endDate) {
-        // Only one date provided - error
         throw ErrorFactory.validation(
           "Both startDate and endDate must be provided together, or neither",
         );
       } else {
-        // No dates provided - get all blocked times
-        start = new Date(0); // Unix epoch
-        end = new Date("2099-12-31"); // Far future
+        start = new Date(0);
+        end = new Date("2099-12-31");
       }
 
       // Get blocked times
       const blockedTimes = await availabilityService.getBlockedTimes(
-        (orgMemberId as string) || orgMember.orgMemberId,
+        targetMemberId,
         start,
         end,
       );

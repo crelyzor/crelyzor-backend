@@ -612,25 +612,19 @@ export const meetingService = {
       throw ErrorFactory.notFound("Meeting");
     }
 
-    // Validate requester is meeting creator or CONSULTANT/ADMIN
+    // Validate requester is meeting creator or ADMIN/OWNER
     const requesterMember = await prisma.organizationMember.findUnique({
       where: { id: updatedBy },
-      include: {
-        userRoles: {
-          include: { role: true },
-        },
-      },
     });
 
     if (!requesterMember) {
       throw ErrorFactory.forbidden("User not found");
     }
 
-    // Only creator or CONSULTANT/ADMIN can update
-    const userRole = requesterMember.userRoles[0]?.role;
+    // Only creator or ADMIN/OWNER can update
     if (
       meeting.createdById !== updatedBy &&
-      !["OWNER", "ADMIN"].includes(userRole?.name || "")
+      !["OWNER", "ADMIN"].includes(requesterMember.accessLevel)
     ) {
       throw ErrorFactory.forbidden(
         "Only meeting creator or admin can update this meeting",

@@ -104,9 +104,7 @@ export const organizationController = {
       }
 
       // Check if user is admin or owner
-      const isAdminOrOwner =
-        (await hasRole(org.orgRoles, UserRoleEnum.ADMIN)) ||
-        (await hasRole(org.orgRoles, UserRoleEnum.OWNER));
+      const isAdminOrOwner = hasRole(org.accessLevel, UserRoleEnum.ADMIN);
 
       if (!isAdminOrOwner) {
         throw ErrorFactory.forbidden(

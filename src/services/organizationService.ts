@@ -4,10 +4,6 @@ import { UserRoleEnum } from "@prisma/client";
 import { CreateOrganizationDTO } from "../types/OrganizationDTO";
 import { UpdateOrganizationRequest } from "../validators/organizationSchema";
 import {
-  assignUserRole,
-  createDefaultRoleTemplates,
-} from "../utils/assignRoles";
-import {
   NotificationEvents,
   NotificationRoles,
   sendNotification,
@@ -17,7 +13,6 @@ import { orgRoleCacheService } from "./auth/orgRoleCacheService";
 export const registerOrganizationService = {
   /**
    * Registers a new organization and assigns the user as its owner.
-   * Simplified for calendar system - flat organization structure.
    */
   async register(userId: string, orgData: CreateOrganizationDTO) {
     const user = await prisma.user.findUnique({
@@ -30,13 +25,6 @@ export const registerOrganizationService = {
     });
     if (!user) {
       throw ErrorFactory.unauthorized("Invalid user session.");
-    }
-
-    const existingMember = await prisma.organizationMember.findFirst({
-      where: { userId },
-    });
-    if (existingMember) {
-      throw ErrorFactory.conflict("User is already part of an organization.");
     }
 
     try {
@@ -54,10 +42,6 @@ export const registerOrganizationService = {
             throw ErrorFactory.dbOperation("Failed to create organization.");
           }
 
-          // Create default role templates (OWNER, ADMIN, MEMBER)
-          const roleTemplates = await createDefaultRoleTemplates(org.id, tx);
-
-          // Create organization member for the owner
           const orgMember = await tx.organizationMember.create({
             data: {
               userId,
@@ -65,22 +49,6 @@ export const registerOrganizationService = {
               accessLevel: UserRoleEnum.OWNER,
             },
           });
-
-          // Assign OWNER role to the user
-          const ownerRole = roleTemplates.find(
-            (r) => r.systemRoleType === UserRoleEnum.OWNER,
-          );
-          if (ownerRole) {
-            await assignUserRole(
-              {
-                userId,
-                orgMemberId: orgMember.id,
-                orgId: org.id,
-                role: UserRoleEnum.OWNER,
-              },
-              tx,
-            );
-          }
 
           return {
             organization: {
@@ -97,7 +65,6 @@ export const registerOrganizationService = {
         { timeout: 30000 },
       );
 
-      // Invalidate cache for this user
       await orgRoleCacheService.invalidateUserOrgRoles(userId);
 
       return result;
@@ -127,18 +94,6 @@ export const registerOrganizationService = {
                 avatarUrl: true,
               },
             },
-            userRoles: {
-              where: { isActive: true },
-              include: {
-                role: {
-                  select: {
-                    id: true,
-                    name: true,
-                    systemRoleType: true,
-                  },
-                },
-              },
-            },
           },
         },
       },
@@ -164,11 +119,6 @@ export const registerOrganizationService = {
         userId: m.userId,
         accessLevel: m.accessLevel,
         user: m.user,
-        roles: m.userRoles.map((ur) => ({
-          id: ur.role.id,
-          name: ur.role.name,
-          systemRoleType: ur.role.systemRoleType,
-        })),
       })),
     };
   },
@@ -213,17 +163,11 @@ export const registerOrganizationService = {
    * Deletes an organization and all related data
    */
   async deleteOrganization(orgId: string, userId: string) {
-    // Verify the user is an owner
     const orgMember = await prisma.organizationMember.findFirst({
       where: {
         orgId,
         userId,
-        userRoles: {
-          some: {
-            role: { systemRoleType: UserRoleEnum.OWNER },
-            isActive: true,
-          },
-        },
+        accessLevel: UserRoleEnum.OWNER,
       },
     });
 
@@ -231,45 +175,29 @@ export const registerOrganizationService = {
       throw ErrorFactory.forbidden("Only organization owners can delete it");
     }
 
-    // Get all user IDs for cache invalidation
     const allMembers = await prisma.organizationMember.findMany({
       where: { orgId },
       select: { userId: true },
     });
 
     await prisma.$transaction(async (tx) => {
-      // Delete user roles
-      await tx.userRole.deleteMany({
-        where: { orgMember: { orgId } },
-      });
-
-      // Delete organization members
       await tx.organizationMember.deleteMany({
         where: { orgId },
       });
 
-      // Delete roles
-      await tx.role.deleteMany({
-        where: { orgId },
-      });
-
-      // Delete meetings
       await tx.meeting.deleteMany({
         where: { organizationId: orgId },
       });
 
-      // Delete availability settings
       await tx.memberAvailability.deleteMany({
         where: { orgMember: { orgId } },
       });
 
-      // Delete the organization
       await tx.organization.delete({
         where: { id: orgId },
       });
     });
 
-    // Invalidate cache for all affected users
     await Promise.all(
       allMembers.map((m) => orgRoleCacheService.invalidateUserOrgRoles(m.userId)),
     );
@@ -301,12 +229,7 @@ export const registerOrganizationService = {
     }
 
     if (roleFilter) {
-      whereClause.userRoles = {
-        some: {
-          role: { systemRoleType: roleFilter },
-          isActive: true,
-        },
-      };
+      whereClause.accessLevel = roleFilter;
     }
 
     const [members, total] = await Promise.all([
@@ -321,18 +244,6 @@ export const registerOrganizationService = {
               avatarUrl: true,
               isActive: true,
               lastLoginAt: true,
-            },
-          },
-          userRoles: {
-            where: { isActive: true },
-            include: {
-              role: {
-                select: {
-                  id: true,
-                  name: true,
-                  systemRoleType: true,
-                },
-              },
             },
           },
         },
@@ -350,11 +261,6 @@ export const registerOrganizationService = {
         accessLevel: m.accessLevel,
         createdAt: m.createdAt,
         user: m.user,
-        roles: m.userRoles.map((ur) => ({
-          id: ur.role.id,
-          name: ur.role.name,
-          systemRoleType: ur.role.systemRoleType,
-        })),
       })),
       pagination: {
         page,
@@ -378,7 +284,6 @@ export const registerOrganizationService = {
       role?: UserRoleEnum;
     },
   ) {
-    // Find or create the user
     let userId = memberData.userId;
 
     if (!userId && memberData.email) {
@@ -408,7 +313,6 @@ export const registerOrganizationService = {
       throw ErrorFactory.validation("Either userId or email is required");
     }
 
-    // Check if already a member
     const existingMember = await prisma.organizationMember.findUnique({
       where: {
         orgId_userId: { orgId, userId },
@@ -421,49 +325,31 @@ export const registerOrganizationService = {
 
     const role = memberData.role || UserRoleEnum.MEMBER;
 
-    const result = await prisma.$transaction(async (tx) => {
-      const orgMember = await tx.organizationMember.create({
-        data: {
-          orgId,
-          userId,
-          accessLevel: role,
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              avatarUrl: true,
-            },
+    const result = await prisma.organizationMember.create({
+      data: {
+        orgId,
+        userId,
+        accessLevel: role,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatarUrl: true,
           },
         },
-      });
-
-      // Assign role
-      await assignUserRole(
-        {
-          userId,
-          orgMemberId: orgMember.id,
-          orgId,
-          role,
-        },
-        tx,
-      );
-
-      return orgMember;
+      },
     });
 
-    // Invalidate cache
     await orgRoleCacheService.invalidateUserOrgRoles(userId);
 
-    // Get org name for notification
     const org = await prisma.organization.findUnique({
       where: { id: orgId },
       select: { name: true },
     });
 
-    // Send welcome notification
     try {
       await sendNotification({
         orgId,
@@ -493,7 +379,6 @@ export const registerOrganizationService = {
       userId: result.userId,
       accessLevel: result.accessLevel,
       user: result.user,
-      role,
     };
   },
 
@@ -507,39 +392,20 @@ export const registerOrganizationService = {
   ) {
     const member = await prisma.organizationMember.findFirst({
       where: { id: memberId, orgId },
-      include: {
-        user: true,
-        userRoles: {
-          include: { role: true },
-        },
-      },
     });
 
     if (!member) {
       throw ErrorFactory.notFound("Member not found");
     }
 
-    // Check if trying to remove the owner
-    const isOwner = member.userRoles.some(
-      (ur) => ur.role.systemRoleType === UserRoleEnum.OWNER,
-    );
-    if (isOwner) {
+    if (member.accessLevel === UserRoleEnum.OWNER) {
       throw ErrorFactory.forbidden("Cannot remove the organization owner");
     }
 
-    await prisma.$transaction(async (tx) => {
-      // Delete user roles
-      await tx.userRole.deleteMany({
-        where: { orgMemberId: memberId },
-      });
-
-      // Delete the membership
-      await tx.organizationMember.delete({
-        where: { id: memberId },
-      });
+    await prisma.organizationMember.delete({
+      where: { id: memberId },
     });
 
-    // Invalidate cache
     await orgRoleCacheService.invalidateUserOrgRoles(member.userId);
 
     return { message: "Member removed successfully" };
@@ -556,51 +422,21 @@ export const registerOrganizationService = {
   ) {
     const member = await prisma.organizationMember.findFirst({
       where: { id: memberId, orgId },
-      include: {
-        userRoles: {
-          include: { role: true },
-        },
-      },
     });
 
     if (!member) {
       throw ErrorFactory.notFound("Member not found");
     }
 
-    // Cannot change owner's role
-    const isOwner = member.userRoles.some(
-      (ur) => ur.role.systemRoleType === UserRoleEnum.OWNER,
-    );
-    if (isOwner && newRole !== UserRoleEnum.OWNER) {
+    if (member.accessLevel === UserRoleEnum.OWNER && newRole !== UserRoleEnum.OWNER) {
       throw ErrorFactory.forbidden("Cannot change owner's role");
     }
 
-    await prisma.$transaction(async (tx) => {
-      // Deactivate current roles
-      await tx.userRole.updateMany({
-        where: { orgMemberId: memberId, isActive: true },
-        data: { isActive: false },
-      });
-
-      // Assign new role
-      await assignUserRole(
-        {
-          userId: member.userId,
-          orgMemberId: memberId,
-          orgId,
-          role: newRole,
-        },
-        tx,
-      );
-
-      // Update access level
-      await tx.organizationMember.update({
-        where: { id: memberId },
-        data: { accessLevel: newRole },
-      });
+    await prisma.organizationMember.update({
+      where: { id: memberId },
+      data: { accessLevel: newRole },
     });
 
-    // Invalidate cache
     await orgRoleCacheService.invalidateUserOrgRoles(member.userId);
 
     return { message: "Member role updated successfully" };
@@ -614,17 +450,11 @@ export const registerOrganizationService = {
     currentOwnerId: string,
     newOwnerId: string,
   ) {
-    // Verify current user is owner
     const currentOwner = await prisma.organizationMember.findFirst({
       where: {
         orgId,
         userId: currentOwnerId,
-        userRoles: {
-          some: {
-            role: { systemRoleType: UserRoleEnum.OWNER },
-            isActive: true,
-          },
-        },
+        accessLevel: UserRoleEnum.OWNER,
       },
     });
 
@@ -632,7 +462,6 @@ export const registerOrganizationService = {
       throw ErrorFactory.forbidden("Only the current owner can transfer ownership");
     }
 
-    // Verify new owner is a member
     const newOwner = await prisma.organizationMember.findFirst({
       where: { orgId, userId: newOwnerId },
     });
@@ -642,42 +471,10 @@ export const registerOrganizationService = {
     }
 
     await prisma.$transaction(async (tx) => {
-      // Change current owner to ADMIN
-      await tx.userRole.updateMany({
-        where: { orgMemberId: currentOwner.id, isActive: true },
-        data: { isActive: false },
-      });
-
-      await assignUserRole(
-        {
-          userId: currentOwnerId,
-          orgMemberId: currentOwner.id,
-          orgId,
-          role: UserRoleEnum.ADMIN,
-        },
-        tx,
-      );
-
       await tx.organizationMember.update({
         where: { id: currentOwner.id },
         data: { accessLevel: UserRoleEnum.ADMIN },
       });
-
-      // Change new owner to OWNER
-      await tx.userRole.updateMany({
-        where: { orgMemberId: newOwner.id, isActive: true },
-        data: { isActive: false },
-      });
-
-      await assignUserRole(
-        {
-          userId: newOwnerId,
-          orgMemberId: newOwner.id,
-          orgId,
-          role: UserRoleEnum.OWNER,
-        },
-        tx,
-      );
 
       await tx.organizationMember.update({
         where: { id: newOwner.id },
@@ -685,7 +482,6 @@ export const registerOrganizationService = {
       });
     });
 
-    // Invalidate cache for both users
     await Promise.all([
       orgRoleCacheService.invalidateUserOrgRoles(currentOwnerId),
       orgRoleCacheService.invalidateUserOrgRoles(newOwnerId),
@@ -711,18 +507,6 @@ export const registerOrganizationService = {
             createdAt: true,
           },
         },
-        userRoles: {
-          where: { isActive: true },
-          include: {
-            role: {
-              select: {
-                id: true,
-                name: true,
-                systemRoleType: true,
-              },
-            },
-          },
-        },
       },
     });
 
@@ -730,11 +514,6 @@ export const registerOrganizationService = {
       orgMemberId: m.id,
       accessLevel: m.accessLevel,
       organization: m.organization,
-      roles: m.userRoles.map((ur) => ({
-        id: ur.role.id,
-        name: ur.role.name,
-        systemRoleType: ur.role.systemRoleType,
-      })),
     }));
   },
 };

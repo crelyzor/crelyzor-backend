@@ -15,6 +15,7 @@ datasource db {
 model User {
   id              String    @id @default(uuid()) @db.Uuid
   email           String    @unique
+  username        String?   @unique
   emailVerified   Boolean   @default(false)
   name            String
   avatarUrl       String?
@@ -157,7 +158,6 @@ model Organization {
 
   // Relations
   members              OrganizationMember[]
-  roles                Role[]
   invites              OrgInvite[]
   notificationSettings OrgNotificationSettings?
   notificationPreferences NotificationPreference[]
@@ -168,20 +168,16 @@ model Organization {
 }
 
 model OrganizationMember {
-  id          String   @id @default(uuid()) @db.Uuid
-  orgId       String   @db.Uuid
-  userId      String   @db.Uuid
-  roleId      String?  @db.Uuid
-  accessLevel String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id          String       @id @default(uuid()) @db.Uuid
+  orgId       String       @db.Uuid
+  userId      String       @db.Uuid
+  accessLevel UserRoleEnum @default(MEMBER)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   // Relations
   organization Organization @relation(fields: [orgId], references: [id])
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Roles
-  userRoles    UserRole[] @relation("UserRoleToOrgMember")
 
   // Calendar & Meeting Management
   meetingsCreated             Meeting[]                  @relation("MeetingCreatedBy")
@@ -198,44 +194,6 @@ model OrganizationMember {
   isPublicBookingEnabled Boolean  @default(false)
 
   @@unique([orgId, userId])
-}
-
-// ================================
-// ROLES & PERMISSIONS
-// ================================
-
-model Role {
-  id             String        @id @default(uuid()) @db.Uuid
-  name           String
-  description    String?
-  isSystemRole   Boolean       @default(false)
-  systemRoleType UserRoleEnum?
-  orgId          String        @db.Uuid
-  isActive       Boolean       @default(true)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  organization   Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  userRoles      UserRole[]
-
-  @@unique([orgId, name])
-  @@index([orgId])
-  @@index([systemRoleType])
-}
-
-model UserRole {
-  id          String             @id @default(uuid()) @db.Uuid
-  orgMemberId String             @db.Uuid
-  roleId      String             @db.Uuid
-  isActive    Boolean            @default(true)
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-
-  orgMember   OrganizationMember @relation("UserRoleToOrgMember", fields: [orgMemberId], references: [id], onDelete: Cascade)
-  role        Role               @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@unique([roleId, orgMemberId])
-  @@index([orgMemberId])
-  @@index([roleId])
 }
 
 // ================================

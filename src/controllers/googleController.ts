@@ -78,33 +78,7 @@ export const googleController = {
           },
         });
 
-        // Create default OWNER role for the organization
-        const ownerRole = await prisma.role.create({
-          data: {
-            name: "Owner",
-            description: "Organization owner with full access",
-            isSystemRole: true,
-            systemRoleType: "OWNER",
-            orgId: personalOrg.id,
-            isActive: true,
-          },
-        });
-
-        // Link the role to the organization member
-        await prisma.userRole.create({
-          data: {
-            orgMemberId: (
-              await prisma.organizationMember.findFirst({
-                where: { userId: user.id, orgId: personalOrg.id },
-                select: { id: true },
-              })
-            )!.id,
-            roleId: ownerRole.id,
-            isActive: true,
-          },
-        });
-
-        // 🔑 Invalidate cache so new org data is loaded
+        // Invalidate cache so new org data is loaded
         const { orgRoleCacheService } = await import(
           "../services/auth/orgRoleCacheService"
         );

@@ -30,11 +30,17 @@ export const inviteTokenService = {
     // Verify organization exists
     const organization = await prisma.organization.findUnique({
       where: { id: organizationId },
-      select: { id: true, name: true, orgLogoUrl: true },
+      select: { id: true, name: true, orgLogoUrl: true, isPersonal: true },
     });
 
     if (!organization) {
       throw ErrorFactory.notFound("Organization not found");
+    }
+
+    if (organization.isPersonal) {
+      throw ErrorFactory.forbidden(
+        "Cannot invite members to a personal workspace",
+      );
     }
 
     // Verify inviter exists and is a member
@@ -241,9 +247,7 @@ export const inviteTokenService = {
       );
     }
 
-    // Create organization member and assign role in a transaction
     const result = await prisma.$transaction(async (tx) => {
-      // Create organization member
       const orgMember = await tx.organizationMember.create({
         data: {
           orgId: invite.orgId,
@@ -252,31 +256,6 @@ export const inviteTokenService = {
         },
       });
 
-      // Get the role for this organization
-      const role = await tx.role.findFirst({
-        where: {
-          orgId: invite.orgId,
-          systemRoleType: invite.invitedRole,
-          isSystemRole: true,
-        },
-      });
-
-      if (!role) {
-        throw ErrorFactory.notFound(
-          `Role ${invite.invitedRole} not found in organization`,
-        );
-      }
-
-      // Assign role to user
-      await tx.userRole.create({
-        data: {
-          orgMemberId: orgMember.id,
-          roleId: role.id,
-          isActive: true,
-        },
-      });
-
-      // Mark invite as accepted
       await tx.orgInvite.update({
         where: { id: invite.id },
         data: {

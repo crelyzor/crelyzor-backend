@@ -29,25 +29,16 @@ export class MeetingController {
       // Validate input
       const validatedData = createMeetingSchema.parse(req.body);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Verify only OWNER/ADMIN/MEMBER can create meetings
-      const allowedRoles = ["OWNER", "ADMIN", "MEMBER"];
-      if (!allowedRoles.includes(orgMember.role.roleName || "")) {
-        throw ErrorFactory.forbidden(
-          "Only organization members can create meetings.",
-        );
       }
 
       // Create meeting
       const meeting = await meetingService.createMeetingByConsultant({
         organizationId: org.orgId,
-        createdById: orgMember.orgMemberId,
-        createdByRole: orgMember.role.roleName,
+        createdById: orgMemberId,
+        createdByRole: org.accessLevel,
         ...validatedData,
       });
 
@@ -78,16 +69,15 @@ export class MeetingController {
       // Validate input
       const validatedData = updateMeetingSchema.parse(req.body);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
       // Update meeting
       const meeting = await meetingService.updateMeeting(
         meetingId,
-        orgMember.orgMemberId,
+        orgMemberId,
         validatedData,
       );
 
@@ -117,9 +107,8 @@ export class MeetingController {
       // Validate input
       const validatedData = requestMeetingSchema.parse(req.body);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
@@ -127,8 +116,8 @@ export class MeetingController {
       // Request meeting
       const meeting = await meetingService.requestMeetingByMember({
         organizationId: org.orgId,
-        createdById: orgMember.orgMemberId,
-        createdByRole: orgMember.role.roleName,
+        createdById: orgMemberId,
+        createdByRole: org.accessLevel,
         ...validatedData,
       });
 
@@ -159,9 +148,8 @@ export class MeetingController {
       // Validate input
       const validatedData = meetingActionSchema.parse(req.body);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
@@ -169,7 +157,7 @@ export class MeetingController {
       const meeting = await meetingService.acceptMeeting({
         meetingId,
         newStatus: "ACCEPTED" as any,
-        requesterMemberId: orgMember.orgMemberId,
+        requesterMemberId: orgMemberId,
         reason: validatedData.reason,
       });
 
@@ -195,9 +183,8 @@ export class MeetingController {
       // Validate input
       const validatedData = meetingActionSchema.parse(req.body);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
@@ -205,7 +192,7 @@ export class MeetingController {
       const meeting = await meetingService.declineMeeting({
         meetingId,
         newStatus: "DECLINED" as any,
-        requesterMemberId: orgMember.orgMemberId,
+        requesterMemberId: orgMemberId,
         reason: validatedData.reason,
       });
 
@@ -231,9 +218,8 @@ export class MeetingController {
       // Validate input
       const validatedData = meetingActionSchema.parse(req.body);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
@@ -241,7 +227,7 @@ export class MeetingController {
       const meeting = await meetingService.cancelMeeting({
         meetingId,
         newStatus: "CANCELLED" as any,
-        requesterMemberId: orgMember.orgMemberId,
+        requesterMemberId: orgMemberId,
         reason: validatedData.reason,
       });
 
@@ -264,9 +250,8 @@ export class MeetingController {
       const org = req.org as orgPayload;
       const { meetingId } = req.params;
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
@@ -274,7 +259,7 @@ export class MeetingController {
       const meeting = await meetingService.completeMeeting({
         meetingId,
         newStatus: "COMPLETED" as any,
-        requesterMemberId: orgMember.orgMemberId,
+        requesterMemberId: orgMemberId,
       });
 
       apiResponse(res, {
@@ -299,9 +284,8 @@ export class MeetingController {
       // Validate input
       const validatedData = proposeMeetingRescheduleSchema.parse(req.body);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
@@ -310,7 +294,7 @@ export class MeetingController {
         meetingId,
         proposedStartTime: validatedData.proposedStartTime,
         proposedEndTime: validatedData.proposedEndTime,
-        requestedByMemberId: orgMember.orgMemberId,
+        requestedByMemberId: orgMemberId,
         reason: validatedData.reason,
       });
 
@@ -403,9 +387,8 @@ export class MeetingController {
       const org = req.org as orgPayload;
       const { meetingId } = req.params;
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
@@ -421,7 +404,7 @@ export class MeetingController {
 
       // Verify user is a participant
       const isParticipant = meeting.participants.some(
-        (p) => p.orgMemberId === orgMember.orgMemberId,
+        (p) => p.orgMemberId === orgMemberId,
       );
 
       if (!isParticipant) {
@@ -456,16 +439,15 @@ export class MeetingController {
       // Validate input
       const validatedData = respondToRescheduleSchema.parse(req.body);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
       // Respond to reschedule
       const meeting = await meetingService.respondToReschedule({
         rescheduleRequestId: requestId,
-        respondedByMemberId: orgMember.orgMemberId,
+        respondedByMemberId: orgMemberId,
         accepted: validatedData.accepted,
         responseNotes: validatedData.responseNotes,
       });
@@ -493,15 +475,14 @@ export class MeetingController {
       // Validate input
       const validatedData = getMeetingsSchema.parse(req.query);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
       // Get meetings
       const meetings = await meetingService.getMeetings({
-        orgMemberId: orgMember.orgMemberId,
+        orgMemberId: orgMemberId,
         status: validatedData.status as any,
         startDate: validatedData.startDate,
         endDate: validatedData.endDate,
@@ -540,15 +521,14 @@ export class MeetingController {
       // Validate input
       const validatedData = getMeetingsWithoutPaginationSchema.parse(req.query);
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
       // Get meetings
       const meetings = await meetingService.getMeetingsWithoutPagination({
-        orgMemberId: orgMember.orgMemberId,
+        orgMemberId: orgMemberId,
         status: validatedData.status as any,
         startDate: validatedData.startDate,
         endDate: validatedData.endDate,
@@ -573,9 +553,8 @@ export class MeetingController {
       const org = req.org as orgPayload;
       const { meetingId } = req.params;
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
+      const orgMemberId = org.orgMemberId;
+      if (!orgMemberId) {
         throw ErrorFactory.forbidden("Organization member not found");
       }
 
@@ -620,7 +599,7 @@ export class MeetingController {
 
       // Verify user is a participant
       const isParticipant = meeting.participants.some(
-        (p: any) => p.orgMemberId === orgMember.orgMemberId,
+        (p: any) => p.orgMemberId === orgMemberId,
       );
 
       if (!isParticipant) {
@@ -749,21 +728,16 @@ export class MeetingController {
     try {
       const org = req.org as orgPayload;
 
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
       // Verify user is a consultant
-      if (!["CONSULTANT", "ADMIN"].includes(orgMember.role.roleName || "")) {
+      if (!["OWNER", "ADMIN"].includes(org.accessLevel)) {
         throw ErrorFactory.forbidden(
           "Only consultants can generate public booking links",
         );
       }
 
-      await meetingService.generateShareToken(orgMember.orgMemberId);
+      await meetingService.generateShareToken(org.orgMemberId);
       const bookingStatus = await meetingService.getPublicBookingStatus(
-        orgMember.orgMemberId,
+        org.orgMemberId,
       );
 
       apiResponse(res, {
@@ -789,13 +763,8 @@ export class MeetingController {
     try {
       const org = req.org as orgPayload;
 
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
       const bookingStatus = await meetingService.getPublicBookingStatus(
-        orgMember.orgMemberId,
+        org.orgMemberId,
       );
 
       apiResponse(res, {
@@ -821,19 +790,14 @@ export class MeetingController {
     try {
       const org = req.org as orgPayload;
 
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
       // Verify user is a consultant
-      if (!["CONSULTANT", "ADMIN"].includes(orgMember.role.roleName || "")) {
+      if (!["OWNER", "ADMIN"].includes(org.accessLevel)) {
         throw ErrorFactory.forbidden(
           "Only consultants can manage public booking",
         );
       }
 
-      await meetingService.disablePublicBooking(orgMember.orgMemberId);
+      await meetingService.disablePublicBooking(org.orgMemberId);
 
       apiResponse(res, {
         statusCode: 200,

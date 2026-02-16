@@ -16,11 +16,6 @@ type UserWithOrganizations = Prisma.UserGetPayload<{
     organizationMembers: {
       include: {
         organization: true;
-        userRoles: {
-          include: {
-            role: true;
-          };
-        };
       };
     };
   };
@@ -28,8 +23,6 @@ type UserWithOrganizations = Prisma.UserGetPayload<{
 
 type OrganizationMemberWithDetails =
   UserWithOrganizations["organizationMembers"][number];
-type UserRoleWithPermissions =
-  OrganizationMemberWithDetails["userRoles"][number];
 
 class AuthService {
   async refreshToken(
@@ -89,12 +82,7 @@ class AuthService {
                 name: true,
                 orgLogoUrl: true,
                 description: true,
-              },
-            },
-            userRoles: {
-              where: { isActive: true },
-              include: {
-                role: true,
+                isPersonal: true,
               },
             },
           },
@@ -186,6 +174,7 @@ class AuthService {
     const response: UserResponse = {
       id: user.id,
       email: user.email,
+      username: user.username,
       emailVerified: user.emailVerified,
       name: user.name,
       avatarUrl: user.avatarUrl,
@@ -210,26 +199,9 @@ class AuthService {
           orgLogoUrl: member.organization.orgLogoUrl,
           orgDescription: member.organization.description || undefined,
           accessLevel: member.accessLevel,
-          roles: member.userRoles.map((role: UserRoleWithPermissions) => ({
-            roleId: role.roleId,
-            roleName: role.role?.systemRoleType || null,
-            customRole: role.role
-              ? {
-                  id: role.role.id,
-                  name: role.role.name,
-                  description: role.role.description,
-                }
-              : null,
-            permissions: [],
-          })),
+          isPersonal: member.organization.isPersonal,
         }),
       );
-
-      const firstMember = user.organizationMembers[0];
-      if (firstMember.userRoles.length > 0) {
-        response.role =
-          firstMember.userRoles[0].role?.systemRoleType || undefined;
-      }
     }
 
     return response;
@@ -249,21 +221,7 @@ class AuthService {
           select: {
             orgId: true,
             id: true,
-            userRoles: {
-              where: { isActive: true },
-              select: {
-                id: true,
-                roleId: true,
-                role: {
-                  select: {
-                    id: true,
-                    name: true,
-                    description: true,
-                    systemRoleType: true,
-                  },
-                },
-              },
-            },
+            accessLevel: true,
           },
         },
       },
@@ -273,18 +231,11 @@ class AuthService {
       throw ErrorFactory.notFound("User not found");
     }
 
-    const orgRoles = user.organizationMembers.flatMap((member) =>
-      member.userRoles.map((userRole) => ({
-        orgId: member.orgId,
-        orgMemberId: member.id,
-        roleId: userRole.roleId,
-        role: {
-          roleName: userRole.role?.systemRoleType || null,
-          roleId: userRole.roleId,
-          permissions: [],
-        },
-      })),
-    );
+    const orgRoles = user.organizationMembers.map((member) => ({
+      orgId: member.orgId,
+      orgMemberId: member.id,
+      accessLevel: member.accessLevel,
+    }));
 
     const ssoPayload = {
       userId: user.id,
@@ -319,19 +270,7 @@ class AuthService {
         include: {
           organizationMembers: {
             include: {
-              userRoles: {
-                where: { isActive: true },
-                include: {
-                  role: {
-                    select: {
-                      id: true,
-                      name: true,
-                      description: true,
-                      systemRoleType: true,
-                    },
-                  },
-                },
-              },
+              organization: true,
             },
           },
         },
@@ -379,30 +318,11 @@ class AuthService {
     orgId: string,
   ): Promise<{
     orgMemberId: string;
-    roles: Array<{
-      roleId: string;
-      roleName: string | null;
-      permissions: string[];
-    }>;
+    accessLevel: string;
   }> {
     const orgMember = await prisma.organizationMember.findUnique({
       where: {
         orgId_userId: { orgId, userId },
-      },
-      include: {
-        userRoles: {
-          where: { isActive: true },
-          include: {
-            role: {
-              select: {
-                id: true,
-                name: true,
-                description: true,
-                systemRoleType: true,
-              },
-            },
-          },
-        },
       },
     });
 
@@ -412,11 +332,7 @@ class AuthService {
 
     return {
       orgMemberId: orgMember.id,
-      roles: orgMember.userRoles.map((userRole) => ({
-        roleId: userRole.roleId,
-        roleName: userRole.role?.systemRoleType || null,
-        permissions: [],
-      })),
+      accessLevel: orgMember.accessLevel,
     };
   }
 
@@ -426,16 +342,7 @@ class AuthService {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: {
-        organizationMembers: {
-          include: {
-            userRoles: {
-              where: { isActive: true },
-              include: {
-                role: true,
-              },
-            },
-          },
-        },
+        organizationMembers: true,
       },
     });
 

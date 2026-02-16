@@ -17,12 +17,6 @@ export class SyncController {
       const user = req.user as TokenPayload;
       const org = req.org as orgPayload;
 
-      // Get org member
-      const orgMember = org.orgRoles[0];
-      if (!orgMember) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
       // Perform sync
       const result = await googleCalendarSyncService.syncGoogleCalendarToDB(
         user.userId,

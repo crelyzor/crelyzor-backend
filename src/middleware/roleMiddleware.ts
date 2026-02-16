@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { UserRoleEnum } from "@prisma/client";
 import { ErrorFactory, globalErrorHandler } from "../utils/globalErrorHandler";
-import { determineUserRole } from "../utils/roleUtils";
+import { hasRole } from "../utils/roleUtils";
 import { orgPayload } from "../types/orgTypes";
 import prisma from "../db/prismaClient";
 
@@ -11,22 +11,13 @@ import prisma from "../db/prismaClient";
  * Simple role check - verifies user has one of the allowed roles.
  *
  * @param allowedRoles - Array of allowed roles (e.g., [UserRoleEnum.OWNER, UserRoleEnum.ADMIN])
- *
- * @example
- * router.delete(
- *   "/",
- *   verifyJWT,
- *   resolveOrgContext,
- *   requireRole([UserRoleEnum.OWNER]),  // Only OWNER can delete
- *   controller.deleteOrganization
- * );
  */
 export const requireRole = (allowedRoles: UserRoleEnum[]) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const org = req.org as orgPayload;
 
-      if (!org || !org.orgRoles || org.orgRoles.length === 0) {
+      if (!org) {
         console.error("[requireRole] Organization context is missing");
         return globalErrorHandler(
           ErrorFactory.forbidden("Organization context is missing"),
@@ -35,13 +26,9 @@ export const requireRole = (allowedRoles: UserRoleEnum[]) => {
         );
       }
 
-      // Get user's highest priority role
-      const userRole = await determineUserRole(org.orgRoles);
-
-      // Check if user has one of the allowed roles
-      if (!allowedRoles.includes(userRole)) {
+      if (!allowedRoles.includes(org.accessLevel)) {
         console.error(
-          `[requireRole] Access denied - User role ${userRole} not in allowed roles: ${allowedRoles.join(", ")}`,
+          `[requireRole] Access denied - User role ${org.accessLevel} not in allowed roles: ${allowedRoles.join(", ")}`,
         );
         return globalErrorHandler(
           ErrorFactory.forbidden(
@@ -52,7 +39,7 @@ export const requireRole = (allowedRoles: UserRoleEnum[]) => {
         );
       }
 
-      console.log(`[requireRole] ✅ Access granted - User role: ${userRole}`);
+      console.log(`[requireRole] Access granted - User role: ${org.accessLevel}`);
       next();
     } catch (error) {
       console.error("[requireRole] Error during role check:", error);
@@ -65,19 +52,6 @@ export const requireRole = (allowedRoles: UserRoleEnum[]) => {
  * Middleware factory to enforce resource ownership.
  *
  * Verifies that the user owns the resource they're trying to access.
- * Used for MEMBER role to restrict access to only their own resources.
- *
- * @param resourceType - Type of resource ('meeting', 'availability', etc.)
- * @param idParamName - Name of the route parameter containing the resource ID (default: 'id')
- *
- * @example
- * router.patch(
- *   "/:meetingId",
- *   verifyJWT,
- *   resolveOrgContext,
- *   requireOwnership('meeting', 'meetingId'),
- *   controller.updateMeeting
- * );
  */
 export const requireOwnership = (
   resourceType: string,
@@ -88,7 +62,7 @@ export const requireOwnership = (
       const org = req.org as orgPayload;
       const resourceId = req.params[idParamName];
 
-      if (!org || !org.orgRoles || org.orgRoles.length === 0) {
+      if (!org) {
         return globalErrorHandler(
           ErrorFactory.forbidden("Organization context is missing"),
           req,
@@ -104,8 +78,7 @@ export const requireOwnership = (
         );
       }
 
-      // Get orgMemberId from org context
-      const orgMemberId = org.orgRoles[0]?.orgMemberId;
+      const orgMemberId = org.orgMemberId;
       if (!orgMemberId) {
         return globalErrorHandler(
           ErrorFactory.forbidden("Organization member ID not found"),
@@ -114,7 +87,6 @@ export const requireOwnership = (
         );
       }
 
-      // Check ownership based on resource type
       let isOwner = false;
 
       switch (resourceType) {
@@ -138,7 +110,6 @@ export const requireOwnership = (
             );
           }
 
-          // User owns if they created it or are a participant
           isOwner =
             meeting.createdById === orgMemberId ||
             meeting.participants.length > 0;
@@ -193,9 +164,6 @@ export const requireOwnership = (
       }
 
       if (!isOwner) {
-        console.error(
-          `[requireOwnership] Access denied - User ${orgMemberId} does not own ${resourceType} ${resourceId}`,
-        );
         return globalErrorHandler(
           ErrorFactory.forbidden(
             "Access denied. You can only access your own resources.",
@@ -205,9 +173,6 @@ export const requireOwnership = (
         );
       }
 
-      console.log(
-        `[requireOwnership] ✅ Ownership verified for ${resourceType} ${resourceId}`,
-      );
       next();
     } catch (error) {
       console.error("[requireOwnership] Error during ownership check:", error);
@@ -220,21 +185,6 @@ export const requireOwnership = (
  * Middleware factory combining role and ownership checks.
  *
  * Allows access if user has one of the allowed roles OR owns the resource.
- * Perfect for MEMBER role: they can access own resources, while ADMIN/OWNER can access all.
- *
- * @param allowedRoles - Array of roles that bypass ownership check
- * @param resourceType - Type of resource to check ownership for
- * @param idParamName - Name of route parameter containing resource ID
- *
- * @example
- * router.patch(
- *   "/:meetingId",
- *   verifyJWT,
- *   resolveOrgContext,
- *   requireRoleOrOwnership([UserRoleEnum.OWNER, UserRoleEnum.ADMIN], 'meeting', 'meetingId'),
- *   controller.updateMeeting
- * );
- * // MEMBER can edit own meetings, ADMIN/OWNER can edit any meeting
  */
 export const requireRoleOrOwnership = (
   allowedRoles: UserRoleEnum[],
@@ -245,7 +195,7 @@ export const requireRoleOrOwnership = (
     try {
       const org = req.org as orgPayload;
 
-      if (!org || !org.orgRoles || org.orgRoles.length === 0) {
+      if (!org) {
         return globalErrorHandler(
           ErrorFactory.forbidden("Organization context is missing"),
           req,
@@ -253,14 +203,8 @@ export const requireRoleOrOwnership = (
         );
       }
 
-      // Get user's highest priority role
-      const userRole = await determineUserRole(org.orgRoles);
-
       // If user has one of the allowed roles, grant access immediately
-      if (allowedRoles.includes(userRole)) {
-        console.log(
-          `[requireRoleOrOwnership] ✅ Access granted - User has role ${userRole}`,
-        );
+      if (allowedRoles.includes(org.accessLevel)) {
         return next();
       }
 
@@ -274,7 +218,7 @@ export const requireRoleOrOwnership = (
         );
       }
 
-      const orgMemberId = org.orgRoles[0]?.orgMemberId;
+      const orgMemberId = org.orgMemberId;
       if (!orgMemberId) {
         return globalErrorHandler(
           ErrorFactory.forbidden("Organization member ID not found"),
@@ -283,7 +227,6 @@ export const requireRoleOrOwnership = (
         );
       }
 
-      // Check ownership based on resource type
       let isOwner = false;
 
       switch (resourceType) {
@@ -361,9 +304,6 @@ export const requireRoleOrOwnership = (
       }
 
       if (!isOwner) {
-        console.error(
-          `[requireRoleOrOwnership] Access denied - User ${orgMemberId} does not have role ${allowedRoles.join(" or ")} and does not own ${resourceType} ${resourceId}`,
-        );
         return globalErrorHandler(
           ErrorFactory.forbidden(
             `Access denied. Required role: ${allowedRoles.join(" or ")}, or ownership of the resource.`,
@@ -373,9 +313,6 @@ export const requireRoleOrOwnership = (
         );
       }
 
-      console.log(
-        `[requireRoleOrOwnership] ✅ Access granted - User owns ${resourceType} ${resourceId}`,
-      );
       next();
     } catch (error) {
       console.error(

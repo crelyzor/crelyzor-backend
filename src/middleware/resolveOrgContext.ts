@@ -1,33 +1,18 @@
 import { Request, Response, NextFunction } from "express";
 import { ErrorFactory, globalErrorHandler } from "../utils/globalErrorHandler";
 import { AuthenticatedUser } from "../types/authTypes";
-import { UserRoleEnum } from "@prisma/client";
-import { determineUserRole } from "../utils/roleUtils";
+import { orgPayload } from "../types/orgTypes";
 
 declare module "express" {
   export interface Request {
-    org?: {
-      orgId: string;
-      orgRoles: {
-        orgMemberId: string;
-        roleId: string;
-        role: {
-          roleName: UserRoleEnum | null;
-          roleId: string;
-        };
-      }[];
-      highestRole: UserRoleEnum;
-    };
+    org?: orgPayload;
   }
 }
 
 /**
  * Middleware to resolve the organization context.
  *
- * Simplified role-based authorization:
- * - User must be a direct member of the target organization
- * - Determines user's highest priority role (OWNER > ADMIN > MEMBER)
- * - No permission fetching from database
+ * Finds the user's membership in the target org and sets accessLevel.
  */
 export const resolveOrgContext = async (
   req: Request,
@@ -42,33 +27,18 @@ export const resolveOrgContext = async (
       throw ErrorFactory.validation("Missing X-Organization-ID header");
     }
 
-    // Check if user is a direct member of target org
-    const directMembershipRoles =
-      user.orgRoles?.filter((r) => r.orgId === targetOrgId) || [];
+    const membership = user.orgRoles?.find((r) => r.orgId === targetOrgId);
 
-    if (directMembershipRoles.length === 0) {
+    if (!membership) {
       throw ErrorFactory.forbidden(
         "You do not have access to this organization",
       );
     }
 
-    // Map roles to simplified structure (no permissions)
-    const orgRoles = directMembershipRoles.map((r) => ({
-      orgMemberId: r.orgMemberId,
-      roleId: r.roleId,
-      role: {
-        roleName: r.role.roleName,
-        roleId: r.roleId,
-      },
-    }));
-
-    // Determine highest priority role (pass full directMembershipRoles which includes orgId)
-    const highestRole = await determineUserRole(directMembershipRoles);
-
-    (req as any).org = {
+    req.org = {
       orgId: targetOrgId,
-      orgRoles,
-      highestRole,
+      orgMemberId: membership.orgMemberId,
+      accessLevel: membership.accessLevel,
     };
 
     return next();

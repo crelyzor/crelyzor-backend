@@ -23,6 +23,8 @@ authRouter.use(userRateLimit(1000, 60 * 60 * 1000)); // 1000 requests per hour p
 
 authRouter.post("/logout", authController.logout);
 authRouter.get("/profile", authController.getProfile);
+authRouter.get("/username/check", authController.checkUsernameAvailability);
+authRouter.post("/username", authController.setUsername);
 authRouter.get("/sessions", authController.getSessions);
 authRouter.delete("/sessions/:sessionId", authController.revokeSession);
 
