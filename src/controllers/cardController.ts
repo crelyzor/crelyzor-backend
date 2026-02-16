@@ -65,7 +65,10 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
-      const card = await cardService.getCardById(userId, req.params.cardId);
+      const card = await cardService.getCardById(
+        userId,
+        req.params.cardId as string,
+      );
 
       apiResponse(res, {
         statusCode: 200,
@@ -87,7 +90,7 @@ export const cardController = {
 
       const card = await cardService.updateCard(
         userId,
-        req.params.cardId,
+        req.params.cardId as string,
         parsed.data,
       );
 
@@ -106,7 +109,7 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
-      await cardService.deleteCard(userId, req.params.cardId);
+      await cardService.deleteCard(userId, req.params.cardId as string);
 
       apiResponse(res, {
         statusCode: 200,
@@ -127,7 +130,7 @@ export const cardController = {
 
       const card = await cardService.duplicateCard(
         userId,
-        req.params.cardId,
+        req.params.cardId as string,
         slug,
       );
 
@@ -181,7 +184,7 @@ export const cardController = {
 
       const contact = await cardService.updateContactTags(
         userId,
-        req.params.contactId,
+        req.params.contactId as string,
         tags,
       );
 
@@ -200,7 +203,7 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
-      await cardService.deleteContact(userId, req.params.contactId);
+      await cardService.deleteContact(userId, req.params.contactId as string);
 
       apiResponse(res, {
         statusCode: 200,
@@ -239,7 +242,7 @@ export const cardController = {
       const days = req.query.days ? parseInt(req.query.days as string) : 30;
       const analytics = await cardService.getCardAnalytics(
         userId,
-        req.params.cardId,
+        req.params.cardId as string,
         days,
       );
 
@@ -259,7 +262,8 @@ export const cardController = {
 
   getPublicCard: async (req: Request, res: Response): Promise<void> => {
     try {
-      const { username, slug } = req.params;
+      const username = req.params.username as string;
+      const slug = req.params.slug as string | undefined;
       const result = await cardService.getPublicCard(username, slug);
 
       // Track the view
@@ -286,7 +290,7 @@ export const cardController = {
       if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
       const contact = await cardService.submitContact(
-        req.params.cardId,
+        req.params.cardId as string,
         parsed.data,
       );
 
@@ -306,7 +310,7 @@ export const cardController = {
       if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
       const ip = req.ip || req.headers["x-forwarded-for"]?.toString() || "";
-      await cardService.trackView(req.params.cardId, {
+      await cardService.trackView(req.params.cardId as string, {
         ipHash: ip ? hashIP(ip) : undefined,
         userAgent: req.headers["user-agent"],
         referrer: req.headers.referer,
@@ -321,7 +325,8 @@ export const cardController = {
 
   getVCard: async (req: Request, res: Response): Promise<void> => {
     try {
-      const { username, slug } = req.params;
+      const username = req.params.username as string;
+      const slug = req.params.slug as string | undefined;
       const result = await cardService.getPublicCard(username, slug);
 
       const vcf = cardService.generateVCard({

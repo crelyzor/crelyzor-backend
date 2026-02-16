@@ -12,6 +12,7 @@ const contactFieldsSchema = z.object({
   email: z.string().email().optional(),
   location: z.string().max(200).optional(),
   website: z.string().url().optional(),
+  bookingUrl: z.string().url().optional(),
 });
 
 const themeSchema = z.object({
