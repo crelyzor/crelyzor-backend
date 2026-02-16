@@ -52,6 +52,10 @@ model User {
   calendarEvents         GoogleCalendarEvent[]
   googleCalendarSyncLogs GoogleCalendarSyncLog[]
   notifications          Notification[]
+
+  // Digital Cards
+  cards        Card[]
+  cardContacts CardContact[]
 }
 
 model Session {
@@ -661,6 +665,98 @@ model Notification {
   @@index([userId, isRead])
   @@index([userId, createdAt])
   @@index([orgId])
+}
+
+// ================================
+// DIGITAL CARDS
+// ================================
+
+model Card {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+
+  // Card content
+  slug        String  // "default", "work", "startup"
+  displayName String  // name shown on card (can differ from user.name)
+  title       String? // "Software Engineer @ Acme"
+  bio         String?
+  avatarUrl   String?
+  coverUrl    String? // banner/cover image
+
+  // Structured fields
+  links         Json @default("[]")  // [{type, url, label, icon}]
+  contactFields Json @default("{}")  // {phone, email, location, website}
+
+  // Theme & customization
+  theme Json @default("{}") // {primaryColor, backgroundColor, fontFamily, layout, darkMode}
+
+  // Card state
+  isDefault Boolean @default(false) // shown at /username
+  isActive  Boolean @default(true)  // can be paused
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contacts CardContact[]
+  views    CardView[]
+
+  @@unique([userId, slug])
+  @@index([userId, isActive])
+  @@index([userId, isDefault])
+}
+
+model CardContact {
+  id     String @id @default(uuid()) @db.Uuid
+  cardId String @db.Uuid
+  userId String @db.Uuid // card owner
+
+  // Contact info submitted by scanner
+  name    String
+  email   String?
+  phone   String?
+  company String?
+  note    String?
+
+  // Organization & tagging
+  tags String[] @default([]) // e.g., ["TechConf 2026", "networking"]
+
+  // Tracking
+  scannedAt      DateTime @default(now())
+  savedByScanner Boolean  @default(false) // did they also save the card?
+
+  // Relations
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+  @@index([userId, scannedAt])
+  @@index([email])
+}
+
+model CardView {
+  id     String @id @default(uuid()) @db.Uuid
+  cardId String @db.Uuid
+
+  // Analytics data
+  ipHash    String?  // hashed IP for unique visitor tracking (privacy-friendly)
+  userAgent String?
+  referrer  String?
+  country   String?
+  city      String?
+
+  // Link click tracking
+  clickedLink String? // which link was clicked (null = just a view)
+
+  viewedAt DateTime @default(now())
+
+  // Relations
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, viewedAt])
+  @@index([cardId, clickedLink])
 }
 
 // ================================

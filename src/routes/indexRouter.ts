@@ -12,6 +12,8 @@ import meetingRouter from "./meetingRoutes";
 import availabilityRouter from "./availabilityRoutes";
 import publicBookingRouter from "./publicBookingRoutes";
 import smaRouter from "./smaRoutes";
+import cardRouter from "./cardRoutes";
+import publicCardRouter from "./publicCardRoutes";
 
 const indexRouter = Router();
 
@@ -48,9 +50,15 @@ indexRouter.use("/meetings", meetingRouter);
 indexRouter.use("/availability", availabilityRouter);
 
 // ========================================
+// 💳 DIGITAL CARD ROUTES
+// ========================================
+indexRouter.use("/cards", cardRouter);
+
+// ========================================
 // 🌐 PUBLIC ROUTES
 // ========================================
 indexRouter.use("/public", publicBookingRouter);
+indexRouter.use("/public", publicCardRouter);
 
 // ========================================
 // 🤖 SMA (Smart Meeting Assistant) ROUTES
