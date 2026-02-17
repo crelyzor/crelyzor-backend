@@ -30,6 +30,8 @@ export interface CreateCardDTO {
   links?: CardLink[];
   contactFields?: CardContactFields;
   theme?: CardTheme;
+  templateId?: string;
+  showQr?: boolean;
   isDefault?: boolean;
 }
 
@@ -43,8 +45,23 @@ export interface UpdateCardDTO {
   links?: CardLink[];
   contactFields?: CardContactFields;
   theme?: CardTheme;
+  templateId?: string;
+  showQr?: boolean;
   isDefault?: boolean;
   isActive?: boolean;
+}
+
+export interface PreviewCardDTO {
+  templateId: string;
+  displayName: string;
+  title?: string;
+  bio?: string;
+  avatarUrl?: string;
+  links?: CardLink[];
+  contactFields?: CardContactFields;
+  accentColor?: string;
+  showQr?: boolean;
+  slug?: string;
 }
 
 export interface SubmitContactDTO {

@@ -4,12 +4,103 @@ import type { Prisma } from "@prisma/client";
 import type {
   CreateCardDTO,
   UpdateCardDTO,
+  PreviewCardDTO,
   SubmitContactDTO,
   CardViewEvent,
   CardAnalytics,
+  CardContactFields,
+  CardLink,
+  CardTheme,
 } from "../types/cardTypes";
+import { renderCardHtml } from "../templates/renderCard";
+import {
+  templateList,
+  type TemplateId,
+  type CardTemplateData,
+} from "../templates/cardTemplates";
+
+const CARDS_PUBLIC_URL =
+  process.env.CARDS_PUBLIC_URL ?? "http://localhost:5174";
+
+// Helper: build public URL for a card
+function buildPublicUrl(
+  username: string,
+  slug: string,
+  isDefault: boolean,
+): string {
+  if (isDefault) return `${CARDS_PUBLIC_URL}/${username}`;
+  return `${CARDS_PUBLIC_URL}/${username}/${slug}`;
+}
+
+// Helper: build template data from card fields
+function buildTemplateData(
+  card: {
+    displayName: string;
+    title?: string | null;
+    bio?: string | null;
+    avatarUrl?: string | null;
+    links: unknown;
+    contactFields: unknown;
+    theme: unknown;
+    showQr: boolean;
+  },
+  publicUrl: string,
+): CardTemplateData {
+  const theme = (card.theme ?? {}) as CardTheme;
+  const links = (card.links ?? []) as CardLink[];
+  const contactFields = (card.contactFields ?? {}) as CardContactFields;
+
+  return {
+    displayName: card.displayName,
+    title: card.title,
+    bio: card.bio,
+    avatarUrl: card.avatarUrl,
+    links,
+    contactFields,
+    accentColor: theme.primaryColor || "#d4af61",
+    publicUrl,
+    showQr: card.showQr,
+  };
+}
 
 export const cardService = {
+  /**
+   * Get available card templates
+   */
+  getTemplates() {
+    return templateList;
+  },
+
+  /**
+   * Preview card HTML without saving
+   */
+  async previewCard(userId: string, data: PreviewCardDTO) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true },
+    });
+    const username = user?.username ?? "preview";
+    const publicUrl = buildPublicUrl(
+      username,
+      data.slug || "default",
+      !data.slug,
+    );
+
+    const templateData: CardTemplateData = {
+      displayName: data.displayName,
+      title: data.title,
+      bio: data.bio,
+      avatarUrl: data.avatarUrl,
+      links: data.links ?? [],
+      contactFields: data.contactFields ?? {},
+      accentColor: data.accentColor || "#d4af61",
+      publicUrl,
+      showQr: data.showQr ?? true,
+    };
+
+    return renderCardHtml(data.templateId as TemplateId, templateData);
+  },
+
   /**
    * Create a new card for a user
    */
@@ -36,6 +127,15 @@ export const cardService = {
     const cardCount = await prisma.card.count({ where: { userId } });
     const isDefault = data.isDefault ?? cardCount === 0;
 
+    // Get username for public URL
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true },
+    });
+    const username = user?.username ?? "user";
+    const templateId = (data.templateId || "executive") as TemplateId;
+    const showQr = data.showQr ?? true;
+
     const card = await prisma.card.create({
       data: {
         userId,
@@ -49,11 +149,27 @@ export const cardService = {
         contactFields: (data.contactFields ??
           {}) as unknown as Prisma.InputJsonValue,
         theme: (data.theme ?? {}) as unknown as Prisma.InputJsonValue,
+        templateId,
+        showQr,
         isDefault,
       },
     });
 
-    return card;
+    // Generate HTML from template
+    const publicUrl = buildPublicUrl(username, slug, isDefault);
+    const templateData = buildTemplateData(card, publicUrl);
+    const { htmlContent, htmlBackContent } = await renderCardHtml(
+      templateId,
+      templateData,
+    );
+
+    // Update card with generated HTML
+    const updatedCard = await prisma.card.update({
+      where: { id: card.id },
+      data: { htmlContent, htmlBackContent },
+    });
+
+    return updatedCard;
   },
 
   /**
@@ -116,7 +232,7 @@ export const cardService = {
       });
     }
 
-    return prisma.card.update({
+    const updatedCard = await prisma.card.update({
       where: { id: cardId },
       data: {
         ...(data.slug !== undefined && { slug: data.slug }),
@@ -136,6 +252,8 @@ export const cardService = {
         ...(data.theme !== undefined && {
           theme: data.theme as unknown as Prisma.InputJsonValue,
         }),
+        ...(data.templateId !== undefined && { templateId: data.templateId }),
+        ...(data.showQr !== undefined && { showQr: data.showQr }),
         ...(data.isDefault !== undefined && { isDefault: data.isDefault }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
       },
@@ -143,6 +261,52 @@ export const cardService = {
         _count: { select: { contacts: true, views: true } },
       },
     });
+
+    // Regenerate HTML if any content field changed
+    const contentFields = [
+      "displayName",
+      "title",
+      "bio",
+      "avatarUrl",
+      "links",
+      "contactFields",
+      "theme",
+      "templateId",
+      "showQr",
+      "slug",
+    ];
+    const needsRegen = contentFields.some(
+      (f) => (data as Record<string, unknown>)[f] !== undefined,
+    );
+
+    if (needsRegen) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { username: true },
+      });
+      const username = user?.username ?? "user";
+      const templateId = (updatedCard.templateId || "executive") as TemplateId;
+      const publicUrl = buildPublicUrl(
+        username,
+        updatedCard.slug,
+        updatedCard.isDefault,
+      );
+      const templateData = buildTemplateData(updatedCard, publicUrl);
+      const { htmlContent, htmlBackContent } = await renderCardHtml(
+        templateId,
+        templateData,
+      );
+
+      return prisma.card.update({
+        where: { id: cardId },
+        data: { htmlContent, htmlBackContent },
+        include: {
+          _count: { select: { contacts: true, views: true } },
+        },
+      });
+    }
+
+    return updatedCard;
   },
 
   /**
@@ -187,7 +351,7 @@ export const cardService = {
       throw ErrorFactory.conflict(`Card with slug "${newSlug}" already exists`);
     }
 
-    return prisma.card.create({
+    const newCard = await prisma.card.create({
       data: {
         userId,
         slug: newSlug,
@@ -199,8 +363,28 @@ export const cardService = {
         links: (card.links ?? []) as Prisma.InputJsonValue,
         contactFields: (card.contactFields ?? {}) as Prisma.InputJsonValue,
         theme: (card.theme ?? {}) as Prisma.InputJsonValue,
+        templateId: card.templateId,
+        showQr: card.showQr,
         isDefault: false,
       },
+    });
+
+    // Generate HTML for the new card (new slug = new QR URL)
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true },
+    });
+    const username = user?.username ?? "user";
+    const publicUrl = buildPublicUrl(username, newSlug, false);
+    const templateData = buildTemplateData(newCard, publicUrl);
+    const { htmlContent, htmlBackContent } = await renderCardHtml(
+      (newCard.templateId || "executive") as TemplateId,
+      templateData,
+    );
+
+    return prisma.card.update({
+      where: { id: newCard.id },
+      data: { htmlContent, htmlBackContent },
     });
   },
 

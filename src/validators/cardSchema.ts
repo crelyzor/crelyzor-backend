@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 const cardLinkSchema = z.object({
-  type: z.string().min(1).max(50),
+  type: z.string().max(50).default(""),
   url: z.string().url(),
-  label: z.string().min(1).max(100),
+  label: z.string().max(100).default(""),
   icon: z.string().max(50).optional(),
 });
 
@@ -34,6 +34,10 @@ const slugField = z
   .regex(/^(?!.*--)/, "No consecutive hyphens")
   .optional();
 
+const templateIdField = z
+  .enum(["executive", "classic-bold", "minimal"])
+  .optional();
+
 export const createCardSchema = z.object({
   slug: slugField,
   displayName: z.string().min(1).max(100),
@@ -44,6 +48,8 @@ export const createCardSchema = z.object({
   links: z.array(cardLinkSchema).max(20).optional(),
   contactFields: contactFieldsSchema.optional(),
   theme: themeSchema.optional(),
+  templateId: templateIdField,
+  showQr: z.boolean().optional(),
   isDefault: z.boolean().optional(),
 });
 
@@ -57,8 +63,23 @@ export const updateCardSchema = z.object({
   links: z.array(cardLinkSchema).max(20).optional(),
   contactFields: contactFieldsSchema.optional(),
   theme: themeSchema.optional(),
+  templateId: templateIdField,
+  showQr: z.boolean().optional(),
   isDefault: z.boolean().optional(),
   isActive: z.boolean().optional(),
+});
+
+export const previewCardSchema = z.object({
+  templateId: z.enum(["executive", "classic-bold", "minimal"]),
+  displayName: z.string().min(1).max(100),
+  title: z.string().max(200).optional(),
+  bio: z.string().max(500).optional(),
+  avatarUrl: z.string().url().optional(),
+  links: z.array(cardLinkSchema).max(5).optional(),
+  contactFields: contactFieldsSchema.optional(),
+  accentColor: z.string().max(20).optional(),
+  showQr: z.boolean().optional(),
+  slug: z.string().max(50).optional(),
 });
 
 export const submitContactSchema = z.object({

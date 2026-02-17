@@ -690,6 +690,12 @@ model Card {
   // Theme & customization
   theme Json @default("{}") // {primaryColor, backgroundColor, fontFamily, layout, darkMode}
 
+  // Template system
+  templateId      String  @default("executive") // "executive" | "classic-bold" | "minimal"
+  showQr          Boolean @default(true)        // Show QR code on back face
+  htmlContent     String? @db.Text              // Generated front-face HTML
+  htmlBackContent String? @db.Text              // Generated back-face HTML
+
   // Card state
   isDefault Boolean @default(false) // shown at /username
   isActive  Boolean @default(true)  // can be paused

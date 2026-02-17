@@ -11,6 +11,14 @@ cardRouter.use(verifyJWT);
 // CARD CRUD
 // ========================================
 
+/** GET /api/v1/cards/templates — Get available card templates */
+cardRouter.get("/templates", (req, res) =>
+  cardController.getTemplates(req, res),
+);
+
+/** POST /api/v1/cards/preview — Generate preview HTML without saving */
+cardRouter.post("/preview", (req, res) => cardController.previewCard(req, res));
+
 /** POST /api/v1/cards — Create a new card */
 cardRouter.post("/", (req, res) => cardController.createCard(req, res));
 

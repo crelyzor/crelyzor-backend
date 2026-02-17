@@ -9,6 +9,7 @@ import {
 import {
   createCardSchema,
   updateCardSchema,
+  previewCardSchema,
   submitContactSchema,
   trackViewSchema,
 } from "../validators/cardSchema";
@@ -22,6 +23,39 @@ export const cardController = {
   // ========================================
   // AUTHENTICATED ROUTES (card management)
   // ========================================
+
+  getTemplates: async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const templates = cardService.getTemplates();
+      apiResponse(res, {
+        statusCode: 200,
+        message: "Templates retrieved successfully",
+        data: templates,
+      });
+    } catch (err) {
+      globalErrorHandler(err as BaseError, _req, res);
+    }
+  },
+
+  previewCard: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) throw ErrorFactory.unauthorized();
+
+      const parsed = previewCardSchema.safeParse(req.body);
+      if (!parsed.success) throw ErrorFactory.validation(parsed.error);
+
+      const result = await cardService.previewCard(userId, parsed.data);
+
+      apiResponse(res, {
+        statusCode: 200,
+        message: "Preview generated",
+        data: result,
+      });
+    } catch (err) {
+      globalErrorHandler(err as BaseError, req, res);
+    }
+  },
 
   createCard: async (req: Request, res: Response): Promise<void> => {
     try {
