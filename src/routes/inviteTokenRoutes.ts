@@ -30,11 +30,7 @@ router.post(
 router.post("/details", inviteTokenController.getInviteDetails);
 
 // Accept an invite and join organization (authenticated)
-router.post(
-  "/accept",
-  verifyJWT,
-  inviteTokenController.acceptInvite,
-);
+router.post("/accept", verifyJWT, inviteTokenController.acceptInvite);
 
 // List all pending invites for an organization
 router.get(

@@ -39,7 +39,9 @@ export const requireRole = (allowedRoles: UserRoleEnum[]) => {
         );
       }
 
-      console.log(`[requireRole] Access granted - User role: ${org.accessLevel}`);
+      console.log(
+        `[requireRole] Access granted - User role: ${org.accessLevel}`,
+      );
       next();
     } catch (error) {
       console.error("[requireRole] Error during role check:", error);

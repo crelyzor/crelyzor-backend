@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit from "express-rate-limit";
 
 export const createLimiter = (config: {
   windowMs: number;
@@ -16,7 +16,7 @@ export const createLimiter = (config: {
     standardHeaders: true,
     legacyHeaders: false,
     skipSuccessfulRequests: config.skipSuccessfulRequests || false,
-    keyGenerator: (req) => req.ip || 'unknown',
+    keyGenerator: (req) => req.ip || "unknown",
   });
 };
 

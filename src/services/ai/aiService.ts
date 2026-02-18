@@ -27,7 +27,7 @@ export interface ActionItemResult {
  */
 export const generateSummary = async (
   meetingId: string,
-  transcriptText: string
+  transcriptText: string,
 ): Promise<string> => {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is required for AI features");
@@ -84,7 +84,7 @@ Provide a summary in 2-3 paragraphs.`;
  */
 export const extractKeyPoints = async (
   meetingId: string,
-  transcriptText: string
+  transcriptText: string,
 ): Promise<string[]> => {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is required for AI features");
@@ -102,7 +102,11 @@ Return ONLY a JSON array, no other text.`;
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: "You extract key points from meetings and return them as JSON." },
+      {
+        role: "system",
+        content:
+          "You extract key points from meetings and return them as JSON.",
+      },
       { role: "user", content: prompt },
     ],
     max_tokens: 1000,
@@ -110,10 +114,10 @@ Return ONLY a JSON array, no other text.`;
   });
 
   const content = response.choices[0]?.message?.content || "[]";
-  
+
   try {
     const keyPoints = JSON.parse(content);
-    
+
     // Update the summary with key points
     await prisma.meetingAISummary.upsert({
       where: { meetingId },
@@ -142,14 +146,14 @@ Return ONLY a JSON array, no other text.`;
  */
 const mapToActionItemCategory = (category: string): ActionItemCategory => {
   const categoryMap: Record<string, ActionItemCategory> = {
-    "PARTICIPANT_TASK": ActionItemCategory.PARTICIPANT_TASK,
-    "SHARED_TASK": ActionItemCategory.SHARED_TASK,
-    "DOCUMENT_REQUIRED": ActionItemCategory.DOCUMENT_REQUIRED,
-    "UPCOMING_EVENT": ActionItemCategory.UPCOMING_EVENT,
-    "TASK": ActionItemCategory.PARTICIPANT_TASK,
-    "FOLLOW_UP": ActionItemCategory.SHARED_TASK,
-    "DECISION": ActionItemCategory.OTHER,
-    "RESEARCH": ActionItemCategory.OTHER,
+    PARTICIPANT_TASK: ActionItemCategory.PARTICIPANT_TASK,
+    SHARED_TASK: ActionItemCategory.SHARED_TASK,
+    DOCUMENT_REQUIRED: ActionItemCategory.DOCUMENT_REQUIRED,
+    UPCOMING_EVENT: ActionItemCategory.UPCOMING_EVENT,
+    TASK: ActionItemCategory.PARTICIPANT_TASK,
+    FOLLOW_UP: ActionItemCategory.SHARED_TASK,
+    DECISION: ActionItemCategory.OTHER,
+    RESEARCH: ActionItemCategory.OTHER,
   };
   return categoryMap[category.toUpperCase()] || ActionItemCategory.OTHER;
 };
@@ -160,7 +164,7 @@ const mapToActionItemCategory = (category: string): ActionItemCategory => {
 export const extractActionItems = async (
   meetingId: string,
   transcriptText: string,
-  ownerId: string
+  ownerId: string,
 ): Promise<ActionItemResult[]> => {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is required for AI features");
@@ -181,7 +185,11 @@ Return ONLY a JSON array, no other text.`;
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: "You extract action items from meetings and return them as JSON." },
+      {
+        role: "system",
+        content:
+          "You extract action items from meetings and return them as JSON.",
+      },
       { role: "user", content: prompt },
     ],
     max_tokens: 1500,
@@ -189,7 +197,7 @@ Return ONLY a JSON array, no other text.`;
   });
 
   const content = response.choices[0]?.message?.content || "[]";
-  
+
   try {
     const rawActionItems = JSON.parse(content) as Array<{
       title: string;
@@ -218,7 +226,9 @@ Return ONLY a JSON array, no other text.`;
       });
     }
 
-    logger.info(`${actionItems.length} action items extracted for meeting ${meetingId}`);
+    logger.info(
+      `${actionItems.length} action items extracted for meeting ${meetingId}`,
+    );
 
     return actionItems;
   } catch {
@@ -232,7 +242,7 @@ Return ONLY a JSON array, no other text.`;
  */
 export const processTranscriptWithAI = async (
   meetingId: string,
-  ownerId: string
+  ownerId: string,
 ): Promise<AIProcessingResult> => {
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { recording: { meetingId } },

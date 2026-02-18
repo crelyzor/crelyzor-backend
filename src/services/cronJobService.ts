@@ -41,9 +41,8 @@ class CronJobService {
         );
 
         try {
-          const result = await userDeletionService.hardDeleteExpiredUsers(
-            daysThreshold,
-          );
+          const result =
+            await userDeletionService.hardDeleteExpiredUsers(daysThreshold);
 
           console.log(
             `[CronJobService] Hard delete completed: deleted ${result.deletedCount} users`,
@@ -87,9 +86,8 @@ class CronJobService {
     );
 
     try {
-      const result = await userDeletionService.hardDeleteExpiredUsers(
-        daysThreshold,
-      );
+      const result =
+        await userDeletionService.hardDeleteExpiredUsers(daysThreshold);
 
       console.log(
         `[CronJobService] Manual hard delete completed: deleted ${result.deletedCount} users`,

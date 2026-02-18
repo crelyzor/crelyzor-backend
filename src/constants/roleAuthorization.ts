@@ -136,7 +136,11 @@ export function isRoleHigherOrEqual(
   roleA: UserRoleEnum,
   roleB: UserRoleEnum,
 ): boolean {
-  const hierarchy = [UserRoleEnum.MEMBER, UserRoleEnum.ADMIN, UserRoleEnum.OWNER];
+  const hierarchy = [
+    UserRoleEnum.MEMBER,
+    UserRoleEnum.ADMIN,
+    UserRoleEnum.OWNER,
+  ];
   const priorityA = hierarchy.indexOf(roleA);
   const priorityB = hierarchy.indexOf(roleB);
   return priorityA >= priorityB;
@@ -160,7 +164,10 @@ export function canManageRole(
   }
 
   // ADMIN can manage MEMBER only
-  if (managerRole === UserRoleEnum.ADMIN && targetRole === UserRoleEnum.MEMBER) {
+  if (
+    managerRole === UserRoleEnum.ADMIN &&
+    targetRole === UserRoleEnum.MEMBER
+  ) {
     return true;
   }
 

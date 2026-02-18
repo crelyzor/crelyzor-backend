@@ -23,7 +23,9 @@ export const isTranscriptionEnabled = (): boolean => {
 export const getDeepgramClient = (): DeepgramClient => {
   initializeDeepgram();
   if (!deepgramClient) {
-    throw new Error("Deepgram client not initialized - DEEPGRAM_API_KEY is required");
+    throw new Error(
+      "Deepgram client not initialized - DEEPGRAM_API_KEY is required",
+    );
   }
   return deepgramClient;
 };

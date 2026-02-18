@@ -255,7 +255,9 @@ export const organizationController = {
         userId,
       );
 
-      const member = orgDetails.members.find((m: { userId: string }) => m.userId === userId);
+      const member = orgDetails.members.find(
+        (m: { userId: string }) => m.userId === userId,
+      );
       if (!member) {
         throw ErrorFactory.notFound("User not found in organization");
       }
@@ -350,9 +352,8 @@ export const organizationController = {
         throw ErrorFactory.unauthorized("Unauthorized access");
       }
 
-      const organizations = await registerOrganizationService.getUserOrganizations(
-        user.userId,
-      );
+      const organizations =
+        await registerOrganizationService.getUserOrganizations(user.userId);
 
       apiResponse(res, {
         statusCode: 200,

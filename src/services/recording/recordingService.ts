@@ -1,7 +1,10 @@
 import prisma from "../../db/prismaClient";
 import { MeetingRecording } from "@prisma/client";
 import { gcsService } from "../gcs/gcsService";
-import { getTranscriptionQueue, getAIProcessingQueue } from "../../config/queue";
+import {
+  getTranscriptionQueue,
+  getAIProcessingQueue,
+} from "../../config/queue";
 import { logger } from "../../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
 
@@ -33,7 +36,7 @@ export interface RecordingResponse {
  * Upload a recording for a meeting
  */
 export const uploadRecording = async (
-  input: UploadRecordingInput
+  input: UploadRecordingInput,
 ): Promise<RecordingResponse> => {
   const { meetingId, file, uploadedBy, duration = 0 } = input;
 
@@ -51,7 +54,7 @@ export const uploadRecording = async (
     file.buffer,
     file.originalname,
     `recordings/${meetingId}`,
-    file.mimetype
+    file.mimetype,
   );
 
   // Create recording record
@@ -83,13 +86,16 @@ export const uploadRecording = async (
       },
       {
         jobId: `transcribe-${recording.id}`,
-      }
+      },
     );
     logger.info(`Transcription job queued for recording ${recording.id}`);
   } catch (err) {
-    logger.warn("Failed to queue transcription job (Redis may not be available):", {
-      error: err instanceof Error ? err.message : String(err),
-    });
+    logger.warn(
+      "Failed to queue transcription job (Redis may not be available):",
+      {
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
   }
 
   // Generate signed URL for immediate access
@@ -111,7 +117,9 @@ export const uploadRecording = async (
 /**
  * Get recordings for a meeting
  */
-export const getRecordings = async (meetingId: string): Promise<RecordingResponse[]> => {
+export const getRecordings = async (
+  meetingId: string,
+): Promise<RecordingResponse[]> => {
   const recordings = await prisma.meetingRecording.findMany({
     where: { meetingId },
     orderBy: { uploadedAt: "desc" },
@@ -124,7 +132,9 @@ export const getRecordings = async (meetingId: string): Promise<RecordingRespons
       try {
         signedUrl = await gcsService.getSignedUrl(recording.gcsPath);
       } catch {
-        logger.warn(`Failed to generate signed URL for recording ${recording.id}`);
+        logger.warn(
+          `Failed to generate signed URL for recording ${recording.id}`,
+        );
       }
 
       return {
@@ -138,7 +148,7 @@ export const getRecordings = async (meetingId: string): Promise<RecordingRespons
         uploadedBy: recording.uploadedBy,
         signedUrl,
       };
-    })
+    }),
   );
 
   return recordingsWithUrls;
@@ -198,7 +208,7 @@ export const triggerAIProcessing = async (meetingId: string): Promise<void> => {
       },
       {
         jobId: `ai-${meetingId}-${Date.now()}`,
-      }
+      },
     );
     logger.info(`AI processing job queued for meeting ${meetingId}`);
   } catch (err) {

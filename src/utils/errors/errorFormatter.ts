@@ -6,7 +6,7 @@
  * Format error message from any error type
  */
 export const formatError = (error: unknown): string => {
-  return error instanceof Error ? error.message : 'Unknown error';
+  return error instanceof Error ? error.message : "Unknown error";
 };
 
 export default {

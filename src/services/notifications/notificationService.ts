@@ -9,7 +9,7 @@ import { NotificationLogStatus } from "@prisma/client";
 const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
 apiInstance.setApiKey(
   SibApiV3Sdk.TransactionalEmailsApiApiKeys.apiKey,
-  process.env.BREVO_API_KEY || ""
+  process.env.BREVO_API_KEY || "",
 );
 
 export interface SendEmailInput {
@@ -87,12 +87,15 @@ const templates: Record<string, string> = {
 /**
  * Render email template with data
  */
-const renderTemplate = (templateName: string, data: Record<string, unknown>): string => {
+const renderTemplate = (
+  templateName: string,
+  data: Record<string, unknown>,
+): string => {
   const templateSource = templates[templateName];
   if (!templateSource) {
     throw new Error(`Template not found: ${templateName}`);
   }
-  
+
   const template = Handlebars.compile(templateSource);
   return template(data);
 };
@@ -100,7 +103,9 @@ const renderTemplate = (templateName: string, data: Record<string, unknown>): st
 /**
  * Send email notification
  */
-export const sendEmail = async (input: SendEmailInput): Promise<NotificationResult> => {
+export const sendEmail = async (
+  input: SendEmailInput,
+): Promise<NotificationResult> => {
   const {
     to,
     subject,
@@ -120,7 +125,7 @@ export const sendEmail = async (input: SendEmailInput): Promise<NotificationResu
     sendSmtpEmail.htmlContent = htmlContent;
     sendSmtpEmail.sender = from;
     sendSmtpEmail.to = recipients.map((email) => ({ email }));
-    
+
     if (replyTo) {
       sendSmtpEmail.replyTo = replyTo;
     }
@@ -136,7 +141,10 @@ export const sendEmail = async (input: SendEmailInput): Promise<NotificationResu
           recipientEmail: recipient,
           recipientRole: "USER",
           event: templateName,
-          payload: { subject, templateData: JSON.parse(JSON.stringify(templateData)) },
+          payload: {
+            subject,
+            templateData: JSON.parse(JSON.stringify(templateData)),
+          },
           status: NotificationLogStatus.SENT,
           vendorResponse: { messageId: response.body.messageId },
         },
@@ -161,7 +169,10 @@ export const sendEmail = async (input: SendEmailInput): Promise<NotificationResu
           recipientEmail: recipient,
           recipientRole: "USER",
           event: templateName,
-          payload: { subject, templateData: JSON.parse(JSON.stringify(templateData)) },
+          payload: {
+            subject,
+            templateData: JSON.parse(JSON.stringify(templateData)),
+          },
           status: NotificationLogStatus.FAILED,
           reason: errorMessage,
         },
@@ -187,7 +198,9 @@ export const queueEmail = async (input: SendEmailInput): Promise<void> => {
       attempts: 3,
       backoff: { type: "exponential", delay: 2000 },
     });
-    logger.info(`Email queued for ${Array.isArray(input.to) ? input.to.join(", ") : input.to}`);
+    logger.info(
+      `Email queued for ${Array.isArray(input.to) ? input.to.join(", ") : input.to}`,
+    );
   } catch (err) {
     logger.warn("Failed to queue email (sending directly):", {
       error: err instanceof Error ? err.message : String(err),
@@ -211,7 +224,7 @@ export const sendMeetingInvite = async (
     description?: string;
     actionUrl: string;
   },
-  orgId?: string
+  orgId?: string,
 ): Promise<NotificationResult> => {
   return sendEmail({
     to: recipientEmail,
@@ -233,7 +246,7 @@ export const sendMeetingReminder = async (
     time: string;
     joinUrl?: string;
   },
-  orgId?: string
+  orgId?: string,
 ): Promise<NotificationResult> => {
   return sendEmail({
     to: recipientEmail,
@@ -253,7 +266,7 @@ export const sendTranscriptionReady = async (
     meetingTitle: string;
     actionUrl: string;
   },
-  orgId?: string
+  orgId?: string,
 ): Promise<NotificationResult> => {
   return sendEmail({
     to: recipientEmail,

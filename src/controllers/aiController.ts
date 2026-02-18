@@ -54,7 +54,10 @@ export const regenerateSummary = async (req: Request, res: Response) => {
       return;
     }
 
-    const summary = await aiService.generateSummary(meetingId, transcript.fullText);
+    const summary = await aiService.generateSummary(
+      meetingId,
+      transcript.fullText,
+    );
 
     res.status(200).json({
       success: true,
@@ -98,7 +101,14 @@ export const getActionItems = async (req: Request, res: Response) => {
 export const updateActionItem = async (req: Request, res: Response) => {
   try {
     const { actionItemId } = req.params;
-    const { title, description, category, assignedTo, suggestedStartDate, suggestedEndDate } = req.body;
+    const {
+      title,
+      description,
+      category,
+      assignedTo,
+      suggestedStartDate,
+      suggestedEndDate,
+    } = req.body;
 
     const actionItem = await prisma.meetingActionItem.update({
       where: { id: actionItemId },
@@ -107,8 +117,12 @@ export const updateActionItem = async (req: Request, res: Response) => {
         ...(description !== undefined && { description }),
         ...(category && { category: category as ActionItemCategory }),
         ...(assignedTo !== undefined && { assignedTo }),
-        ...(suggestedStartDate && { suggestedStartDate: new Date(suggestedStartDate) }),
-        ...(suggestedEndDate && { suggestedEndDate: new Date(suggestedEndDate) }),
+        ...(suggestedStartDate && {
+          suggestedStartDate: new Date(suggestedStartDate),
+        }),
+        ...(suggestedEndDate && {
+          suggestedEndDate: new Date(suggestedEndDate),
+        }),
       },
     });
 
@@ -130,7 +144,14 @@ export const updateActionItem = async (req: Request, res: Response) => {
 export const createActionItem = async (req: Request, res: Response) => {
   try {
     const { meetingId } = req.params;
-    const { title, description, category, suggestedStartDate, suggestedEndDate, assignedTo } = req.body;
+    const {
+      title,
+      description,
+      category,
+      suggestedStartDate,
+      suggestedEndDate,
+      assignedTo,
+    } = req.body;
     // Get user ID as owner
     const userId = req.user?.userId;
 
@@ -149,8 +170,12 @@ export const createActionItem = async (req: Request, res: Response) => {
         description,
         owner: userId,
         category: (category as ActionItemCategory) || ActionItemCategory.OTHER,
-        suggestedStartDate: suggestedStartDate ? new Date(suggestedStartDate) : undefined,
-        suggestedEndDate: suggestedEndDate ? new Date(suggestedEndDate) : undefined,
+        suggestedStartDate: suggestedStartDate
+          ? new Date(suggestedStartDate)
+          : undefined,
+        suggestedEndDate: suggestedEndDate
+          ? new Date(suggestedEndDate)
+          : undefined,
         assignedTo,
       },
     });

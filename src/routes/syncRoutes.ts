@@ -29,8 +29,10 @@ syncRouter.post(
  * Shows when last sync occurred and if full sync is complete
  * Authorization: All authenticated users (OWNER, ADMIN, MEMBER)
  */
-syncRouter.get("/status", requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]), (req, res) =>
-  syncController.getSyncStatus(req, res),
+syncRouter.get(
+  "/status",
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
+  (req, res) => syncController.getSyncStatus(req, res),
 );
 
 /**
@@ -39,8 +41,10 @@ syncRouter.get("/status", requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, U
  * Authorization: All authenticated users (OWNER, ADMIN, MEMBER)
  * Query params: startDate, endDate, limit, offset
  */
-syncRouter.get("/events", requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]), (req, res) =>
-  syncController.getSyncedEvents(req, res),
+syncRouter.get(
+  "/events",
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
+  (req, res) => syncController.getSyncedEvents(req, res),
 );
 
 /**

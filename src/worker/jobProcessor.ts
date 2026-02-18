@@ -1,12 +1,15 @@
-import { 
-  getTranscriptionQueue, 
-  getAIProcessingQueue, 
+import {
+  getTranscriptionQueue,
+  getAIProcessingQueue,
   getNotificationQueue,
-  closeQueues 
+  closeQueues,
 } from "../config/queue";
 import { transcriptionService } from "../services/transcription/transcriptionService";
 import { aiService } from "../services/ai/aiService";
-import { notificationService, SendEmailInput } from "../services/notifications/notificationService";
+import {
+  notificationService,
+  SendEmailInput,
+} from "../services/notifications/notificationService";
 import { logger } from "../utils/logging/logger";
 import prisma from "../db/prismaClient";
 
@@ -31,7 +34,9 @@ export const startWorker = async (): Promise<void> => {
   const transcriptionQueue = getTranscriptionQueue();
   transcriptionQueue.process("transcribe", async (job) => {
     const data = job.data as TranscriptionJobData;
-    logger.info(`Processing transcription job for recording ${data.recordingId}`);
+    logger.info(
+      `Processing transcription job for recording ${data.recordingId}`,
+    );
 
     try {
       await transcriptionService.transcribeRecording(data.recordingId);
@@ -56,7 +61,7 @@ export const startWorker = async (): Promise<void> => {
 
       return { success: true };
     } catch (error) {
-      logger.error("Transcription job failed:", { 
+      logger.error("Transcription job failed:", {
         recordingId: data.recordingId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -71,7 +76,10 @@ export const startWorker = async (): Promise<void> => {
     logger.info(`Processing AI job for meeting ${data.meetingId}`);
 
     try {
-      const result = await aiService.processTranscriptWithAI(data.meetingId, data.ownerId);
+      const result = await aiService.processTranscriptWithAI(
+        data.meetingId,
+        data.ownerId,
+      );
 
       // Send notification that transcription and AI processing is complete
       const meeting = await prisma.meeting.findUnique({
@@ -91,7 +99,7 @@ export const startWorker = async (): Promise<void> => {
             meetingTitle: meeting.title,
             actionUrl: `${process.env.FRONTEND_URL}/meetings/${meeting.id}`,
           },
-          meeting.organizationId
+          meeting.organizationId,
         );
       }
 
@@ -109,11 +117,13 @@ export const startWorker = async (): Promise<void> => {
   const notificationQueue = getNotificationQueue();
   notificationQueue.process("send-email", async (job) => {
     const data = job.data as SendEmailInput;
-    logger.info(`Processing email notification to ${Array.isArray(data.to) ? data.to.join(", ") : data.to}`);
+    logger.info(
+      `Processing email notification to ${Array.isArray(data.to) ? data.to.join(", ") : data.to}`,
+    );
 
     try {
       const result = await notificationService.sendEmail(data);
-      
+
       if (!result.success) {
         throw new Error(result.error);
       }

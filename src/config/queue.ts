@@ -79,7 +79,7 @@ export const initializeQueues = async () => {
           removeOnComplete: 100,
           removeOnFail: 50,
         },
-      }
+      },
     );
 
     // Initialize AI Processing Queue
@@ -99,7 +99,7 @@ export const initializeQueues = async () => {
           removeOnComplete: 100,
           removeOnFail: 50,
         },
-      }
+      },
     );
 
     // Initialize Notification Queue
@@ -119,7 +119,7 @@ export const initializeQueues = async () => {
           removeOnComplete: 100,
           removeOnFail: 50,
         },
-      }
+      },
     );
 
     // Wait for all queues to be ready
@@ -144,7 +144,9 @@ export const initializeQueues = async () => {
     setupQueueEvents(aiProcessingQueue, "AI Processing");
     setupQueueEvents(notificationQueue, "Notification");
 
-    logger.info("📦 Queues initialized: transcription, ai-processing, notifications");
+    logger.info(
+      "📦 Queues initialized: transcription, ai-processing, notifications",
+    );
 
     return {
       transcriptionQueue,
@@ -178,21 +180,27 @@ const setupQueueEvents = (queue: Bull.Queue, name: string) => {
 // Queue getters - throw if not initialized
 export const getTranscriptionQueue = (): Bull.Queue<TranscriptionJobData> => {
   if (!transcriptionQueue) {
-    throw new Error("Transcription queue not initialized. Call initializeQueues() first.");
+    throw new Error(
+      "Transcription queue not initialized. Call initializeQueues() first.",
+    );
   }
   return transcriptionQueue;
 };
 
 export const getAIProcessingQueue = (): Bull.Queue<AIProcessingJobData> => {
   if (!aiProcessingQueue) {
-    throw new Error("AI Processing queue not initialized. Call initializeQueues() first.");
+    throw new Error(
+      "AI Processing queue not initialized. Call initializeQueues() first.",
+    );
   }
   return aiProcessingQueue;
 };
 
 export const getNotificationQueue = (): Bull.Queue<NotificationJobData> => {
   if (!notificationQueue) {
-    throw new Error("Notification queue not initialized. Call initializeQueues() first.");
+    throw new Error(
+      "Notification queue not initialized. Call initializeQueues() first.",
+    );
   }
   return notificationQueue;
 };

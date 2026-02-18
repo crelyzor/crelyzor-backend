@@ -1,4 +1,7 @@
-import { getDeepgramClient, isTranscriptionEnabled } from "../../config/deepgram";
+import {
+  getDeepgramClient,
+  isTranscriptionEnabled,
+} from "../../config/deepgram";
 import { gcsService } from "../gcs/gcsService";
 import prisma from "../../db/prismaClient";
 import { logger } from "../../utils/logging/logger";
@@ -22,7 +25,7 @@ export interface TranscriptSegment {
  * Start transcription for a recording
  */
 export const transcribeRecording = async (
-  recordingId: string
+  recordingId: string,
 ): Promise<TranscriptionResult> => {
   if (!isTranscriptionEnabled()) {
     throw new Error("Transcription is not enabled - DEEPGRAM_API_KEY required");
@@ -58,7 +61,7 @@ export const transcribeRecording = async (
         punctuate: true,
         utterances: true,
         language: "en",
-      }
+      },
     );
 
     if (error) {
@@ -74,7 +77,7 @@ export const transcribeRecording = async (
 
     // Parse segments from utterances or words
     const segments: TranscriptSegment[] = [];
-    
+
     if (result.results?.utterances) {
       for (const utterance of result.results.utterances) {
         segments.push({
@@ -87,13 +90,15 @@ export const transcribeRecording = async (
     } else if (alternatives.words) {
       // Group words into segments by speaker or time gaps
       let currentSegment: TranscriptSegment | null = null;
-      
+
       for (const word of alternatives.words) {
         const speaker = `Speaker ${(word as { speaker?: number }).speaker ?? 0}`;
-        
-        if (!currentSegment || 
-            currentSegment.speaker !== speaker ||
-            word.start - currentSegment.endTime > 2) {
+
+        if (
+          !currentSegment ||
+          currentSegment.speaker !== speaker ||
+          word.start - currentSegment.endTime > 2
+        ) {
           if (currentSegment) {
             segments.push(currentSegment);
           }
@@ -108,7 +113,7 @@ export const transcribeRecording = async (
           currentSegment.text += " " + word.word;
         }
       }
-      
+
       if (currentSegment) {
         segments.push(currentSegment);
       }
@@ -153,8 +158,8 @@ export const transcribeRecording = async (
       data: { transcriptionStatus: TranscriptionStatus.FAILED },
     });
 
-    logger.error(`Transcription failed for recording ${recordingId}:`, { 
-      error: error instanceof Error ? error.message : String(error) 
+    logger.error(`Transcription failed for recording ${recordingId}:`, {
+      error: error instanceof Error ? error.message : String(error),
     });
 
     throw error;

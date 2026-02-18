@@ -50,24 +50,30 @@ router.get(
  * POST /api/v1/meetings
  * Consultant creates meeting with assigned students (auto-accepted)
  */
-router.post("/", requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]), (req, res) =>
-  meetingController.createMeeting(req, res),
+router.post(
+  "/",
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
+  (req, res) => meetingController.createMeeting(req, res),
 );
 
 /**
  * PATCH /api/v1/meetings/:meetingId
  * Update meeting details (title, description, time, participants, etc.)
  */
-router.patch("/:meetingId", requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]), (req, res) =>
-  meetingController.updateMeeting(req, res),
+router.patch(
+  "/:meetingId",
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
+  (req, res) => meetingController.updateMeeting(req, res),
 );
 
 /**
  * POST /api/v1/meetings/request
  * Student requests meeting from consultant (pending acceptance)
  */
-router.post("/request", requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]), (req, res) =>
-  meetingController.requestMeeting(req, res),
+router.post(
+  "/request",
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
+  (req, res) => meetingController.requestMeeting(req, res),
 );
 
 /**
@@ -144,16 +150,20 @@ router.patch(
  * GET /api/v1/meetings
  * Get meetings with filters
  */
-router.get("/", requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]), (req, res) =>
-  meetingController.getMeetings(req, res),
+router.get(
+  "/",
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
+  (req, res) => meetingController.getMeetings(req, res),
 );
 
 /**
  * GET /api/v1/meetings/:meetingId
  * Get single meeting details
  */
-router.get("/:meetingId", requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]), (req, res) =>
-  meetingController.getMeetingById(req, res),
+router.get(
+  "/:meetingId",
+  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
+  (req, res) => meetingController.getMeetingById(req, res),
 );
 
 /**

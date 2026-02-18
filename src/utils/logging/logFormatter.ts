@@ -2,7 +2,7 @@
  * Utility functions for consistent log formatting
  */
 
-import winston from 'winston';
+import winston from "winston";
 
 const { printf } = winston.format;
 

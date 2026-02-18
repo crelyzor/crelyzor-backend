@@ -1,7 +1,7 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import fs from 'fs';
-import { logger } from '../logging/logger';
+import { exec } from "child_process";
+import { promisify } from "util";
+import fs from "fs";
+import { logger } from "../logging/logger";
 
 const execAsync = promisify(exec);
 
@@ -41,7 +41,7 @@ export const getAudioDuration = async (filePath: string): Promise<number> => {
       error: error instanceof Error ? error.message : String(error),
     });
     throw new Error(
-      `Failed to extract audio duration: ${error instanceof Error ? error.message : 'Unknown error'}`
+      `Failed to extract audio duration: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
 };

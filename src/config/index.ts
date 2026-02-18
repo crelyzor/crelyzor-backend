@@ -1,2 +1,2 @@
-export { env } from './environment';
-export type { Environment } from './environment';
+export { env } from "./environment";
+export type { Environment } from "./environment";

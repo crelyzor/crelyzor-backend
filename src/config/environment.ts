@@ -1,14 +1,14 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 const envSchema = z.object({
   NODE_ENV: z
-    .enum(['development', 'staging', 'production'])
-    .default('development'),
+    .enum(["development", "staging", "production"])
+    .default("development"),
   PORT: z
     .string()
     .transform(Number)
-    .default('3000' as any),
-  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+    .default("3000" as any),
+  LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
 
 export type Environment = z.infer<typeof envSchema>;
@@ -20,8 +20,8 @@ try {
 } catch (error) {
   if (error instanceof z.ZodError) {
     const errors = error.issues
-      .map((e) => `${e.path.join('.')}: ${e.message}`)
-      .join('\n');
+      .map((e) => `${e.path.join(".")}: ${e.message}`)
+      .join("\n");
     throw new Error(`Environment validation failed:\n${errors}`);
   }
   throw error;

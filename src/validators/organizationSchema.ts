@@ -3,11 +3,13 @@ import { z } from "zod";
 export const CreateOrganizationSchema = z.object({
   name: z.string().min(1, "Organization name is required"),
   description: z.string().optional(),
-  organizationDetails: z.object({
-    industry: z.string().optional(),
-    size: z.string().optional(),
-    website: z.string().url().optional().or(z.literal("")),
-  }).optional(),
+  organizationDetails: z
+    .object({
+      industry: z.string().optional(),
+      size: z.string().optional(),
+      website: z.string().url().optional().or(z.literal("")),
+    })
+    .optional(),
   orgLogoUrl: z.string().url("Invalid logo URL").optional().or(z.literal("")),
 });
 

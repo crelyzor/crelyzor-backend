@@ -17,8 +17,8 @@ const startServer = async () => {
     await prisma.$connect();
     logger.info("✅ Database connected successfully (PostgreSQL)");
   } catch (error) {
-    logger.error("❌ Database connection failed:", { 
-      error: error instanceof Error ? error.message : String(error) 
+    logger.error("❌ Database connection failed:", {
+      error: error instanceof Error ? error.message : String(error),
     });
     process.exit(1);
   }
@@ -28,8 +28,8 @@ const startServer = async () => {
     await redis.ping();
     logger.info("✅ Redis cache connected successfully (Upstash)");
   } catch (error) {
-    logger.warn("⚠️ Redis cache connection failed (caching disabled):", { 
-      error: error instanceof Error ? error.message : String(error) 
+    logger.warn("⚠️ Redis cache connection failed (caching disabled):", {
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 
@@ -38,7 +38,7 @@ const startServer = async () => {
     await initializeQueues();
   } catch (error) {
     logger.warn("⚠️ Queue initialization failed (job processing disabled):", {
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 
@@ -47,7 +47,9 @@ const startServer = async () => {
     database: "Neon PostgreSQL",
     cache: process.env.UPSTASH_REDIS_REST_URL ? "Upstash Redis" : "None",
     queues: process.env.REDIS_URL ? "Bull (Upstash)" : "None",
-    storage: process.env.GCS_BUCKET_NAME ? `GCS (${process.env.GCS_BUCKET_NAME})` : "None",
+    storage: process.env.GCS_BUCKET_NAME
+      ? `GCS (${process.env.GCS_BUCKET_NAME})`
+      : "None",
     ai: process.env.OPENAI_API_KEY ? "OpenAI" : "None",
     transcription: process.env.DEEPGRAM_API_KEY ? "Deepgram" : "Disabled",
   });
@@ -62,7 +64,9 @@ const startServer = async () => {
   // Handle port already in use error
   server.on("error", (error: NodeJS.ErrnoException) => {
     if (error.code === "EADDRINUSE") {
-      logger.error(`❌ Port ${PORT} is already in use. Please free the port or use a different one.`);
+      logger.error(
+        `❌ Port ${PORT} is already in use. Please free the port or use a different one.`,
+      );
       process.exit(1);
     } else {
       logger.error("❌ Server error:", { error: error.message });

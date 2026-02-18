@@ -199,7 +199,9 @@ export const registerOrganizationService = {
     });
 
     await Promise.all(
-      allMembers.map((m) => orgRoleCacheService.invalidateUserOrgRoles(m.userId)),
+      allMembers.map((m) =>
+        orgRoleCacheService.invalidateUserOrgRoles(m.userId),
+      ),
     );
 
     return { message: "Organization deleted successfully" };
@@ -208,12 +210,15 @@ export const registerOrganizationService = {
   /**
    * Gets all members of an organization
    */
-  async getOrganizationMembers(orgId: string, options?: {
-    page?: number;
-    limit?: number;
-    search?: string;
-    roleFilter?: UserRoleEnum;
-  }) {
+  async getOrganizationMembers(
+    orgId: string,
+    options?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      roleFilter?: UserRoleEnum;
+    },
+  ) {
     const { page = 1, limit = 20, search, roleFilter } = options || {};
     const skip = (page - 1) * limit;
 
@@ -320,7 +325,9 @@ export const registerOrganizationService = {
     });
 
     if (existingMember) {
-      throw ErrorFactory.conflict("User is already a member of this organization");
+      throw ErrorFactory.conflict(
+        "User is already a member of this organization",
+      );
     }
 
     const role = memberData.role || UserRoleEnum.MEMBER;
@@ -428,7 +435,10 @@ export const registerOrganizationService = {
       throw ErrorFactory.notFound("Member not found");
     }
 
-    if (member.accessLevel === UserRoleEnum.OWNER && newRole !== UserRoleEnum.OWNER) {
+    if (
+      member.accessLevel === UserRoleEnum.OWNER &&
+      newRole !== UserRoleEnum.OWNER
+    ) {
       throw ErrorFactory.forbidden("Cannot change owner's role");
     }
 
@@ -459,7 +469,9 @@ export const registerOrganizationService = {
     });
 
     if (!currentOwner) {
-      throw ErrorFactory.forbidden("Only the current owner can transfer ownership");
+      throw ErrorFactory.forbidden(
+        "Only the current owner can transfer ownership",
+      );
     }
 
     const newOwner = await prisma.organizationMember.findFirst({
@@ -467,7 +479,9 @@ export const registerOrganizationService = {
     });
 
     if (!newOwner) {
-      throw ErrorFactory.notFound("New owner must be a member of the organization");
+      throw ErrorFactory.notFound(
+        "New owner must be a member of the organization",
+      );
     }
 
     await prisma.$transaction(async (tx) => {

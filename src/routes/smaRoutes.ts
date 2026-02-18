@@ -18,25 +18,22 @@ router.use(verifyJWT);
 router.post(
   "/meetings/:meetingId/recordings",
   singleFileUpload,
-  recordingController.uploadRecording
+  recordingController.uploadRecording,
 );
 
 // Get recordings for a meeting
 router.get(
   "/meetings/:meetingId/recordings",
-  recordingController.getRecordings
+  recordingController.getRecordings,
 );
 
 // Delete a recording
-router.delete(
-  "/recordings/:recordingId",
-  recordingController.deleteRecording
-);
+router.delete("/recordings/:recordingId", recordingController.deleteRecording);
 
 // Trigger AI processing for a meeting
 router.post(
   "/meetings/:meetingId/process-ai",
-  recordingController.triggerAIProcessing
+  recordingController.triggerAIProcessing,
 );
 
 // ========================================
@@ -46,13 +43,13 @@ router.post(
 // Get transcript for a meeting
 router.get(
   "/meetings/:meetingId/transcript",
-  transcriptController.getTranscript
+  transcriptController.getTranscript,
 );
 
 // Get transcription status
 router.get(
   "/meetings/:meetingId/transcript/status",
-  transcriptController.getTranscriptionStatus
+  transcriptController.getTranscriptionStatus,
 );
 
 // ========================================
@@ -61,7 +58,10 @@ router.get(
 
 // AI Summary routes
 router.get("/meetings/:meetingId/summary", aiController.getSummary);
-router.post("/meetings/:meetingId/summary/regenerate", aiController.regenerateSummary);
+router.post(
+  "/meetings/:meetingId/summary/regenerate",
+  aiController.regenerateSummary,
+);
 
 // Action Items routes
 router.get("/meetings/:meetingId/action-items", aiController.getActionItems);

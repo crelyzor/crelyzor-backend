@@ -1,7 +1,7 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import fs from 'fs';
-import { logger } from '../logging/logger';
+import { exec } from "child_process";
+import { promisify } from "util";
+import fs from "fs";
+import { logger } from "../logging/logger";
 
 const execAsync = promisify(exec);
 
@@ -15,7 +15,7 @@ const execAsync = promisify(exec);
 export const compressAudio = async (
   inputPath: string,
   outputPath: string,
-  bitrate: string = '96k'
+  bitrate: string = "96k",
 ): Promise<string> => {
   try {
     if (!fs.existsSync(inputPath)) {
@@ -35,7 +35,7 @@ export const compressAudio = async (
     await execAsync(command, { timeout: 300000 }); // 5 minute timeout
 
     if (!fs.existsSync(outputPath)) {
-      throw new Error('Compression failed: output file not created');
+      throw new Error("Compression failed: output file not created");
     }
 
     const outputSize = fs.statSync(outputPath).size;

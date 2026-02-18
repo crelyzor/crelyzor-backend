@@ -102,9 +102,8 @@ export const verifyJWT = async (
     await sessionService.updateSessionActivity(decoded.sessionId);
 
     // Fetch user's org/role data from Redis cache or database
-    const { orgRoleCacheService } = await import(
-      "../services/auth/orgRoleCacheService"
-    );
+    const { orgRoleCacheService } =
+      await import("../services/auth/orgRoleCacheService");
     const { orgRoles } = await orgRoleCacheService.getUserOrgRoles(
       decoded.userId,
     );
@@ -287,9 +286,8 @@ export const verifyJWTFromQueryOrHeader = async (
     await sessionService.updateSessionActivity(decoded.sessionId);
 
     // Fetch user's org/role data from Redis cache or database
-    const { orgRoleCacheService } = await import(
-      "../services/auth/orgRoleCacheService"
-    );
+    const { orgRoleCacheService } =
+      await import("../services/auth/orgRoleCacheService");
     const { orgRoles } = await orgRoleCacheService.getUserOrgRoles(
       decoded.userId,
     );

@@ -52,7 +52,11 @@ export const authController = {
         throw ErrorFactory.unauthorized("User not authenticated");
       }
 
-      const result = await authService.logout(userId, parsedData.data, sessionId);
+      const result = await authService.logout(
+        userId,
+        parsedData.data,
+        sessionId,
+      );
 
       apiResponse(res, {
         statusCode: 200,
@@ -94,7 +98,10 @@ export const authController = {
         throw ErrorFactory.unauthorized("User not authenticated");
       }
 
-      const sessions = await authService.getUserSessions(userId, currentSessionId);
+      const sessions = await authService.getUserSessions(
+        userId,
+        currentSessionId,
+      );
 
       apiResponse(res, {
         statusCode: 200,
@@ -264,9 +271,8 @@ export const authController = {
       });
 
       // Invalidate cache
-      const { orgRoleCacheService } = await import(
-        "../services/auth/orgRoleCacheService"
-      );
+      const { orgRoleCacheService } =
+        await import("../services/auth/orgRoleCacheService");
       await orgRoleCacheService.invalidateUserOrgRoles(userId);
 
       const profile = await authService.getUserProfile(userId);

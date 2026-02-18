@@ -1266,7 +1266,8 @@ export const meetingService = {
 
     // Check if all attendees have accepted
     const pendingAttendees = meeting.participants.filter(
-      (p) => p.participantType === "ATTENDEE" && p.responseStatus !== "ACCEPTED",
+      (p) =>
+        p.participantType === "ATTENDEE" && p.responseStatus !== "ACCEPTED",
     );
 
     if (pendingAttendees.length > 0) {

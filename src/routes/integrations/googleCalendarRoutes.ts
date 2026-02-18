@@ -22,11 +22,7 @@ router.get("/status", verifyJWT, googleController.checkCalendarAccess);
 router.get("/scopes/status", verifyJWT, googleController.getScopesStatus);
 
 // 🔹 GET EVENTS BY DATE (JWT required)
-router.post(
-  "/events-by-date",
-  verifyJWT,
-  googleController.getEventsByDate,
-);
+router.post("/events-by-date", verifyJWT, googleController.getEventsByDate);
 
 // Note: Sync routes are handled by syncRouter mounted at /integrations/calendar/sync
 

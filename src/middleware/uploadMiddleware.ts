@@ -20,12 +20,16 @@ const MAX_FILE_SIZE = 500 * 1024 * 1024;
 const fileFilter = (
   _req: Express.Request,
   file: Express.Multer.File,
-  cb: multer.FileFilterCallback
+  cb: multer.FileFilterCallback,
 ) => {
   if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error(`Invalid file type. Allowed types: ${ALLOWED_MIME_TYPES.join(", ")}`));
+    cb(
+      new Error(
+        `Invalid file type. Allowed types: ${ALLOWED_MIME_TYPES.join(", ")}`,
+      ),
+    );
   }
 };
 

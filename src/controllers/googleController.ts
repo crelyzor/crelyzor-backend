@@ -79,9 +79,8 @@ export const googleController = {
         });
 
         // Invalidate cache so new org data is loaded
-        const { orgRoleCacheService } = await import(
-          "../services/auth/orgRoleCacheService"
-        );
+        const { orgRoleCacheService } =
+          await import("../services/auth/orgRoleCacheService");
         await orgRoleCacheService.invalidateUserOrgRoles(user.id);
       }
 

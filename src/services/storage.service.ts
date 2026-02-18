@@ -148,7 +148,7 @@ class StorageService {
       if (downloadUrl.startsWith(gcsPrefix)) {
         return downloadUrl.substring(gcsPrefix.length);
       }
-      
+
       // Handle Firebase URL format (legacy): /o/path?alt=media
       const start = downloadUrl.indexOf("/o/") + 3;
       const end = downloadUrl.indexOf("?alt=");
@@ -156,7 +156,7 @@ class StorageService {
         const encodedPath = downloadUrl.substring(start, end);
         return decodeURIComponent(encodedPath);
       }
-      
+
       return null;
     } catch {
       return null;
