@@ -10,6 +10,8 @@ import syncRouter from "./syncRoutes";
 import storageRouter from "./storageRoutes";
 import meetingRouter from "./meetingRoutes";
 import availabilityRouter from "./availabilityRoutes";
+import scheduleRouter from "./scheduleRoutes";
+import eventTypeRouter from "./eventTypeRoutes";
 import publicBookingRouter from "./publicBookingRoutes";
 import smaRouter from "./smaRoutes";
 import cardRouter from "./cardRoutes";
@@ -47,6 +49,8 @@ indexRouter.use("/integrations/calendar", googleCalendarRouter);
 // 📅 MEETING & AVAILABILITY ROUTES
 // ========================================
 indexRouter.use("/meetings", meetingRouter);
+indexRouter.use("/schedules", scheduleRouter);
+indexRouter.use("/event-types", eventTypeRouter);
 indexRouter.use("/availability", availabilityRouter);
 
 // ========================================

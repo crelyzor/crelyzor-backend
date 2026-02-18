@@ -19,14 +19,12 @@ export const createRecurringAvailabilitySchema = z
     endTime: z
       .string()
       .regex(TIME_REGEX, "Time format must be HH:MM (e.g., 09:00, 14:30)"),
-    timezone: z.string().default("UTC"),
   })
   .refine((data) => data.startTime < data.endTime, {
     message: "Start time must be before end time",
     path: ["endTime"],
   });
 
-// For updates, all fields are optional (update only what you need)
 export const updateRecurringAvailabilitySchema = z
   .object({
     dayOfWeek: z
@@ -48,11 +46,9 @@ export const updateRecurringAvailabilitySchema = z
       .string()
       .regex(TIME_REGEX, "Time format must be HH:MM (e.g., 09:00, 14:30)")
       .optional(),
-    timezone: z.string().optional(),
   })
   .refine(
     (data) => {
-      // If both times provided, validate startTime < endTime
       if (data.startTime && data.endTime) {
         return data.startTime < data.endTime;
       }
@@ -64,7 +60,7 @@ export const updateRecurringAvailabilitySchema = z
     },
   );
 
-export const createCustomSlotSchema = z
+export const createOverrideSchema = z
   .object({
     date: z
       .string()
@@ -76,7 +72,6 @@ export const createCustomSlotSchema = z
     endTime: z
       .string()
       .regex(TIME_REGEX, "Time format must be HH:MM (e.g., 09:00, 14:30)"),
-    timezone: z.string().default("UTC"),
     notes: z.string().optional(),
   })
   .refine((data) => data.startTime < data.endTime, {
@@ -116,7 +111,11 @@ export const getAvailableSlotsSchema = z.object({
     .string()
     .refine((d) => !isNaN(Date.parse(d)), "Invalid end date")
     .transform((d) => new Date(d)),
-  slotDuration: z.number().int().positive().optional().default(30), // minutes
+  slotDuration: z
+    .string()
+    .optional()
+    .transform((v) => (v ? parseInt(v, 10) : 30)),
+  eventTypeId: z.string().uuid().optional(),
 });
 
 export const createBatchRecurringAvailabilitySchema = z.object({
@@ -131,7 +130,7 @@ export type CreateRecurringAvailabilityInput = z.infer<
 export type UpdateRecurringAvailabilityInput = z.infer<
   typeof updateRecurringAvailabilitySchema
 >;
-export type CreateCustomSlotInput = z.infer<typeof createCustomSlotSchema>;
+export type CreateOverrideInput = z.infer<typeof createOverrideSchema>;
 export type CreateBlockedTimeInput = z.infer<typeof createBlockedTimeSchema>;
 export type GetAvailableSlotsInput = z.infer<typeof getAvailableSlotsSchema>;
 export type CreateBatchRecurringAvailabilityInput = z.infer<

@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { TokenPayload } from "../types/authTypes";
-import { orgPayload } from "../types/orgTypes";
 import { ErrorFactory } from "../utils/globalErrorHandler";
 import { apiResponse } from "../utils/globalResponseHandler";
 import { globalErrorHandler } from "../utils/globalErrorHandler";
@@ -8,7 +7,7 @@ import { availabilityService } from "../services/meetings/availabilityService";
 import {
   createRecurringAvailabilitySchema,
   updateRecurringAvailabilitySchema,
-  createCustomSlotSchema,
+  createOverrideSchema,
   createBlockedTimeSchema,
   getAvailableSlotsSchema,
   createBatchRecurringAvailabilitySchema,
@@ -16,7 +15,7 @@ import {
 
 export class AvailabilityController {
   /**
-   * Create recurring availability pattern
+   * Create recurring availability pattern for a schedule
    */
   async createRecurringAvailability(
     req: Request,
@@ -24,20 +23,19 @@ export class AvailabilityController {
   ): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
+      const scheduleId = req.params.scheduleId as string;
 
-      // Validate input
+      // Validate ownership
+      await availabilityService.validateScheduleOwnership(
+        scheduleId,
+        user.userId,
+      );
+
       const validatedData = createRecurringAvailabilitySchema.parse(req.body);
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Create recurring availability
       const availability =
         await availabilityService.createRecurringAvailability({
-          orgMemberId: orgMemberId,
+          scheduleId,
           ...validatedData,
         });
 
@@ -60,22 +58,20 @@ export class AvailabilityController {
   ): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
+      const scheduleId = req.params.scheduleId as string;
 
-      // Validate input
+      await availabilityService.validateScheduleOwnership(
+        scheduleId,
+        user.userId,
+      );
+
       const validatedData = createBatchRecurringAvailabilitySchema.parse(
         req.body,
       );
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Create batch recurring availability
       const availabilities =
         await availabilityService.createBatchRecurringAvailability(
-          orgMemberId,
+          scheduleId,
           validatedData.slots,
         );
 
@@ -90,26 +86,20 @@ export class AvailabilityController {
   }
 
   /**
-   * Get recurring availability patterns
+   * Get recurring availability patterns for a schedule
    */
   async getRecurringAvailability(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-      const queryMemberId = req.query.orgMemberId as string | undefined;
+      const scheduleId = req.params.scheduleId as string;
 
-      // Only allow viewing own availability or if admin
-      const targetMemberId = queryMemberId || org.orgMemberId;
-      if (
-        targetMemberId !== org.orgMemberId &&
-        !["ADMIN", "OWNER"].includes(org.accessLevel)
-      ) {
-        throw ErrorFactory.forbidden("Can only view your own availability");
-      }
+      await availabilityService.validateScheduleOwnership(
+        scheduleId,
+        user.userId,
+      );
 
-      // Get availability
       const availability =
-        await availabilityService.getRecurringAvailability(targetMemberId);
+        await availabilityService.getRecurringAvailability(scheduleId);
 
       apiResponse(res, {
         statusCode: 200,
@@ -130,22 +120,20 @@ export class AvailabilityController {
   ): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-      const { availabilityId } = req.params;
+      const scheduleId = req.params.scheduleId as string;
+      const availabilityId = req.params.availabilityId as string;
 
-      // Validate input
+      await availabilityService.validateScheduleOwnership(
+        scheduleId,
+        user.userId,
+      );
+
       const validatedData = updateRecurringAvailabilitySchema.parse(req.body);
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Update availability
       const availability =
         await availabilityService.updateRecurringAvailability({
           availabilityId,
-          orgMemberId: orgMemberId,
+          scheduleId,
           ...validatedData,
         });
 
@@ -168,10 +156,14 @@ export class AvailabilityController {
   ): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-      const { availabilityId } = req.params;
+      const scheduleId = req.params.scheduleId as string;
+      const availabilityId = req.params.availabilityId as string;
 
-      // Delete availability
+      await availabilityService.validateScheduleOwnership(
+        scheduleId,
+        user.userId,
+      );
+
       const availability =
         await availabilityService.deleteRecurringAvailability(availabilityId);
 
@@ -186,31 +178,29 @@ export class AvailabilityController {
   }
 
   /**
-   * Create custom slot
+   * Create override (custom slot) for specific date
    */
-  async createCustomSlot(req: Request, res: Response): Promise<void> {
+  async createOverride(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
+      const scheduleId = req.params.scheduleId as string;
 
-      // Validate input
-      const validatedData = createCustomSlotSchema.parse(req.body);
+      await availabilityService.validateScheduleOwnership(
+        scheduleId,
+        user.userId,
+      );
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
+      const validatedData = createOverrideSchema.parse(req.body);
 
-      // Create custom slot
-      const customSlot = await availabilityService.createCustomSlot({
-        orgMemberId: orgMemberId,
+      const override = await availabilityService.createOverride({
+        scheduleId,
         ...validatedData,
       });
 
       apiResponse(res, {
         statusCode: 201,
-        message: "Custom slot created successfully",
-        data: customSlot,
+        message: "Override created successfully",
+        data: override,
       });
     } catch (error) {
       globalErrorHandler(error as Error, req, res);
@@ -218,48 +208,43 @@ export class AvailabilityController {
   }
 
   /**
-   * Get custom slots
-   * Query params: startDate (optional), endDate (optional), orgMemberId (optional)
-   * If no dates provided, returns all custom slots
+   * Get overrides for date range
    */
-  async getCustomSlots(req: Request, res: Response): Promise<void> {
+  async getOverrides(req: Request, res: Response): Promise<void> {
     try {
-      const org = req.org as orgPayload;
+      const user = req.user as TokenPayload;
+      const scheduleId = req.params.scheduleId as string;
       const { startDate, endDate } = req.query;
-      const queryMemberId = req.query.orgMemberId as string | undefined;
-      const targetMemberId = queryMemberId || org.orgMemberId;
 
-      // Determine date range
+      await availabilityService.validateScheduleOwnership(
+        scheduleId,
+        user.userId,
+      );
+
       let start: Date;
       let end: Date;
 
       if (startDate && endDate) {
         start = new Date(startDate as string);
         end = new Date(endDate as string);
-
         if (isNaN(start.getTime()) || isNaN(end.getTime())) {
           throw ErrorFactory.validation("Invalid date format");
         }
-      } else if (startDate || endDate) {
-        throw ErrorFactory.validation(
-          "Both startDate and endDate must be provided together, or neither",
-        );
       } else {
         start = new Date(0);
         end = new Date("2099-12-31");
       }
 
-      // Get custom slots
-      const customSlots = await availabilityService.getCustomSlots(
-        targetMemberId,
+      const overrides = await availabilityService.getOverrides(
+        scheduleId,
         start,
         end,
       );
 
       apiResponse(res, {
         statusCode: 200,
-        message: "Custom slots retrieved successfully",
-        data: customSlots,
+        message: "Overrides retrieved successfully",
+        data: overrides,
       });
     } catch (error) {
       globalErrorHandler(error as Error, req, res);
@@ -267,19 +252,18 @@ export class AvailabilityController {
   }
 
   /**
-   * Delete custom slot
+   * Delete override
    */
-  async deleteCustomSlot(req: Request, res: Response): Promise<void> {
+  async deleteOverride(req: Request, res: Response): Promise<void> {
     try {
-      const { slotId } = req.params;
+      const slotId = req.params.slotId as string;
 
-      // Delete slot
-      const customSlot = await availabilityService.deleteCustomSlot(slotId);
+      const override = await availabilityService.deleteOverride(slotId);
 
       apiResponse(res, {
         statusCode: 200,
-        message: "Custom slot deleted successfully",
-        data: customSlot,
+        message: "Override deleted successfully",
+        data: override,
       });
     } catch (error) {
       globalErrorHandler(error as Error, req, res);
@@ -292,19 +276,17 @@ export class AvailabilityController {
   async createBlockedTime(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
+      const scheduleId = req.params.scheduleId as string;
 
-      // Validate input
+      await availabilityService.validateScheduleOwnership(
+        scheduleId,
+        user.userId,
+      );
+
       const validatedData = createBlockedTimeSchema.parse(req.body);
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Create blocked time
       const blockedTime = await availabilityService.createBlockedTime({
-        orgMemberId: orgMemberId,
+        scheduleId,
         ...validatedData,
       });
 
@@ -320,39 +302,34 @@ export class AvailabilityController {
 
   /**
    * Get blocked times
-   * Query params: startDate (optional), endDate (optional), orgMemberId (optional)
-   * If no dates provided, returns all blocked times
    */
   async getBlockedTimes(req: Request, res: Response): Promise<void> {
     try {
-      const org = req.org as orgPayload;
+      const user = req.user as TokenPayload;
+      const scheduleId = req.params.scheduleId as string;
       const { startDate, endDate } = req.query;
-      const queryMemberId = req.query.orgMemberId as string | undefined;
-      const targetMemberId = queryMemberId || org.orgMemberId;
 
-      // Determine date range
+      await availabilityService.validateScheduleOwnership(
+        scheduleId,
+        user.userId,
+      );
+
       let start: Date;
       let end: Date;
 
       if (startDate && endDate) {
         start = new Date(startDate as string);
         end = new Date(endDate as string);
-
         if (isNaN(start.getTime()) || isNaN(end.getTime())) {
           throw ErrorFactory.validation("Invalid date format");
         }
-      } else if (startDate || endDate) {
-        throw ErrorFactory.validation(
-          "Both startDate and endDate must be provided together, or neither",
-        );
       } else {
         start = new Date(0);
         end = new Date("2099-12-31");
       }
 
-      // Get blocked times
       const blockedTimes = await availabilityService.getBlockedTimes(
-        targetMemberId,
+        scheduleId,
         start,
         end,
       );
@@ -372,9 +349,8 @@ export class AvailabilityController {
    */
   async deleteBlockedTime(req: Request, res: Response): Promise<void> {
     try {
-      const { blockedTimeId } = req.params;
+      const blockedTimeId = req.params.blockedTimeId as string;
 
-      // Delete blocked time
       const blockedTime =
         await availabilityService.deleteBlockedTime(blockedTimeId);
 
@@ -389,23 +365,20 @@ export class AvailabilityController {
   }
 
   /**
-   * Get available slots for an org member
+   * Get available slots for a schedule
    */
   async getAvailableSlots(req: Request, res: Response): Promise<void> {
     try {
-      const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-      const { orgMemberId } = req.params;
+      const scheduleId = req.params.scheduleId as string;
 
-      // Validate input
       const validatedData = getAvailableSlotsSchema.parse(req.query);
 
-      // Get available slots
       const slots = await availabilityService.getAvailableSlots(
-        orgMemberId,
+        scheduleId,
         validatedData.startDate,
         validatedData.endDate,
         validatedData.slotDuration,
+        validatedData.eventTypeId,
       );
 
       apiResponse(res, {

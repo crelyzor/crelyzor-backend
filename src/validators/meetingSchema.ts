@@ -18,11 +18,12 @@ export const createMeetingSchema = z
     timezone: z.string().default("UTC"),
     mode: z.enum(["ONLINE", "IN_PERSON"]),
     location: z.string().optional(),
-    participantMemberIds: z
+    participantUserIds: z
       .array(z.string().uuid("Invalid participant ID format"))
       .optional(),
     guestEmails: z.array(z.string().email("Invalid email format")).optional(),
     notes: z.string().optional(),
+    eventTypeId: z.string().uuid().optional(),
   })
   .refine((data) => data.startTime < data.endTime, {
     message: "Start time must be before end time",
@@ -30,12 +31,11 @@ export const createMeetingSchema = z
   })
   .refine(
     (data) =>
-      (data.participantMemberIds && data.participantMemberIds.length > 0) ||
+      (data.participantUserIds && data.participantUserIds.length > 0) ||
       (data.guestEmails && data.guestEmails.length > 0),
     {
-      message:
-        "At least one participant (org member or external guest) is required",
-      path: ["participantMemberIds"],
+      message: "At least one participant (user or external guest) is required",
+      path: ["participantUserIds"],
     },
   );
 
@@ -61,10 +61,10 @@ export const requestMeetingSchema = z
     timezone: z.string().default("UTC"),
     mode: z.enum(["ONLINE", "IN_PERSON"]),
     location: z.string().optional(),
-    participantMemberIds: z
+    participantUserIds: z
       .array(z.string().uuid("Invalid participant ID format"))
       .optional(),
-    orgMemberId: z.string().uuid("Invalid member ID format").optional(),
+    targetUserId: z.string().uuid("Invalid user ID format"),
     notes: z.string().optional(),
   })
   .refine((data) => data.startTime < data.endTime, {
@@ -181,7 +181,7 @@ export const updateMeetingSchema = z
     timezone: z.string().optional(),
     mode: z.enum(["ONLINE", "IN_PERSON"]).optional(),
     location: z.string().optional(),
-    participantMemberIds: z
+    participantUserIds: z
       .array(z.string().uuid("Invalid participant ID format"))
       .optional(),
     guestEmails: z.array(z.string().email("Invalid email format")).optional(),

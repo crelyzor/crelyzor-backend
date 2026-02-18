@@ -1,174 +1,87 @@
 import { Router } from "express";
 import { verifyJWT } from "../middleware/authMiddleware";
-import { resolveOrgContext } from "../middleware/resolveOrgContext";
-import { requireRole } from "../middleware/roleMiddleware";
-import { UserRoleEnum } from "@prisma/client";
 import { availabilityController } from "../controllers/availabilityController";
 
 const availabilityRouter = Router();
 
-// All routes require authentication
+// All routes require authentication only (no org context)
 availabilityRouter.use(verifyJWT);
-availabilityRouter.use(resolveOrgContext);
 
-/**
- * Recurring Availability Routes
- */
+// ========================================
+// Recurring Availability (schedule-scoped)
+// ========================================
 
-/**
- * POST /api/v1/availability/recurring
- * Create recurring availability pattern (e.g., Mon-Fri 4-7 PM)
- * Requires: MANAGE_MEETING permission
- */
-availabilityRouter.post(
-  "/recurring",
-  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
-  (req, res) => availabilityController.createRecurringAvailability(req, res),
+/** POST /api/v1/availability/:scheduleId/recurring */
+availabilityRouter.post("/:scheduleId/recurring", (req, res) =>
+  availabilityController.createRecurringAvailability(req, res),
 );
 
-/**
- * POST /api/v1/availability/recurring/batch
- * Create multiple recurring availability patterns in one request
- * Accepts array of slots with different days and times
- * Requires: MANAGE_MEETING permission
- */
-availabilityRouter.post(
-  "/recurring/batch",
-  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
-  (req, res) =>
-    availabilityController.createBatchRecurringAvailability(req, res),
+/** POST /api/v1/availability/:scheduleId/recurring/batch */
+availabilityRouter.post("/:scheduleId/recurring/batch", (req, res) =>
+  availabilityController.createBatchRecurringAvailability(req, res),
 );
 
-/**
- * GET /api/v1/availability/recurring
- * Get recurring availability patterns for an org member
- * Requires: MANAGE_MEETING permission
- * Query params: orgMemberId (optional, defaults to current user)
- */
-availabilityRouter.get(
-  "/recurring",
-  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
-  (req, res) => availabilityController.getRecurringAvailability(req, res),
+/** GET /api/v1/availability/:scheduleId/recurring */
+availabilityRouter.get("/:scheduleId/recurring", (req, res) =>
+  availabilityController.getRecurringAvailability(req, res),
 );
 
-/**
- * PUT /api/v1/availability/recurring/:availabilityId
- * Update recurring availability pattern
- * Requires: MANAGE_MEETING permission
- */
-availabilityRouter.put(
-  "/recurring/:availabilityId",
-  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
-  (req, res) => availabilityController.updateRecurringAvailability(req, res),
+/** PUT /api/v1/availability/:scheduleId/recurring/:availabilityId */
+availabilityRouter.put("/:scheduleId/recurring/:availabilityId", (req, res) =>
+  availabilityController.updateRecurringAvailability(req, res),
 );
 
-/**
- * DELETE /api/v1/availability/recurring/:availabilityId
- * Delete recurring availability pattern
- * Requires: MANAGE_MEETING permission
- */
+/** DELETE /api/v1/availability/:scheduleId/recurring/:availabilityId */
 availabilityRouter.delete(
-  "/recurring/:availabilityId",
-  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
+  "/:scheduleId/recurring/:availabilityId",
   (req, res) => availabilityController.deleteRecurringAvailability(req, res),
 );
 
-/**
- * Custom Slot Routes
- */
+// ========================================
+// Overrides / Custom Slots (schedule-scoped)
+// ========================================
 
-/**
- * POST /api/v1/availability/custom
- * Create custom slot for specific date (overrides recurring availability)
- * Requires: MANAGE_MEETING permission
- */
-availabilityRouter.post(
-  "/custom",
-  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
-  (req, res) => availabilityController.createCustomSlot(req, res),
+/** POST /api/v1/availability/:scheduleId/overrides */
+availabilityRouter.post("/:scheduleId/overrides", (req, res) =>
+  availabilityController.createOverride(req, res),
 );
 
-/**
- * GET /api/v1/availability/custom
- * Get custom slots for date range
- * Requires: MANAGE_MEETING permission
- * Query params: startDate, endDate, orgMemberId (optional)
- */
-availabilityRouter.get(
-  "/custom",
-  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
-  (req, res) => availabilityController.getCustomSlots(req, res),
+/** GET /api/v1/availability/:scheduleId/overrides */
+availabilityRouter.get("/:scheduleId/overrides", (req, res) =>
+  availabilityController.getOverrides(req, res),
 );
 
-/**
- * DELETE /api/v1/availability/custom/:slotId
- * Delete custom slot
- * Requires: MANAGE_MEETING permission
- */
-availabilityRouter.delete(
-  "/custom/:slotId",
-  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
-  (req, res) => availabilityController.deleteCustomSlot(req, res),
+/** DELETE /api/v1/availability/:scheduleId/overrides/:slotId */
+availabilityRouter.delete("/:scheduleId/overrides/:slotId", (req, res) =>
+  availabilityController.deleteOverride(req, res),
 );
 
-/**
- * Blocked Time Routes
- */
+// ========================================
+// Blocked Times (schedule-scoped)
+// ========================================
 
-/**
- * POST /api/v1/availability/blocked
- * Create blocked time (unavailability, exceptions, holidays)
- * Supports recurring (WEEKLY, MONTHLY)
- * Requires: MANAGE_MEETING permission
- */
-availabilityRouter.post(
-  "/blocked",
-  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
-  (req, res) => availabilityController.createBlockedTime(req, res),
+/** POST /api/v1/availability/:scheduleId/blocked */
+availabilityRouter.post("/:scheduleId/blocked", (req, res) =>
+  availabilityController.createBlockedTime(req, res),
 );
 
-/**
- * GET /api/v1/availability/blocked
- * Get blocked times for date range
- * Requires: MANAGE_MEETING permission
- * Query params: startDate, endDate, orgMemberId (optional)
- */
-availabilityRouter.get(
-  "/blocked",
-  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
-  (req, res) => availabilityController.getBlockedTimes(req, res),
+/** GET /api/v1/availability/:scheduleId/blocked */
+availabilityRouter.get("/:scheduleId/blocked", (req, res) =>
+  availabilityController.getBlockedTimes(req, res),
 );
 
-/**
- * DELETE /api/v1/availability/blocked/:blockedTimeId
- * Delete blocked time
- * Requires: MANAGE_MEETING permission
- */
-availabilityRouter.delete(
-  "/blocked/:blockedTimeId",
-  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
-  (req, res) => availabilityController.deleteBlockedTime(req, res),
+/** DELETE /api/v1/availability/:scheduleId/blocked/:blockedTimeId */
+availabilityRouter.delete("/:scheduleId/blocked/:blockedTimeId", (req, res) =>
+  availabilityController.deleteBlockedTime(req, res),
 );
 
-/**
- * Available Slots Route
- */
+// ========================================
+// Available Slots (schedule-scoped)
+// ========================================
 
-/**
- * GET /api/v1/availability/slots/:orgMemberId
- * Get available slots for an org member
- * Complex algorithm combining:
- * - Recurring availability patterns
- * - Custom slots (override recurring)
- * - Excluded blocked times (including recurring)
- * - Excluded existing meetings
- * Requires: MANAGE_MEETING permission
- * Query params: startDate, endDate, slotDuration (optional, default 30 minutes)
- */
-availabilityRouter.get(
-  "/slots/:orgMemberId",
-  requireRole([UserRoleEnum.OWNER, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER]),
-  (req, res) => availabilityController.getAvailableSlots(req, res),
+/** GET /api/v1/availability/:scheduleId/slots */
+availabilityRouter.get("/:scheduleId/slots", (req, res) =>
+  availabilityController.getAvailableSlots(req, res),
 );
 
 export default availabilityRouter;

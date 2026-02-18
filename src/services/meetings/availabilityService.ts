@@ -1,47 +1,43 @@
 import prisma from "../../db/prismaClient";
 import { ErrorFactory } from "../../utils/globalErrorHandler";
 import {
-  MemberAvailability,
-  MemberCustomSlot,
-  MemberBlockedTime,
+  ScheduleAvailability,
+  ScheduleOverride,
+  ScheduleBlockedTime,
   RecurrenceRule,
 } from "@prisma/client";
 
 export interface CreateRecurringAvailabilityDTO {
-  orgMemberId: string;
+  scheduleId: string;
   dayOfWeek: string;
   startTime: string; // "HH:MM"
   endTime: string; // "HH:MM"
-  timezone?: string;
 }
 
 export interface RecurringAvailabilitySlotDTO {
   dayOfWeek: string;
   startTime: string; // "HH:MM"
   endTime: string; // "HH:MM"
-  timezone?: string;
 }
 
 export interface UpdateRecurringAvailabilityDTO {
   availabilityId: string;
-  orgMemberId: string;
-  dayOfWeek?: string; // Optional for updates
-  startTime?: string; // Optional for updates
-  endTime?: string; // Optional for updates
-  timezone?: string;
+  scheduleId: string;
+  dayOfWeek?: string;
+  startTime?: string;
+  endTime?: string;
 }
 
-export interface CreateCustomSlotDTO {
-  orgMemberId: string;
+export interface CreateOverrideDTO {
+  scheduleId: string;
   date: Date;
   startTime: string; // "HH:MM"
   endTime: string; // "HH:MM"
-  timezone?: string;
   notes?: string;
 }
 
 export interface CreateBlockedTimeDTO {
-  orgMemberId: string;
+  scheduleId: string;
   startTime: Date;
   endTime: Date;
   reason?: string;
@@ -58,45 +54,53 @@ const TIME_REGEX = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
 
 export const availabilityService = {
   /**
+   * Validate that a schedule exists and return its userId
+   */
+  async validateScheduleOwnership(
+    scheduleId: string,
+    userId: string,
+  ): Promise<void> {
+    const schedule = await prisma.availabilitySchedule.findUnique({
+      where: { id: scheduleId },
+    });
+
+    if (!schedule) {
+      throw ErrorFactory.notFound("Schedule");
+    }
+
+    if (schedule.userId !== userId) {
+      throw ErrorFactory.forbidden("Cannot access another user's schedule");
+    }
+  },
+
+  /**
    * Create recurring availability pattern
    */
   async createRecurringAvailability(
     data: CreateRecurringAvailabilityDTO,
-  ): Promise<MemberAvailability> {
-    const {
-      orgMemberId,
-      dayOfWeek,
-      startTime,
-      endTime,
-      timezone = "UTC",
-    } = data;
+  ): Promise<ScheduleAvailability> {
+    const { scheduleId, dayOfWeek, startTime, endTime } = data;
 
     // Validate time format
     if (!TIME_REGEX.test(startTime) || !TIME_REGEX.test(endTime)) {
       throw ErrorFactory.validation("Time format must be HH:MM");
     }
 
-    // Validate time range
     if (startTime >= endTime) {
       throw ErrorFactory.validation("Start time must be before end time");
     }
 
-    // Validate org member exists
-    const member = await prisma.organizationMember.findUnique({
-      where: { id: orgMemberId },
+    // Validate schedule exists
+    const schedule = await prisma.availabilitySchedule.findUnique({
+      where: { id: scheduleId },
     });
-
-    if (!member) {
-      throw ErrorFactory.notFound("Organization member");
+    if (!schedule) {
+      throw ErrorFactory.notFound("Schedule");
     }
 
     // Check for overlaps on same day
-    const existing = await prisma.memberAvailability.findMany({
-      where: {
-        orgMemberId,
-        dayOfWeek: dayOfWeek as any,
-        isActive: true,
-      },
+    const existing = await prisma.scheduleAvailability.findMany({
+      where: { scheduleId, dayOfWeek: dayOfWeek as any, isActive: true },
     });
 
     for (const slot of existing) {
@@ -110,20 +114,18 @@ export const availabilityService = {
     }
 
     try {
-      return await prisma.memberAvailability.create({
+      return await prisma.scheduleAvailability.create({
         data: {
-          orgMemberId,
+          scheduleId,
           dayOfWeek: dayOfWeek as any,
           startTime,
           endTime,
-          timezone,
         },
       });
     } catch (error: any) {
-      // Handle unique constraint violation
-      if (error.code === "P2002" && error.meta?.target?.includes("dayOfWeek")) {
+      if (error.code === "P2002") {
         throw ErrorFactory.conflict(
-          `An availability slot already exists for ${dayOfWeek} from ${startTime} to ${endTime}. Please delete the existing slot first or choose a different time.`,
+          `An availability slot already exists for ${dayOfWeek} from ${startTime} to ${endTime}.`,
         );
       }
       throw error;
@@ -134,40 +136,28 @@ export const availabilityService = {
    * Create multiple recurring availability patterns in batch
    */
   async createBatchRecurringAvailability(
-    orgMemberId: string,
+    scheduleId: string,
     slots: RecurringAvailabilitySlotDTO[],
-  ): Promise<MemberAvailability[]> {
-    // Validate org member exists
-    const member = await prisma.organizationMember.findUnique({
-      where: { id: orgMemberId },
+  ): Promise<ScheduleAvailability[]> {
+    // Validate schedule exists
+    const schedule = await prisma.availabilitySchedule.findUnique({
+      where: { id: scheduleId },
     });
-
-    if (!member) {
-      throw ErrorFactory.notFound("Organization member");
+    if (!schedule) {
+      throw ErrorFactory.notFound("Schedule");
     }
 
-    // Validate all slots for format and overlaps
+    // Validate all slots
     for (const slot of slots) {
-      // Validate time format
       if (!TIME_REGEX.test(slot.startTime) || !TIME_REGEX.test(slot.endTime)) {
         throw ErrorFactory.validation("Time format must be HH:MM");
       }
-
-      // Validate time range
       if (slot.startTime >= slot.endTime) {
         throw ErrorFactory.validation("Start time must be before end time");
       }
     }
 
-    // Check for overlaps within the batch and with existing availability
-    const existingAvailability = await prisma.memberAvailability.findMany({
-      where: {
-        orgMemberId,
-        isActive: true,
-      },
-    });
-
-    // Check overlaps within the batch itself for the same day
+    // Check overlaps within the batch
     for (let i = 0; i < slots.length; i++) {
       for (let j = i + 1; j < slots.length; j++) {
         if (slots[i].dayOfWeek === slots[j].dayOfWeek) {
@@ -188,6 +178,10 @@ export const availabilityService = {
     }
 
     // Check overlaps with existing availability
+    const existingAvailability = await prisma.scheduleAvailability.findMany({
+      where: { scheduleId, isActive: true },
+    });
+
     for (const slot of slots) {
       for (const existing of existingAvailability) {
         if (slot.dayOfWeek === existing.dayOfWeek) {
@@ -207,28 +201,23 @@ export const availabilityService = {
       }
     }
 
-    // Create all slots with proper error handling
     try {
-      const createdSlots = await Promise.all(
+      return await Promise.all(
         slots.map((slot) =>
-          prisma.memberAvailability.create({
+          prisma.scheduleAvailability.create({
             data: {
-              orgMemberId,
+              scheduleId,
               dayOfWeek: slot.dayOfWeek as any,
               startTime: slot.startTime,
               endTime: slot.endTime,
-              timezone: slot.timezone || "UTC",
             },
           }),
         ),
       );
-
-      return createdSlots;
     } catch (error: any) {
-      // Handle unique constraint violation
-      if (error.code === "P2002" && error.meta?.target?.includes("dayOfWeek")) {
+      if (error.code === "P2002") {
         throw ErrorFactory.conflict(
-          "One or more availability slots already exist with the same day and time. Please delete conflicting slots first or choose different times.",
+          "One or more availability slots already exist with the same day and time.",
         );
       }
       throw error;
@@ -236,16 +225,13 @@ export const availabilityService = {
   },
 
   /**
-   * Get recurring availability patterns for an org member
+   * Get recurring availability patterns for a schedule
    */
   async getRecurringAvailability(
-    orgMemberId: string,
-  ): Promise<MemberAvailability[]> {
-    return prisma.memberAvailability.findMany({
-      where: {
-        orgMemberId,
-        isActive: true,
-      },
+    scheduleId: string,
+  ): Promise<ScheduleAvailability[]> {
+    return prisma.scheduleAvailability.findMany({
+      where: { scheduleId, isActive: true },
       orderBy: { dayOfWeek: "asc" },
     });
   },
@@ -255,60 +241,43 @@ export const availabilityService = {
    */
   async updateRecurringAvailability(
     data: UpdateRecurringAvailabilityDTO,
-  ): Promise<MemberAvailability> {
-    const {
-      availabilityId,
-      orgMemberId,
-      startTime,
-      endTime,
-      dayOfWeek,
-      timezone,
-    } = data;
+  ): Promise<ScheduleAvailability> {
+    const { availabilityId, scheduleId, startTime, endTime, dayOfWeek } = data;
 
-    // Validate time format if times are provided
     if (startTime && !TIME_REGEX.test(startTime)) {
       throw ErrorFactory.validation("Start time format must be HH:MM");
     }
     if (endTime && !TIME_REGEX.test(endTime)) {
       throw ErrorFactory.validation("End time format must be HH:MM");
     }
-
-    // Validate time range if both times provided
     if (startTime && endTime && startTime >= endTime) {
       throw ErrorFactory.validation("Start time must be before end time");
     }
 
-    // Validate ownership
-    const existing = await prisma.memberAvailability.findUnique({
+    const existing = await prisma.scheduleAvailability.findUnique({
       where: { id: availabilityId },
     });
 
-    if (!existing || existing.orgMemberId !== orgMemberId) {
+    if (!existing || existing.scheduleId !== scheduleId) {
       throw ErrorFactory.forbidden(
-        "Cannot update availability for another member",
+        "Cannot update availability for another schedule",
       );
     }
 
-    // Build update data with only provided fields
     const updateData: any = {};
     if (dayOfWeek) updateData.dayOfWeek = dayOfWeek;
     if (startTime) updateData.startTime = startTime;
     if (endTime) updateData.endTime = endTime;
-    if (timezone) updateData.timezone = timezone;
 
     try {
-      return await prisma.memberAvailability.update({
+      return await prisma.scheduleAvailability.update({
         where: { id: availabilityId },
         data: updateData,
       });
     } catch (error: any) {
-      // Handle unique constraint violation
-      if (error.code === "P2002" && error.meta?.target?.includes("dayOfWeek")) {
-        const day = dayOfWeek || existing.dayOfWeek;
-        const start = startTime || existing.startTime;
-        const end = endTime || existing.endTime;
+      if (error.code === "P2002") {
         throw ErrorFactory.conflict(
-          `An availability slot already exists for ${day} from ${start} to ${end}. Please choose a different time or delete the existing slot.`,
+          `An availability slot already exists for that day and time.`,
         );
       }
       throw error;
@@ -320,28 +289,18 @@ export const availabilityService = {
    */
   async deleteRecurringAvailability(
     availabilityId: string,
-  ): Promise<MemberAvailability> {
-    const deleted = await prisma.memberAvailability.delete({
+  ): Promise<ScheduleAvailability> {
+    return prisma.scheduleAvailability.delete({
       where: { id: availabilityId },
     });
-
-    return deleted;
   },
 
   /**
-   * Create custom slot for specific date
+   * Create override (custom slot) for specific date
    */
-  async createCustomSlot(data: CreateCustomSlotDTO): Promise<MemberCustomSlot> {
-    const {
-      orgMemberId,
-      date,
-      startTime,
-      endTime,
-      timezone = "UTC",
-      notes,
-    } = data;
+  async createOverride(data: CreateOverrideDTO): Promise<ScheduleOverride> {
+    const { scheduleId, date, startTime, endTime, notes } = data;
 
-    // Validate time format
     if (!TIME_REGEX.test(startTime) || !TIME_REGEX.test(endTime)) {
       throw ErrorFactory.validation("Time format must be HH:MM");
     }
@@ -350,19 +309,17 @@ export const availabilityService = {
       throw ErrorFactory.validation("Start time must be before end time");
     }
 
-    // Validate org member exists
-    const member = await prisma.organizationMember.findUnique({
-      where: { id: orgMemberId },
+    const schedule = await prisma.availabilitySchedule.findUnique({
+      where: { id: scheduleId },
     });
-
-    if (!member) {
-      throw ErrorFactory.notFound("Organization member");
+    if (!schedule) {
+      throw ErrorFactory.notFound("Schedule");
     }
 
     // Check for overlaps on same date
-    const existing = await prisma.memberCustomSlot.findMany({
+    const existing = await prisma.scheduleOverride.findMany({
       where: {
-        orgMemberId,
+        scheduleId,
         date: {
           gte: new Date(date.getFullYear(), date.getMonth(), date.getDate()),
           lt: new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1),
@@ -376,52 +333,38 @@ export const availabilityService = {
         this.timeRangesOverlap(startTime, endTime, slot.startTime, slot.endTime)
       ) {
         throw ErrorFactory.conflict(
-          "Time slot overlaps with existing custom slot",
+          "Time slot overlaps with existing override",
         );
       }
     }
 
-    return prisma.memberCustomSlot.create({
-      data: {
-        orgMemberId,
-        date,
-        startTime,
-        endTime,
-        timezone,
-        notes,
-      },
+    return prisma.scheduleOverride.create({
+      data: { scheduleId, date, startTime, endTime, notes },
     });
   },
 
   /**
-   * Get custom slots for date range
+   * Get overrides for date range
    */
-  async getCustomSlots(
-    orgMemberId: string,
+  async getOverrides(
+    scheduleId: string,
     startDate: Date,
     endDate: Date,
-  ): Promise<MemberCustomSlot[]> {
-    return prisma.memberCustomSlot.findMany({
+  ): Promise<ScheduleOverride[]> {
+    return prisma.scheduleOverride.findMany({
       where: {
-        orgMemberId,
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
+        scheduleId,
+        date: { gte: startDate, lte: endDate },
       },
       orderBy: { date: "asc" },
     });
   },
 
   /**
-   * Delete custom slot (hard delete)
+   * Delete override (hard delete)
    */
-  async deleteCustomSlot(slotId: string): Promise<MemberCustomSlot> {
-    const deleted = await prisma.memberCustomSlot.delete({
-      where: { id: slotId },
-    });
-
-    return deleted;
+  async deleteOverride(slotId: string): Promise<ScheduleOverride> {
+    return prisma.scheduleOverride.delete({ where: { id: slotId } });
   },
 
   /**
@@ -429,9 +372,9 @@ export const availabilityService = {
    */
   async createBlockedTime(
     data: CreateBlockedTimeDTO,
-  ): Promise<MemberBlockedTime> {
+  ): Promise<ScheduleBlockedTime> {
     const {
-      orgMemberId,
+      scheduleId,
       startTime,
       endTime,
       reason,
@@ -439,23 +382,20 @@ export const availabilityService = {
       recurrenceEnd,
     } = data;
 
-    // Validate time range
     if (startTime >= endTime) {
       throw ErrorFactory.validation("Start time must be before end time");
     }
 
-    // Validate org member exists
-    const member = await prisma.organizationMember.findUnique({
-      where: { id: orgMemberId },
+    const schedule = await prisma.availabilitySchedule.findUnique({
+      where: { id: scheduleId },
     });
-
-    if (!member) {
-      throw ErrorFactory.notFound("Organization member");
+    if (!schedule) {
+      throw ErrorFactory.notFound("Schedule");
     }
 
-    return prisma.memberBlockedTime.create({
+    return prisma.scheduleBlockedTime.create({
       data: {
-        orgMemberId,
+        scheduleId,
         startTime,
         endTime,
         reason,
@@ -469,13 +409,13 @@ export const availabilityService = {
    * Get blocked times for date range
    */
   async getBlockedTimes(
-    orgMemberId: string,
+    scheduleId: string,
     startDate: Date,
     endDate: Date,
-  ): Promise<MemberBlockedTime[]> {
-    return prisma.memberBlockedTime.findMany({
+  ): Promise<ScheduleBlockedTime[]> {
+    return prisma.scheduleBlockedTime.findMany({
       where: {
-        orgMemberId,
+        scheduleId,
         OR: [
           {
             startTime: { lte: endDate },
@@ -490,92 +430,137 @@ export const availabilityService = {
   /**
    * Delete blocked time (hard delete)
    */
-  async deleteBlockedTime(blockedTimeId: string): Promise<MemberBlockedTime> {
-    const deleted = await prisma.memberBlockedTime.delete({
+  async deleteBlockedTime(blockedTimeId: string): Promise<ScheduleBlockedTime> {
+    return prisma.scheduleBlockedTime.delete({
       where: { id: blockedTimeId },
     });
-
-    return deleted;
   },
 
   /**
-   * Calculate available slots for org member
+   * Calculate available slots for a schedule
+   *
    * Algorithm:
    * 1. Get recurring availability for each day
    * 2. Override with custom slots if exist for date
-   * 3. Generate 30-min chunks from availability windows
-   * 4. Exclude overlaps with meetings and blocked times
+   * 3. Generate time chunks from availability windows
+   * 4. Exclude overlaps with meetings (across ALL user contexts), blocked times, and Google Calendar events
+   * 5. When eventTypeId provided: apply buffer, minNotice, maxAdvance
    */
   async getAvailableSlots(
-    orgMemberId: string,
+    scheduleId: string,
     startDate: Date,
     endDate: Date,
-    slotDuration: number = 30, // minutes
+    slotDuration: number = 30,
+    eventTypeId?: string,
   ): Promise<AvailableSlot[]> {
     const availableSlots: AvailableSlot[] = [];
 
-    // Validate org member exists
-    const member = await prisma.organizationMember.findUnique({
-      where: { id: orgMemberId },
+    // Get schedule and its user
+    const schedule = await prisma.availabilitySchedule.findUnique({
+      where: { id: scheduleId },
     });
 
-    if (!member) {
-      throw ErrorFactory.notFound("Organization member");
+    if (!schedule) {
+      throw ErrorFactory.notFound("Schedule");
+    }
+
+    const userId = schedule.userId;
+
+    // Apply event type constraints if provided
+    let bufferBefore = 0;
+    let bufferAfter = 0;
+    let effectiveSlotDuration = slotDuration;
+
+    if (eventTypeId) {
+      const eventType = await prisma.eventType.findUnique({
+        where: { id: eventTypeId },
+      });
+      if (eventType) {
+        effectiveSlotDuration = eventType.duration;
+        bufferBefore = eventType.bufferBefore;
+        bufferAfter = eventType.bufferAfter;
+
+        // Apply minNotice (hours)
+        const minNoticeDate = new Date(
+          Date.now() + eventType.minNotice * 60 * 60 * 1000,
+        );
+        if (startDate < minNoticeDate) {
+          startDate = minNoticeDate;
+        }
+
+        // Apply maxAdvance (days)
+        const maxAdvanceDate = new Date(
+          Date.now() + eventType.maxAdvance * 24 * 60 * 60 * 1000,
+        );
+        if (endDate > maxAdvanceDate) {
+          endDate = maxAdvanceDate;
+        }
+      }
     }
 
     // Get recurring availability patterns
     const recurringAvailability =
-      await this.getRecurringAvailability(orgMemberId);
+      await this.getRecurringAvailability(scheduleId);
 
-    // Get custom slots
-    const customSlots = await this.getCustomSlots(
-      orgMemberId,
-      startDate,
-      endDate,
-    );
+    // Get overrides (custom slots)
+    const overrides = await this.getOverrides(scheduleId, startDate, endDate);
 
     // Get blocked times
     const blockedTimes = await this.getBlockedTimes(
-      orgMemberId,
+      scheduleId,
       startDate,
       endDate,
     );
 
-    // Get existing meetings
+    // Get existing meetings for this user across ALL contexts
     const existingMeetings = await prisma.meeting.findMany({
       where: {
         isDeleted: false,
-        status: { in: ["ACCEPTED", "PENDING_ACCEPTANCE"] },
-        participants: {
-          some: {
-            orgMemberId: orgMemberId,
-          },
-        },
-        startTime: { gte: startDate, lte: endDate },
+        status: { in: ["ACCEPTED", "PENDING_ACCEPTANCE", "CREATED"] },
+        OR: [
+          // Meetings user created
+          { createdById: userId },
+          // Meetings user participates in
+          { participants: { some: { userId } } },
+        ],
+        startTime: { lte: endDate },
+        endTime: { gte: startDate },
+      },
+    });
+
+    // Get Google Calendar events for this user
+    const googleEvents = await prisma.googleCalendarEvent.findMany({
+      where: {
+        userId,
+        startTime: { lte: endDate },
+        endTime: { gte: startDate },
+        status: { not: "cancelled" },
       },
     });
 
     // Iterate through each day
     const current = new Date(startDate);
+    current.setHours(0, 0, 0, 0);
+
     while (current <= endDate) {
-      const dayOfWeekNum = current.getDay(); // 0 = Sunday
+      const dayOfWeekNum = current.getDay();
       const dayOfWeek = this.getDayOfWeekName(dayOfWeekNum);
       const dateStr = current.toISOString().split("T")[0];
 
-      // Step 1: Check for custom slot for this date
-      const customSlot = customSlots.find((slot) => {
+      // Check for override on this date
+      const dateOverrides = overrides.filter((slot) => {
         const slotDate = slot.date.toISOString().split("T")[0];
         return slotDate === dateStr;
       });
 
       let availabilityWindows: Array<{ start: string; end: string }> = [];
 
-      if (customSlot) {
-        // Use custom slot
-        availabilityWindows.push({
-          start: customSlot.startTime,
-          end: customSlot.endTime,
-        });
+      if (dateOverrides.length > 0) {
+        // Use overrides for this date
+        availabilityWindows = dateOverrides.map((slot) => ({
+          start: slot.startTime,
+          end: slot.endTime,
+        }));
       } else {
         // Use recurring availability for this day
         const dayRecurring = recurringAvailability.filter(
@@ -587,7 +572,7 @@ export const availabilityService = {
         }));
       }
 
-      // Step 2: For each availability window, generate slots
+      // Generate slots for each availability window
       for (const window of availabilityWindows) {
         const [windowStartHour, windowStartMin] = window.start
           .split(":")
@@ -595,45 +580,66 @@ export const availabilityService = {
         const [windowEndHour, windowEndMin] = window.end.split(":").map(Number);
 
         const windowStart = new Date(current);
-        windowStart.setHours(windowStartHour, windowStartMin, 0);
+        windowStart.setHours(windowStartHour, windowStartMin, 0, 0);
 
         const windowEnd = new Date(current);
-        windowEnd.setHours(windowEndHour, windowEndMin, 0);
+        windowEnd.setHours(windowEndHour, windowEndMin, 0, 0);
 
         // Generate chunks
         let slotStart = new Date(windowStart);
         while (slotStart < windowEnd) {
           const slotEnd = new Date(
-            slotStart.getTime() + slotDuration * 60 * 1000,
+            slotStart.getTime() + effectiveSlotDuration * 60 * 1000,
           );
 
-          // Check for conflicts
+          // Include buffer in conflict check
+          const bufferStart = new Date(
+            slotStart.getTime() - bufferBefore * 60 * 1000,
+          );
+          const bufferEnd = new Date(
+            slotEnd.getTime() + bufferAfter * 60 * 1000,
+          );
+
           let hasConflict = false;
 
-          // Check meeting conflicts
+          // Check meeting conflicts (with buffer)
           for (const meeting of existingMeetings) {
-            if (meeting.startTime < slotEnd && meeting.endTime > slotStart) {
+            if (
+              meeting.startTime < bufferEnd &&
+              meeting.endTime > bufferStart
+            ) {
               hasConflict = true;
               break;
             }
           }
 
-          // Check blocked time conflicts (including recurring)
+          // Check Google Calendar conflicts (with buffer)
           if (!hasConflict) {
-            for (const blocked of blockedTimes) {
-              const isBlocked = this.checkBlockedTimeOverlap(
-                blocked,
-                slotStart,
-                slotEnd,
-              );
-              if (isBlocked) {
+            for (const event of googleEvents) {
+              if (event.startTime < bufferEnd && event.endTime > bufferStart) {
                 hasConflict = true;
                 break;
               }
             }
           }
 
-          // Add slot if no conflicts
+          // Check blocked time conflicts
+          if (!hasConflict) {
+            for (const blocked of blockedTimes) {
+              if (
+                this.checkBlockedTimeOverlap(blocked, bufferStart, bufferEnd)
+              ) {
+                hasConflict = true;
+                break;
+              }
+            }
+          }
+
+          // Skip past slots
+          if (!hasConflict && slotStart < new Date()) {
+            hasConflict = true;
+          }
+
           if (!hasConflict && slotEnd <= windowEnd) {
             availableSlots.push({
               start: new Date(slotStart),
@@ -684,7 +690,7 @@ export const availabilityService = {
    * Helper: Check if blocked time (possibly recurring) overlaps with time slot
    */
   checkBlockedTimeOverlap(
-    blocked: MemberBlockedTime,
+    blocked: ScheduleBlockedTime,
     slotStart: Date,
     slotEnd: Date,
   ): boolean {
@@ -692,7 +698,6 @@ export const availabilityService = {
       return blocked.startTime < slotEnd && blocked.endTime > slotStart;
     }
 
-    // Check recurring instances
     let current = new Date(blocked.startTime);
     const duration = blocked.endTime.getTime() - blocked.startTime.getTime();
     const recurrenceEnd = blocked.recurrenceEnd || slotEnd;

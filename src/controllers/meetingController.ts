@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { TokenPayload } from "../types/authTypes";
-import { orgPayload } from "../types/orgTypes";
 import { ErrorFactory } from "../utils/globalErrorHandler";
 import { apiResponse } from "../utils/globalResponseHandler";
 import { globalErrorHandler } from "../utils/globalErrorHandler";
@@ -19,38 +18,22 @@ import {
 
 export class MeetingController {
   /**
-   * Consultant creates meeting with assigned students (auto-accepted)
+   * Create meeting (user-level)
    */
   async createMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-
-      // Validate input
       const validatedData = createMeetingSchema.parse(req.body);
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Create meeting
-      const meeting = await meetingService.createMeetingByConsultant({
-        organizationId: org.orgId,
-        createdById: orgMemberId,
-        createdByRole: org.accessLevel,
+      const meeting = await meetingService.createMeeting({
+        createdById: user.userId,
         ...validatedData,
       });
-
-      // Exclude async-populated fields from immediate response (will be populated async)
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { meetingLink, googleEventId, recordingLink, ...meetingData } =
-        meeting;
 
       apiResponse(res, {
         statusCode: 201,
         message: "Meeting created successfully",
-        data: meetingData,
+        data: meeting,
       });
     } catch (error) {
       globalErrorHandler(error as Error, req, res);
@@ -58,38 +41,24 @@ export class MeetingController {
   }
 
   /**
-   * Update meeting details (title, description, time, participants, etc.)
+   * Update meeting details
    */
   async updateMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-      const { meetingId } = req.params;
-
-      // Validate input
+      const meetingId = req.params.meetingId as string;
       const validatedData = updateMeetingSchema.parse(req.body);
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Update meeting
       const meeting = await meetingService.updateMeeting(
         meetingId,
-        orgMemberId,
+        user.userId,
         validatedData,
       );
-
-      // Exclude async-populated fields from immediate response
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { meetingLink, googleEventId, recordingLink, ...meetingData } =
-        meeting;
 
       apiResponse(res, {
         statusCode: 200,
         message: "Meeting updated successfully",
-        data: meetingData,
+        data: meeting,
       });
     } catch (error) {
       globalErrorHandler(error as Error, req, res);
@@ -97,39 +66,23 @@ export class MeetingController {
   }
 
   /**
-   * Student requests meeting from consultant (pending acceptance)
+   * Request meeting from another user
    */
   async requestMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-
-      // Validate input
       const validatedData = requestMeetingSchema.parse(req.body);
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Any member can request a meeting
-      // Request meeting
-      const meeting = await meetingService.requestMeetingByMember({
-        organizationId: org.orgId,
-        createdById: orgMemberId,
-        createdByRole: org.accessLevel,
+      const meeting = await meetingService.requestMeeting({
         ...validatedData,
+        createdById: user.userId,
+        targetUserId: validatedData.targetUserId,
       });
-
-      // Exclude async-populated fields from immediate response (will be populated async)
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { meetingLink, googleEventId, recordingLink, ...meetingData } =
-        meeting;
 
       apiResponse(res, {
         statusCode: 201,
         message: "Meeting request created successfully",
-        data: meetingData,
+        data: meeting,
       });
     } catch (error) {
       globalErrorHandler(error as Error, req, res);
@@ -142,22 +95,13 @@ export class MeetingController {
   async acceptMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-      const { meetingId } = req.params;
-
-      // Validate input
+      const meetingId = req.params.meetingId as string;
       const validatedData = meetingActionSchema.parse(req.body);
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Accept meeting
       const meeting = await meetingService.acceptMeeting({
         meetingId,
         newStatus: "ACCEPTED" as any,
-        requesterMemberId: orgMemberId,
+        requesterUserId: user.userId,
         reason: validatedData.reason,
       });
 
@@ -177,22 +121,13 @@ export class MeetingController {
   async declineMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-      const { meetingId } = req.params;
-
-      // Validate input
+      const meetingId = req.params.meetingId as string;
       const validatedData = meetingActionSchema.parse(req.body);
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Decline meeting
       const meeting = await meetingService.declineMeeting({
         meetingId,
         newStatus: "DECLINED" as any,
-        requesterMemberId: orgMemberId,
+        requesterUserId: user.userId,
         reason: validatedData.reason,
       });
 
@@ -212,22 +147,13 @@ export class MeetingController {
   async cancelMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-      const { meetingId } = req.params;
-
-      // Validate input
+      const meetingId = req.params.meetingId as string;
       const validatedData = meetingActionSchema.parse(req.body);
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Cancel meeting
       const meeting = await meetingService.cancelMeeting({
         meetingId,
         newStatus: "CANCELLED" as any,
-        requesterMemberId: orgMemberId,
+        requesterUserId: user.userId,
         reason: validatedData.reason,
       });
 
@@ -247,19 +173,12 @@ export class MeetingController {
   async completeMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-      const { meetingId } = req.params;
+      const meetingId = req.params.meetingId as string;
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Complete meeting
       const meeting = await meetingService.completeMeeting({
         meetingId,
         newStatus: "COMPLETED" as any,
-        requesterMemberId: orgMemberId,
+        requesterUserId: user.userId,
       });
 
       apiResponse(res, {
@@ -278,68 +197,21 @@ export class MeetingController {
   async proposeReschedule(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-      const { meetingId } = req.params;
-
-      // Validate input
+      const meetingId = req.params.meetingId as string;
       const validatedData = proposeMeetingRescheduleSchema.parse(req.body);
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Propose reschedule
       const rescheduleRequest = await meetingService.proposeReschedule({
         meetingId,
         proposedStartTime: validatedData.proposedStartTime,
         proposedEndTime: validatedData.proposedEndTime,
-        requestedByMemberId: orgMemberId,
+        requestedByUserId: user.userId,
         reason: validatedData.reason,
-      });
-
-      // Get updated meeting with all reschedule details
-      const updatedMeeting = await prisma.meeting.findUnique({
-        where: { id: meetingId },
-        include: {
-          participants: {
-            include: {
-              orgMember: {
-                include: {
-                  user: {
-                    select: {
-                      id: true,
-                      name: true,
-                      email: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-          stateHistory: true,
-          rescheduleRequests: true,
-          createdByMember: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                },
-              },
-            },
-          },
-        },
       });
 
       apiResponse(res, {
         statusCode: 201,
         message: "Reschedule proposal created successfully",
-        data: {
-          rescheduleRequest,
-          meeting: updatedMeeting,
-        },
+        data: rescheduleRequest,
       });
     } catch (error) {
       globalErrorHandler(error as Error, req, res);
@@ -351,7 +223,8 @@ export class MeetingController {
    */
   async respondToGuestInvitation(req: Request, res: Response): Promise<void> {
     try {
-      const { meetingId, guestEmail } = req.params;
+      const meetingId = req.params.meetingId as string;
+      const guestEmail = req.params.guestEmail as string;
 
       if (!meetingId || !guestEmail) {
         throw ErrorFactory.validation(
@@ -359,7 +232,6 @@ export class MeetingController {
         );
       }
 
-      // Determine if accept or decline based on the route path
       const isAccepted = req.path.includes("/accept");
 
       const result = await meetingService.respondToGuestInvitation(
@@ -384,15 +256,8 @@ export class MeetingController {
   async getRescheduleRequests(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-      const { meetingId } = req.params;
+      const meetingId = req.params.meetingId as string;
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Get meeting to verify user is a participant
       const meeting = await prisma.meeting.findUnique({
         where: { id: meetingId },
         include: { participants: true },
@@ -402,9 +267,8 @@ export class MeetingController {
         throw ErrorFactory.notFound("Meeting");
       }
 
-      // Verify user is a participant
       const isParticipant = meeting.participants.some(
-        (p) => p.orgMemberId === orgMemberId,
+        (p) => p.userId === user.userId,
       );
 
       if (!isParticipant) {
@@ -413,7 +277,6 @@ export class MeetingController {
         );
       }
 
-      // Get reschedule requests
       const rescheduleRequests =
         await meetingService.getRescheduleRequests(meetingId);
 
@@ -433,21 +296,12 @@ export class MeetingController {
   async respondToReschedule(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-      const { meetingId, requestId } = req.params;
-
-      // Validate input
+      const requestId = req.params.requestId as string;
       const validatedData = respondToRescheduleSchema.parse(req.body);
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Respond to reschedule
       const meeting = await meetingService.respondToReschedule({
         rescheduleRequestId: requestId,
-        respondedByMemberId: orgMemberId,
+        respondedByUserId: user.userId,
         accepted: validatedData.accepted,
         responseNotes: validatedData.responseNotes,
       });
@@ -470,19 +324,10 @@ export class MeetingController {
   async getMeetings(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-
-      // Validate input
       const validatedData = getMeetingsSchema.parse(req.query);
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Get meetings
       const meetings = await meetingService.getMeetings({
-        orgMemberId: orgMemberId,
+        userId: user.userId,
         status: validatedData.status as any,
         startDate: validatedData.startDate,
         endDate: validatedData.endDate,
@@ -516,19 +361,10 @@ export class MeetingController {
   ): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-
-      // Validate input
       const validatedData = getMeetingsWithoutPaginationSchema.parse(req.query);
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Get meetings
       const meetings = await meetingService.getMeetingsWithoutPagination({
-        orgMemberId: orgMemberId,
+        userId: user.userId,
         status: validatedData.status as any,
         startDate: validatedData.startDate,
         endDate: validatedData.endDate,
@@ -550,44 +386,35 @@ export class MeetingController {
   async getMeetingById(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
-      const { meetingId } = req.params;
+      const meetingId = req.params.meetingId as string;
 
-      const orgMemberId = org.orgMemberId;
-      if (!orgMemberId) {
-        throw ErrorFactory.forbidden("Organization member not found");
-      }
-
-      // Get meeting
       const meeting = await prisma.meeting.findUnique({
         where: { id: meetingId },
         include: {
           participants: {
-            include: {
-              orgMember: {
-                include: {
-                  user: {
-                    select: {
-                      id: true,
-                      name: true,
-                      email: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-          stateHistory: true,
-          rescheduleRequests: true,
-          createdByMember: {
             include: {
               user: {
                 select: {
                   id: true,
                   name: true,
                   email: true,
+                  avatarUrl: true,
                 },
               },
+            },
+          },
+          stateHistory: true,
+          rescheduleRequests: true,
+          guests: true,
+          eventType: {
+            select: { id: true, title: true, slug: true, duration: true },
+          },
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              avatarUrl: true,
             },
           },
         },
@@ -597,10 +424,9 @@ export class MeetingController {
         throw ErrorFactory.notFound("Meeting");
       }
 
-      // Verify user is a participant
-      const isParticipant = meeting.participants.some(
-        (p: any) => p.orgMemberId === orgMemberId,
-      );
+      const isParticipant =
+        meeting.createdById === user.userId ||
+        meeting.participants.some((p) => p.userId === user.userId);
 
       if (!isParticipant) {
         throw ErrorFactory.forbidden(
@@ -612,200 +438,6 @@ export class MeetingController {
         statusCode: 200,
         message: "Meeting details retrieved successfully",
         data: meeting,
-      });
-    } catch (error) {
-      globalErrorHandler(error as Error, req, res);
-    }
-  }
-
-  /**
-   * Get consultant profile and available slots for public booking (no auth required)
-   */
-  async getPublicBookingProfile(req: Request, res: Response): Promise<void> {
-    try {
-      const { shareToken } = req.params;
-
-      if (!shareToken) {
-        throw ErrorFactory.validation("Share token is required");
-      }
-
-      const profile = await meetingService.getPublicBookingProfile(shareToken);
-
-      apiResponse(res, {
-        statusCode: 200,
-        message: "Booking profile retrieved successfully",
-        data: profile,
-      });
-    } catch (error) {
-      globalErrorHandler(error as Error, req, res);
-    }
-  }
-
-  /**
-   * Request meeting via public booking link (no auth required)
-   */
-  async requestMeetingPublic(req: Request, res: Response): Promise<void> {
-    try {
-      const { shareToken } = req.params;
-      const {
-        guestEmail,
-        guestName,
-        title,
-        description,
-        startTime,
-        endTime,
-        timezone,
-        mode,
-        location,
-        guestMessage,
-      } = req.body;
-
-      // Validate required fields
-      if (!shareToken) {
-        throw ErrorFactory.validation("Share token is required");
-      }
-      if (
-        !guestEmail ||
-        !guestName ||
-        !title ||
-        !startTime ||
-        !endTime ||
-        !timezone ||
-        !mode
-      ) {
-        throw ErrorFactory.validation(
-          "Missing required fields: guestEmail, guestName, title, startTime, endTime, timezone, mode",
-        );
-      }
-
-      // Parse dates
-      const parsedStartTime = new Date(startTime);
-      const parsedEndTime = new Date(endTime);
-
-      if (isNaN(parsedStartTime.getTime()) || isNaN(parsedEndTime.getTime())) {
-        throw ErrorFactory.validation(
-          "Invalid date format for startTime or endTime",
-        );
-      }
-
-      const meeting = await meetingService.requestMeetingPublic({
-        shareToken,
-        guestEmail,
-        guestName,
-        title,
-        description,
-        startTime: parsedStartTime,
-        endTime: parsedEndTime,
-        timezone,
-        mode: mode as "ONLINE" | "IN_PERSON",
-        location,
-        guestMessage,
-      });
-
-      apiResponse(res, {
-        statusCode: 201,
-        message:
-          "Meeting request submitted successfully. The consultant will review and respond soon.",
-        data: {
-          id: meeting.id,
-          title: meeting.title,
-          startTime: meeting.startTime,
-          endTime: meeting.endTime,
-          guestEmail: (meeting as any).guestEmail,
-          guestName: (meeting as any).guestName,
-          status: meeting.status,
-        },
-      });
-    } catch (error) {
-      globalErrorHandler(error as Error, req, res);
-    }
-  }
-
-  /**
-   * Generate public booking link for consultant
-   */
-  async generatePublicLink(req: Request, res: Response): Promise<void> {
-    try {
-      const org = req.org as orgPayload;
-
-      // Verify user is a consultant
-      if (!["OWNER", "ADMIN"].includes(org.accessLevel)) {
-        throw ErrorFactory.forbidden(
-          "Only consultants can generate public booking links",
-        );
-      }
-
-      await meetingService.generateShareToken(org.orgMemberId);
-      const bookingStatus = await meetingService.getPublicBookingStatus(
-        org.orgMemberId,
-      );
-
-      apiResponse(res, {
-        statusCode: 200,
-        message: "Public booking link generated successfully",
-        data: {
-          isEnabled: bookingStatus.isEnabled,
-          shareToken: bookingStatus.shareToken,
-        },
-      });
-    } catch (error) {
-      globalErrorHandler(error as Error, req, res);
-    }
-  }
-
-  /**
-   * Get public booking status
-   */
-  async getPublicBookingStatusHandler(
-    req: Request,
-    res: Response,
-  ): Promise<void> {
-    try {
-      const org = req.org as orgPayload;
-
-      const bookingStatus = await meetingService.getPublicBookingStatus(
-        org.orgMemberId,
-      );
-
-      apiResponse(res, {
-        statusCode: 200,
-        message: "Public booking status retrieved successfully",
-        data: {
-          isEnabled: bookingStatus.isEnabled,
-          shareToken: bookingStatus.shareToken,
-        },
-      });
-    } catch (error) {
-      globalErrorHandler(error as Error, req, res);
-    }
-  }
-
-  /**
-   * Disable public booking
-   */
-  async disablePublicBookingHandler(
-    req: Request,
-    res: Response,
-  ): Promise<void> {
-    try {
-      const org = req.org as orgPayload;
-
-      // Verify user is a consultant
-      if (!["OWNER", "ADMIN"].includes(org.accessLevel)) {
-        throw ErrorFactory.forbidden(
-          "Only consultants can manage public booking",
-        );
-      }
-
-      await meetingService.disablePublicBooking(org.orgMemberId);
-
-      apiResponse(res, {
-        statusCode: 200,
-        message: "Public booking disabled successfully",
-        data: {
-          isEnabled: false,
-          shareToken: null,
-        },
       });
     } catch (error) {
       globalErrorHandler(error as Error, req, res);

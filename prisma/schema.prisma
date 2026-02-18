@@ -56,6 +56,18 @@ model User {
   // Digital Cards
   cards        Card[]
   cardContacts CardContact[]
+
+  // Availability & Booking
+  availabilitySchedules AvailabilitySchedule[]
+  eventTypes            EventType[]
+
+  // Meetings (user-level)
+  meetingsCreated             Meeting[]                  @relation("MeetingCreatedBy")
+  meetingParticipations       MeetingParticipant[]
+  meetingStateChanges         MeetingStateHistory[]      @relation("MeetingStateChanges")
+  rescheduleRequestsCreated   MeetingRescheduleRequest[] @relation("RescheduleRequestedBy")
+  rescheduleRequestsResponded MeetingRescheduleRequest[] @relation("RescheduleRespondedBy")
+  meetingSpeakers             MeetingSpeaker[]
 }
 
 model Session {
@@ -166,9 +178,6 @@ model Organization {
   notificationSettings OrgNotificationSettings?
   notificationPreferences NotificationPreference[]
   notificationLogs     NotificationLog[]
-
-  // Calendar & Meeting Management
-  meetings     Meeting[]
 }
 
 model OrganizationMember {
@@ -182,20 +191,6 @@ model OrganizationMember {
   // Relations
   organization Organization @relation(fields: [orgId], references: [id])
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Calendar & Meeting Management
-  meetingsCreated             Meeting[]                  @relation("MeetingCreatedBy")
-  meetingParticipations       MeetingParticipant[]       @relation("MeetingParticipants")
-  meetingStateChanges         MeetingStateHistory[]      @relation("MeetingStateChanges")
-  rescheduleRequestsCreated   MeetingRescheduleRequest[] @relation("RescheduleRequestedBy")
-  rescheduleRequestsResponded MeetingRescheduleRequest[] @relation("RescheduleRespondedBy")
-  availability                MemberAvailability[]       @relation("MemberAvailability")
-  customSlots                 MemberCustomSlot[]         @relation("MemberCustomSlots")
-  blockedTimes                MemberBlockedTime[]        @relation("MemberBlockedTimes")
-
-  // Public booking link
-  shareToken             String?  @unique
-  isPublicBookingEnabled Boolean  @default(false)
 
   @@unique([orgId, userId])
 }
@@ -273,18 +268,19 @@ model Meeting {
   recordingLink String?
   notes         String?
 
-  // Guest booking info (for public link requests)
+  // Event type reference (for booking-created meetings)
+  eventTypeId String? @db.Uuid
+
+  // Guest booking info (for public bookings)
   guestEmail   String?
   guestName    String?
   guestMessage String?
 
-  // Tracking
-  createdById    String        @db.Uuid
-  createdByRole  UserRoleEnum?
-  organizationId String        @db.Uuid
-  isDeleted      Boolean      @default(false)
-  deletedAt      DateTime?
-  deletedBy      String?      @db.Uuid
+  // Tracking (user-level)
+  createdById String  @db.Uuid
+  isDeleted   Boolean @default(false)
+  deletedAt   DateTime?
+  deletedBy   String? @db.Uuid
 
   // Transcription processing status
   transcriptionStatus TranscriptionStatus @default(NONE)
@@ -294,43 +290,43 @@ model Meeting {
   updatedAt DateTime @updatedAt
 
   // Relations
-  createdByMember    OrganizationMember         @relation("MeetingCreatedBy", fields: [createdById], references: [id])
-  organization       Organization               @relation(fields: [organizationId], references: [id])
+  eventType          EventType?                 @relation(fields: [eventTypeId], references: [id])
+  createdBy          User                       @relation("MeetingCreatedBy", fields: [createdById], references: [id])
   participants       MeetingParticipant[]
   guests             MeetingGuest[]
   stateHistory       MeetingStateHistory[]
   rescheduleRequests MeetingRescheduleRequest[]
 
   // Smart Meeting Assistant relations
-  recording   MeetingRecording?
-  speakers    MeetingSpeaker[]
-  actionItems MeetingActionItem[]
+  recording    MeetingRecording?
+  speakers     MeetingSpeaker[]
+  actionItems  MeetingActionItem[]
   meetingNotes MeetingNote[]
-  aiSummary   MeetingAISummary?
+  aiSummary    MeetingAISummary?
 
-  @@index([organizationId, status])
   @@index([createdById])
   @@index([startTime])
   @@index([googleEventId])
   @@index([status, isDeleted])
   @@index([guestEmail])
   @@index([transcriptionStatus])
+  @@index([eventTypeId])
 }
 
 model MeetingParticipant {
   id              String          @id @default(uuid()) @db.Uuid
   meetingId       String          @db.Uuid
-  orgMemberId     String          @db.Uuid
+  userId          String          @db.Uuid
   participantType ParticipantType
   responseStatus  ResponseStatus  @default(PENDING)
   respondedAt     DateTime?
   joinedAt        DateTime?
 
-  meeting   Meeting            @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  orgMember OrganizationMember @relation("MeetingParticipants", fields: [orgMemberId], references: [id])
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
 
-  @@unique([meetingId, orgMemberId])
-  @@index([orgMemberId])
+  @@unique([meetingId, userId])
+  @@index([userId])
   @@index([meetingId])
 }
 
@@ -359,8 +355,8 @@ model MeetingStateHistory {
   reason      String?
   changedAt   DateTime       @default(now())
 
-  meeting   Meeting            @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  changedBy OrganizationMember @relation("MeetingStateChanges", fields: [changedById], references: [id])
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  changedBy User    @relation("MeetingStateChanges", fields: [changedById], references: [id])
 
   @@index([meetingId])
   @@index([toStatus])
@@ -380,56 +376,75 @@ model MeetingRescheduleRequest {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  meeting     Meeting             @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  requestedBy OrganizationMember  @relation("RescheduleRequestedBy", fields: [requestedById], references: [id])
-  respondedBy OrganizationMember? @relation("RescheduleRespondedBy", fields: [respondedById], references: [id])
+  meeting     Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  requestedBy User    @relation("RescheduleRequestedBy", fields: [requestedById], references: [id])
+  respondedBy User?   @relation("RescheduleRespondedBy", fields: [respondedById], references: [id])
 
   @@index([meetingId])
   @@index([status])
 }
 
 // ================================
-// AVAILABILITY MANAGEMENT
+// AVAILABILITY & SCHEDULING
 // ================================
 
-model MemberAvailability {
-  id          String    @id @default(uuid()) @db.Uuid
-  orgMemberId String    @db.Uuid
-  dayOfWeek   DayOfWeek
-  startTime   String // "HH:MM"
-  endTime     String // "HH:MM"
-  timezone    String    @default("UTC")
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+model AvailabilitySchedule {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  name      String   @default("Working Hours")
+  timezone  String   @default("UTC")
+  isDefault Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  orgMember OrganizationMember @relation("MemberAvailability", fields: [orgMemberId], references: [id], onDelete: Cascade)
+  // Relations
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slots        ScheduleAvailability[]
+  overrides    ScheduleOverride[]
+  blockedTimes ScheduleBlockedTime[]
+  eventTypes   EventType[]
 
-  @@unique([orgMemberId, dayOfWeek, startTime, endTime])
-  @@index([orgMemberId, isActive])
+  @@index([userId, isDefault])
+  @@index([userId, isActive])
 }
 
-model MemberCustomSlot {
-  id          String   @id @default(uuid()) @db.Uuid
-  orgMemberId String   @db.Uuid
-  date        DateTime
-  startTime   String // "HH:MM"
-  endTime     String // "HH:MM"
-  timezone    String   @default("UTC")
-  isActive    Boolean  @default(true)
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+model ScheduleAvailability {
+  id         String    @id @default(uuid()) @db.Uuid
+  scheduleId String    @db.Uuid
+  dayOfWeek  DayOfWeek
+  startTime  String    // "HH:MM"
+  endTime    String    // "HH:MM"
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-  orgMember OrganizationMember @relation("MemberCustomSlots", fields: [orgMemberId], references: [id], onDelete: Cascade)
+  schedule AvailabilitySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
 
-  @@index([orgMemberId, date])
-  @@index([orgMemberId, isActive])
+  @@unique([scheduleId, dayOfWeek, startTime, endTime])
+  @@index([scheduleId, isActive])
 }
 
-model MemberBlockedTime {
+model ScheduleOverride {
+  id         String   @id @default(uuid()) @db.Uuid
+  scheduleId String   @db.Uuid
+  date       DateTime
+  startTime  String   // "HH:MM"
+  endTime    String   // "HH:MM"
+  isActive   Boolean  @default(true)
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  schedule AvailabilitySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId, date])
+  @@index([scheduleId, isActive])
+}
+
+model ScheduleBlockedTime {
   id             String         @id @default(uuid()) @db.Uuid
-  orgMemberId    String         @db.Uuid
+  scheduleId     String         @db.Uuid
   startTime      DateTime
   endTime        DateTime
   reason         String?
@@ -439,10 +454,44 @@ model MemberBlockedTime {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  orgMember OrganizationMember @relation("MemberBlockedTimes", fields: [orgMemberId], references: [id], onDelete: Cascade)
+  schedule AvailabilitySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
 
-  @@index([orgMemberId, startTime, endTime])
-  @@index([orgMemberId, isActive])
+  @@index([scheduleId, startTime, endTime])
+  @@index([scheduleId, isActive])
+}
+
+// ================================
+// EVENT TYPES
+// ================================
+
+model EventType {
+  id          String       @id @default(uuid()) @db.Uuid
+  userId      String       @db.Uuid
+  title       String       // "30 Minute Meeting"
+  slug        String       // "30-min-meeting"
+  description String?
+  duration    Int          // minutes (e.g. 30)
+  scheduleId  String       @db.Uuid
+  bookingModel BookingModel @default(ONE_ON_ONE)
+
+  // Booking constraints
+  bufferBefore Int @default(0)  // minutes before meeting
+  bufferAfter  Int @default(0)  // minutes after meeting
+  minNotice    Int @default(24) // minimum hours notice before booking
+  maxAdvance   Int @default(60) // maximum days in advance
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schedule AvailabilitySchedule @relation(fields: [scheduleId], references: [id])
+  meetings Meeting[]
+
+  @@unique([userId, slug])
+  @@index([userId, isActive])
+  @@index([scheduleId])
 }
 
 // ================================
@@ -507,17 +556,17 @@ model MeetingSpeaker {
   displayName  String? // User-provided name
   role         String? // Custom role (e.g., "consultant", "client")
 
-  organizationId String  @db.Uuid
-  orgMemberId    String? @db.Uuid
+  userId String? @db.Uuid
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id])
 
   @@unique([meetingId, speakerLabel])
   @@index([meetingId])
-  @@index([organizationId])
+  @@index([userId])
 }
 
 model MeetingActionItem {
@@ -875,4 +924,10 @@ enum NotificationRecipientType {
   ADMIN
   MEMBER
   ALL
+}
+
+enum BookingModel {
+  ONE_ON_ONE
+  ROUND_ROBIN   // Phase 2 - team
+  COLLECTIVE    // Phase 2 - team
 }
