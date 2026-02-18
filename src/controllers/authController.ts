@@ -247,33 +247,10 @@ export const authController = {
         throw ErrorFactory.conflict("Username is already taken");
       }
 
-      // Update user username and sync personal org name
-      await prisma.$transaction(async (tx) => {
-        await tx.user.update({
-          where: { id: userId },
-          data: { username },
-        });
-
-        // Find personal org and update its name
-        const personalMember = await tx.organizationMember.findFirst({
-          where: { userId },
-          include: {
-            organization: { select: { id: true, isPersonal: true } },
-          },
-        });
-
-        if (personalMember?.organization.isPersonal) {
-          await tx.organization.update({
-            where: { id: personalMember.organization.id },
-            data: { name: username },
-          });
-        }
+      await prisma.user.update({
+        where: { id: userId },
+        data: { username },
       });
-
-      // Invalidate cache
-      const { orgRoleCacheService } =
-        await import("../services/auth/orgRoleCacheService");
-      await orgRoleCacheService.invalidateUserOrgRoles(userId);
 
       const profile = await authService.getUserProfile(userId);
 

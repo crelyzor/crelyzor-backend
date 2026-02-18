@@ -62,13 +62,13 @@ import {
   globalErrorHandler,
   BaseError,
 } from "../utils/globalErrorHandler";
-import { TokenPayload, AuthenticatedUser } from "../types/authTypes";
+import { TokenPayload } from "../types/authTypes";
 import { ZodError } from "zod";
 
-// Extend Express Request to include authenticated user with orgRoles
+// Extend Express Request to include authenticated user
 declare module "express" {
   export interface Request {
-    user?: AuthenticatedUser; // Token payload + orgRoles from cache
+    user?: TokenPayload;
     sessionId?: string;
     service?: any; // For internal service tokens
   }
@@ -101,18 +101,7 @@ export const verifyJWT = async (
 
     await sessionService.updateSessionActivity(decoded.sessionId);
 
-    // Fetch user's org/role data from Redis cache or database
-    const { orgRoleCacheService } =
-      await import("../services/auth/orgRoleCacheService");
-    const { orgRoles } = await orgRoleCacheService.getUserOrgRoles(
-      decoded.userId,
-    );
-
-    // Attach decoded token and org/role data to request
-    req.user = {
-      ...decoded,
-      orgRoles, // Fetched from cache/DB, not from token
-    };
+    req.user = decoded;
     req.sessionId = decoded.sessionId;
 
     next();
@@ -285,18 +274,7 @@ export const verifyJWTFromQueryOrHeader = async (
     await authService.validateUserAccess(decoded.userId);
     await sessionService.updateSessionActivity(decoded.sessionId);
 
-    // Fetch user's org/role data from Redis cache or database
-    const { orgRoleCacheService } =
-      await import("../services/auth/orgRoleCacheService");
-    const { orgRoles } = await orgRoleCacheService.getUserOrgRoles(
-      decoded.userId,
-    );
-
-    // Attach decoded token and org/role data to request
-    req.user = {
-      ...decoded,
-      orgRoles, // Fetched from cache/DB, not from token
-    };
+    req.user = decoded;
     req.sessionId = decoded.sessionId;
 
     next();

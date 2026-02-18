@@ -1,4 +1,4 @@
-import { Prisma, LoginMethod, ProviderEnum } from "@prisma/client";
+import { LoginMethod, ProviderEnum } from "@prisma/client";
 import { User } from "@prisma/client";
 import prisma from "../../db/prismaClient";
 import { tokenService } from "./tokenService";
@@ -10,19 +10,6 @@ import {
   RefreshTokenRequest,
   LogoutRequest,
 } from "../../types/authTypes";
-
-type UserWithOrganizations = Prisma.UserGetPayload<{
-  include: {
-    organizationMembers: {
-      include: {
-        organization: true;
-      };
-    };
-  };
-}>;
-
-type OrganizationMemberWithDetails =
-  UserWithOrganizations["organizationMembers"][number];
 
 class AuthService {
   async refreshToken(
@@ -68,26 +55,6 @@ class AuthService {
   async getUserProfile(userId: string): Promise<UserResponse> {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      include: {
-        organizationMembers: {
-          include: {
-            user: {
-              select: {
-                avatarUrl: true,
-              },
-            },
-            organization: {
-              select: {
-                id: true,
-                name: true,
-                orgLogoUrl: true,
-                description: true,
-                isPersonal: true,
-              },
-            },
-          },
-        },
-      },
     });
 
     if (!user) {
@@ -170,8 +137,8 @@ class AuthService {
     return { message: "Account deactivated successfully" };
   }
 
-  private mapUserToResponse(user: User | UserWithOrganizations): UserResponse {
-    const response: UserResponse = {
+  private mapUserToResponse(user: User): UserResponse {
+    return {
       id: user.id,
       email: user.email,
       username: user.username,
@@ -185,178 +152,6 @@ class AuthService {
       lastLoginAt: user.lastLoginAt || undefined,
       isActive: user.isActive,
     };
-
-    if (
-      "organizationMembers" in user &&
-      user.organizationMembers &&
-      user.organizationMembers.length > 0
-    ) {
-      response.organizations = user.organizationMembers.map(
-        (member: OrganizationMemberWithDetails) => ({
-          orgMemberId: member.id,
-          orgId: member.organization.id,
-          orgName: member.organization.name,
-          orgLogoUrl: member.organization.orgLogoUrl,
-          orgDescription: member.organization.description || undefined,
-          accessLevel: member.accessLevel,
-          isPersonal: member.organization.isPersonal,
-        }),
-      );
-    }
-
-    return response;
-  }
-
-  async generateSSOToken(
-    userId: string,
-    targetDomain: string,
-  ): Promise<string> {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        emailVerified: true,
-        organizationMembers: {
-          select: {
-            orgId: true,
-            id: true,
-            accessLevel: true,
-          },
-        },
-      },
-    });
-
-    if (!user) {
-      throw ErrorFactory.notFound("User not found");
-    }
-
-    const orgRoles = user.organizationMembers.map((member) => ({
-      orgId: member.orgId,
-      orgMemberId: member.id,
-      accessLevel: member.accessLevel,
-    }));
-
-    const ssoPayload = {
-      userId: user.id,
-      email: user.email,
-      emailVerified: user.emailVerified,
-      targetDomain,
-      type: "sso_transfer",
-      orgRoles: orgRoles,
-    };
-
-    return tokenService.generateAccessToken({
-      ...ssoPayload,
-      sessionId: "sso_transfer",
-    });
-  }
-
-  async consumeSSOToken(
-    ssoToken: string,
-    expectedDomain: string,
-    deviceInfo?: string,
-    ipAddress?: string,
-  ): Promise<TokenResponse> {
-    try {
-      const payload = tokenService.verifyAccessToken(ssoToken);
-
-      if (payload.sessionId !== "sso_transfer") {
-        throw ErrorFactory.unauthorized("Invalid SSO token");
-      }
-
-      const user = await prisma.user.findUnique({
-        where: { id: payload.userId },
-        include: {
-          organizationMembers: {
-            include: {
-              organization: true,
-            },
-          },
-        },
-      });
-
-      if (!user || !user.isActive) {
-        throw ErrorFactory.unauthorized("User not found or inactive");
-      }
-
-      const { sessionId, refreshToken } = await sessionService.createSession(
-        user.id,
-        deviceInfo,
-        ipAddress,
-      );
-
-      const { orgRoleCacheService } = await import("./orgRoleCacheService");
-      await orgRoleCacheService.getUserOrgRoles(user.id);
-
-      const accessToken = tokenService.generateAccessToken({
-        userId: user.id,
-        email: user.email,
-        emailVerified: user.emailVerified,
-        sessionId,
-      });
-
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { lastLoginAt: new Date() },
-      });
-
-      return {
-        accessToken,
-        refreshToken,
-        expiresIn: 3600,
-        tokenType: "Bearer",
-        user: this.mapUserToResponse(user),
-      };
-    } catch (error) {
-      throw ErrorFactory.unauthorized("Invalid or expired SSO token");
-    }
-  }
-
-  async getUserRolesInOrganization(
-    userId: string,
-    orgId: string,
-  ): Promise<{
-    orgMemberId: string;
-    accessLevel: string;
-  }> {
-    const orgMember = await prisma.organizationMember.findUnique({
-      where: {
-        orgId_userId: { orgId, userId },
-      },
-    });
-
-    if (!orgMember) {
-      throw ErrorFactory.notFound("User is not a member of this organization");
-    }
-
-    return {
-      orgMemberId: orgMember.id,
-      accessLevel: orgMember.accessLevel,
-    };
-  }
-
-  async getUserAllPermissions(userId: string): Promise<{
-    [orgId: string]: string[];
-  }> {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        organizationMembers: true,
-      },
-    });
-
-    if (!user) {
-      throw ErrorFactory.notFound("User not found");
-    }
-
-    const permissionsByOrg: { [orgId: string]: string[] } = {};
-
-    user.organizationMembers.forEach((member) => {
-      permissionsByOrg[member.orgId] = [];
-    });
-
-    return permissionsByOrg;
   }
 
   async findOrCreateGoogleUser(profile: {
@@ -439,9 +234,6 @@ class AuthService {
       deviceInfo,
       ipAddress,
     );
-
-    const { orgRoleCacheService } = await import("./orgRoleCacheService");
-    await orgRoleCacheService.getUserOrgRoles(user.id);
 
     const accessToken = await tokenService.generateAccessToken({
       userId: user.id,

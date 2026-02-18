@@ -1,9 +1,6 @@
 import { Router } from "express";
 import authRouter from "./authRoutes";
 import googleOAuthRouter from "./auth/googleOAuthRoutes";
-import organizationRouter from "./organizationRoutes";
-import organizationSettingsRouter from "./organizationSettingsRoutes";
-import inviteTokenRouter from "./inviteTokenRoutes";
 import userRouter from "./userRoutes";
 import googleCalendarRouter from "./integrations/googleCalendarRoutes";
 import syncRouter from "./syncRoutes";
@@ -25,14 +22,6 @@ const indexRouter = Router();
 // Google OAuth (public, no JWT) must be registered BEFORE auth routes
 indexRouter.use("/auth/google", googleOAuthRouter);
 indexRouter.use("/auth", authRouter);
-
-// ========================================
-// 🏢 ORGANIZATION ROUTES
-// ========================================
-// More specific paths first to avoid prefix conflicts
-indexRouter.use("/organizations/settings", organizationSettingsRouter);
-indexRouter.use("/organizations/invite-tokens", inviteTokenRouter);
-indexRouter.use("/organizations", organizationRouter);
 
 // ========================================
 // 👤 USER ROUTES

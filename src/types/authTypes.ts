@@ -1,36 +1,11 @@
-import { UserRoleEnum } from "@prisma/client";
-
 export interface TokenPayload {
   userId: string;
   email: string;
   emailVerified: boolean;
   jti: string; // JWT ID for tracking
-
-  // roles: string[];
   sessionId: string;
   iat?: number;
   exp?: number;
-  // orgRoles removed - fetched from Redis cache by authMiddleware
-}
-
-export interface orgRole {
-  orgId: string;
-  orgMemberId: string;
-  accessLevel: UserRoleEnum;
-}
-
-// Redis cache structure for user org/role data
-export interface UserOrgRolesCache {
-  orgRoles: orgRole[];
-  cachedAt: number; // Timestamp for debugging
-}
-
-/**
- * Authenticated user type - extends TokenPayload with org/role data
- * This represents req.user after authMiddleware has fetched orgRoles from cache
- */
-export interface AuthenticatedUser extends TokenPayload {
-  orgRoles?: orgRole[]; // Optional to support both auth endpoints and internal endpoints
 }
 
 export interface RefreshTokenPayload {
@@ -79,15 +54,6 @@ export interface UserResponse {
   state?: string;
   lastLoginAt?: Date;
   isActive: boolean;
-  organizations?: Array<{
-    orgMemberId: string;
-    orgId: string;
-    orgName: string;
-    orgLogoUrl: string | null;
-    orgDescription?: string;
-    accessLevel: string;
-    isPersonal?: boolean;
-  }>;
 }
 
 export interface ResetPasswordRequest {

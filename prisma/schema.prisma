@@ -27,9 +27,8 @@ model User {
   timezone        String    @default("UTC")
 
   // Soft delete fields
-  deletedAt    DateTime?
-  deletedById  String?   @db.Uuid
-  deletedOrgId String?   @db.Uuid
+  deletedAt   DateTime?
+  deletedById String?   @db.Uuid
 
   // Location
   country String?
@@ -44,10 +43,9 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relations
-  loginHistory           LoginHistory[]
-  oauthAccounts          OAuthAccount[]
-  organizationMembers    OrganizationMember[]
-  refreshTokens          RefreshToken[]
+  loginHistory  LoginHistory[]
+  oauthAccounts OAuthAccount[]
+  refreshTokens RefreshToken[]
   sessions               Session[]
   calendarEvents         GoogleCalendarEvent[]
   googleCalendarSyncLogs GoogleCalendarSyncLog[]
@@ -125,75 +123,6 @@ model OAuthAccount {
   @@unique([provider, providerId])
 }
 
-model OrgInvite {
-  id           String       @id @default(uuid()) @db.Uuid
-  orgId        String       @db.Uuid
-  invitedEmail String
-  invitedRole  UserRoleEnum
-  invitedById  String       @db.Uuid  // who sent the invite
-  token        String       @unique
-  expiresAt    DateTime
-  acceptedAt   DateTime?              // null = pending, set = accepted
-  createdAt    DateTime     @default(now())
-
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@unique([orgId, invitedEmail])
-  @@index([token])
-  @@index([orgId])
-}
-
-// ================================
-// ORGANIZATION & MEMBERSHIP
-// ================================
-
-model Organization {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Organization details (JSON for flexibility)
-  organizationDetails Json
-
-  // Email sender configuration for notifications (Brevo)
-  brevoApiKey String?
-  senderEmail String?
-  senderName  String?
-
-  // Organization branding
-  orgLogoUrl String?
-  brandColor String?
-
-  // Personal workspace flag (true = personal workspace, false = team org)
-  isPersonal Boolean @default(false)
-
-  // Default meeting provider preference
-  defaultMeetingProvider ProviderEnum?
-
-  // Relations
-  members              OrganizationMember[]
-  invites              OrgInvite[]
-  notificationSettings OrgNotificationSettings?
-  notificationPreferences NotificationPreference[]
-  notificationLogs     NotificationLog[]
-}
-
-model OrganizationMember {
-  id          String       @id @default(uuid()) @db.Uuid
-  orgId       String       @db.Uuid
-  userId      String       @db.Uuid
-  accessLevel UserRoleEnum @default(MEMBER)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
-  // Relations
-  organization Organization @relation(fields: [orgId], references: [id])
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([orgId, userId])
-}
 
 // ================================
 // GOOGLE CALENDAR INTEGRATION
@@ -628,8 +557,7 @@ model MeetingAISummary {
 // ================================
 
 model NotificationLog {
-  id             String             @id @default(uuid()) @db.Uuid
-  orgId          String?            @db.Uuid
+  id             String                @id @default(uuid()) @db.Uuid
   senderEmail    String
   recipientEmail String
   recipientRole  String
@@ -638,74 +566,26 @@ model NotificationLog {
   status         NotificationLogStatus
   reason         String?
   vendorResponse Json?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
 
-  organization Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
-
-  @@index([orgId])
   @@index([event])
   @@index([status])
   @@index([createdAt])
-}
-
-model OrgNotificationSettings {
-  id    String @id @default(uuid()) @db.Uuid
-  orgId String @unique @db.Uuid
-
-  notificationsEnabled Boolean                     @default(true)
-  disabledRoles        NotificationRecipientType[] @default([])
-  emailEnabled         Boolean                     @default(true)
-  inAppEnabled         Boolean                     @default(true)
-
-  defaultSenderEmail String?
-  defaultSenderName  String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@index([orgId])
-}
-
-model NotificationPreference {
-  id    String @id @default(uuid()) @db.Uuid
-  orgId String @db.Uuid
-
-  eventType     NotificationEventType
-  recipientType NotificationRecipientType
-
-  emailEnabled Boolean @default(true)
-  inAppEnabled Boolean @default(true)
-
-  isEnabled       Boolean @default(true)
-  emailTemplateId String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@unique([orgId, eventType, recipientType])
-  @@index([orgId])
-  @@index([eventType])
-  @@index([recipientType])
 }
 
 // In-App Notifications (user's notification inbox)
 model Notification {
   id     String @id @default(uuid()) @db.Uuid
   userId String @db.Uuid
-  orgId  String? @db.Uuid
 
   type    NotificationEventType
   title   String
   message String
-  data    Json?   // Additional data (meetingId, etc.)
-  
-  isRead  Boolean @default(false)
-  readAt  DateTime?
+  data    Json? // Additional data (meetingId, etc.)
+
+  isRead Boolean   @default(false)
+  readAt DateTime?
 
   createdAt DateTime @default(now())
 
@@ -713,7 +593,6 @@ model Notification {
 
   @@index([userId, isRead])
   @@index([userId, createdAt])
-  @@index([orgId])
 }
 
 // ================================
@@ -827,12 +706,6 @@ enum ProviderEnum {
   ZOOM
 }
 
-enum UserRoleEnum {
-  OWNER
-  ADMIN
-  MEMBER
-}
-
 enum SyncStatus {
   SUCCESS
   FAILED
@@ -918,12 +791,6 @@ enum NotificationEventType {
 enum NotificationChannel {
   EMAIL
   IN_APP
-}
-
-enum NotificationRecipientType {
-  ADMIN
-  MEMBER
-  ALL
 }
 
 enum BookingModel {
