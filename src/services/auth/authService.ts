@@ -173,6 +173,13 @@ class AuthService {
     });
 
     if (existingOAuth && existingOAuth.user) {
+      // Refresh avatarUrl from Google on each login
+      if (profile.picture && existingOAuth.user.avatarUrl !== profile.picture) {
+        return prisma.user.update({
+          where: { id: existingOAuth.user.id },
+          data: { avatarUrl: profile.picture },
+        });
+      }
       return existingOAuth.user;
     }
 
@@ -189,6 +196,11 @@ class AuthService {
           isActive: true,
           emailVerified: true,
         },
+      });
+    } else if (profile.picture && !user.avatarUrl) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { avatarUrl: profile.picture },
       });
     }
 
