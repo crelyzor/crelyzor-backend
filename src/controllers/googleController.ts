@@ -58,30 +58,6 @@ export const googleController = {
             isActive: true,
           },
         });
-
-        // 🆕 Auto-create personal organization for new user
-        const personalOrg = await prisma.organization.create({
-          data: {
-            name: `${name}'s Workspace`,
-            description: "Personal workspace",
-            organizationDetails: {},
-            isPersonal: true,
-          },
-        });
-
-        // Add user as OWNER of their personal organization
-        await prisma.organizationMember.create({
-          data: {
-            orgId: personalOrg.id,
-            userId: user.id,
-            accessLevel: "OWNER",
-          },
-        });
-
-        // Invalidate cache so new org data is loaded
-        const { orgRoleCacheService } =
-          await import("../services/auth/orgRoleCacheService");
-        await orgRoleCacheService.invalidateUserOrgRoles(user.id);
       }
 
       if (!user.isActive) {
@@ -118,17 +94,11 @@ export const googleController = {
         },
       });
 
-      // 4️⃣ Get user's organization (for personal workspace)
-      const userOrg = await prisma.organizationMember.findFirst({
-        where: { userId: user.id },
-        select: { orgId: true },
-      });
-
       // 5️⃣ Generate your app's tokens
       const jwtTokens = await authService.generateTokens(user);
 
-      // 6️⃣ Redirect to frontend with access token, refresh token, and organization ID
-      const finalRedirectUrl = `${redirectUrl}?accessToken=${jwtTokens.accessToken}&refreshToken=${jwtTokens.refreshToken}&organizationId=${userOrg?.orgId || ""}`;
+      // 6️⃣ Redirect to frontend with access token and refresh token
+      const finalRedirectUrl = `${redirectUrl}?accessToken=${jwtTokens.accessToken}&refreshToken=${jwtTokens.refreshToken}`;
 
       res.redirect(finalRedirectUrl);
     } catch (error) {
@@ -142,7 +112,6 @@ export const googleController = {
       if (!userId) throw ErrorFactory.unauthorized("User not authenticated");
 
       const redirectUrl = req.query.redirectUrl as string;
-      const organizationId = req.query.organizationId as string;
 
       if (!redirectUrl) {
         throw ErrorFactory.validation(
@@ -165,11 +134,7 @@ export const googleController = {
       }
 
       // 3️⃣ Not connected → generate Google consent URL
-      const url = await googleService.getCalendarAuthUrl(
-        userId,
-        redirectUrl,
-        organizationId,
-      );
+      const url = await googleService.getCalendarAuthUrl(userId, redirectUrl);
 
       // 4️⃣ Redirect to Google OAuth page
       return res.redirect(url);
@@ -189,7 +154,6 @@ export const googleController = {
       const parsedState = state ? JSON.parse(String(state)) : {};
       const userId = parsedState.userId;
       const redirectUrl = parsedState.redirectUrl;
-      const organizationId = parsedState.organizationId;
 
       if (!userId)
         throw ErrorFactory.unauthorized("User not found during callback");

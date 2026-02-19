@@ -94,10 +94,6 @@ class SessionService {
       ipAddress || storedRefreshToken.ipAddress,
     );
 
-    // Warm the Redis cache with user's org/role data
-    const { orgRoleCacheService } = await import("./orgRoleCacheService");
-    await orgRoleCacheService.getUserOrgRoles(storedRefreshToken.user.id);
-
     const accessToken = tokenService.generateAccessToken({
       userId: storedRefreshToken.user.id,
       email: storedRefreshToken.user.email,

@@ -56,18 +56,14 @@ export const googleService = {
   },
 
   // 🔹 2. Google Calendar OAuth
-  async getCalendarAuthUrl(
-    userId: string,
-    redirectUrl: string,
-    organizationId?: string,
-  ) {
+  async getCalendarAuthUrl(userId: string, redirectUrl: string) {
     const redirectUri = `${process.env.BASE_URL}/integrations/calendar/connect/callback`;
     const client = getOAuthClient(redirectUri);
     return client.generateAuthUrl({
       access_type: "offline",
       prompt: "consent",
       scope: CALENDAR_SCOPES,
-      state: JSON.stringify({ userId, redirectUrl, organizationId }),
+      state: JSON.stringify({ userId, redirectUrl }),
     });
   },
 

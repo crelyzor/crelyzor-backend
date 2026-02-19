@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { UserRoleEnum } from "@prisma/client";
 
 export const createResourcesSchema = z.object({
   resources: z
