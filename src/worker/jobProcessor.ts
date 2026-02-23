@@ -1,18 +1,12 @@
 import {
   getTranscriptionQueue,
   getAIProcessingQueue,
-  getNotificationQueue,
   closeQueues,
   TranscriptionJobData,
   AIProcessingJobData,
-  NotificationJobData,
 } from "../config/queue";
 import { transcriptionService } from "../services/transcription/transcriptionService";
 import { aiService } from "../services/ai/aiService";
-import {
-  notificationService,
-  SendEmailInput,
-} from "../services/notifications/notificationService";
 import { logger } from "../utils/logging/logger";
 import prisma from "../db/prismaClient";
 
@@ -68,51 +62,10 @@ export const startWorker = async (): Promise<void> => {
         data.ownerId,
       );
 
-      // Send notification that transcription and AI processing is complete
-      const meeting = await prisma.meeting.findUnique({
-        where: { id: data.meetingId },
-        include: { createdBy: true },
-      });
-
-      const userEmail = meeting?.createdBy?.email;
-      if (userEmail) {
-        await notificationService.sendTranscriptionReady(userEmail, {
-          meetingTitle: meeting.title,
-          actionUrl: `${process.env.FRONTEND_URL}/meetings/${meeting.id}`,
-        });
-      }
-
       return { success: true, result };
     } catch (error) {
       logger.error("AI processing job failed:", {
         meetingId: data.meetingId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-  });
-
-  // Notification queue processor
-  const notificationQueue = getNotificationQueue();
-  notificationQueue.process("send-email", async (job) => {
-    const data = job.data as NotificationJobData;
-    logger.info(
-      `Processing email notification to ${Array.isArray(data.to) ? data.to.join(", ") : data.to}`,
-    );
-
-    try {
-      const result = await notificationService.sendEmail(
-        data as SendEmailInput,
-      );
-
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-
-      return result;
-    } catch (error) {
-      logger.error("Email notification job failed:", {
-        to: data.to,
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;

@@ -49,8 +49,6 @@ model User {
   sessions               Session[]
   calendarEvents         GoogleCalendarEvent[]
   googleCalendarSyncLogs GoogleCalendarSyncLog[]
-  notifications          Notification[]
-
   // Digital Cards
   cards        Card[]
   cardContacts CardContact[]
@@ -553,49 +551,6 @@ model MeetingAISummary {
 }
 
 // ================================
-// NOTIFICATION SYSTEM
-// ================================
-
-model NotificationLog {
-  id             String                @id @default(uuid()) @db.Uuid
-  senderEmail    String
-  recipientEmail String
-  recipientRole  String
-  event          String
-  payload        Json
-  status         NotificationLogStatus
-  reason         String?
-  vendorResponse Json?
-  createdAt      DateTime              @default(now())
-  updatedAt      DateTime              @updatedAt
-
-  @@index([event])
-  @@index([status])
-  @@index([createdAt])
-}
-
-// In-App Notifications (user's notification inbox)
-model Notification {
-  id     String @id @default(uuid()) @db.Uuid
-  userId String @db.Uuid
-
-  type    NotificationEventType
-  title   String
-  message String
-  data    Json? // Additional data (meetingId, etc.)
-
-  isRead Boolean   @default(false)
-  readAt DateTime?
-
-  createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, isRead])
-  @@index([userId, createdAt])
-}
-
-// ================================
 // DIGITAL CARDS
 // ================================
 
@@ -768,29 +723,6 @@ enum ActionItemCategory {
   DOCUMENT_REQUIRED
   UPCOMING_EVENT
   OTHER
-}
-
-enum NotificationLogStatus {
-  SENT
-  FAILED
-  SKIPPED
-  BLOCKED
-}
-
-enum NotificationEventType {
-  TESTING_MAIL
-  MEETING_SCHEDULED
-  MEETING_RESCHEDULED
-  MEETING_CANCELLED
-  MEETING_REMINDER
-  NEW_TEAM_MEMBER
-  TRANSCRIPTION_COMPLETE
-  ACTION_ITEMS_GENERATED
-}
-
-enum NotificationChannel {
-  EMAIL
-  IN_APP
 }
 
 enum BookingModel {

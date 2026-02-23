@@ -4,13 +4,12 @@ import { logger } from "../utils/logging/logger";
 
 /**
  * Bull Queue Configuration
- * Manages job queues for async operations like transcription, AI processing, notifications
+ * Manages job queues for async operations like transcription and AI processing
  */
 
 export enum QueueNames {
   TRANSCRIPTION = "transcription",
   AI_PROCESSING = "ai-processing",
-  NOTIFICATIONS = "notifications",
 }
 
 // Job data interfaces
@@ -25,26 +24,9 @@ export interface AIProcessingJobData {
   ownerId: string;
 }
 
-export interface NotificationJobData {
-  to: string | string[];
-  subject: string;
-  templateName: string;
-  templateData: Record<string, unknown>;
-  from?: {
-    email: string;
-    name: string;
-  };
-  replyTo?: {
-    email: string;
-    name?: string;
-  };
-  orgId?: string;
-}
-
 // Queue instances
 let transcriptionQueue: Bull.Queue<TranscriptionJobData> | null = null;
 let aiProcessingQueue: Bull.Queue<AIProcessingJobData> | null = null;
-let notificationQueue: Bull.Queue<NotificationJobData> | null = null;
 
 // Redis config optimized for Upstash
 const getRedisConfig = () => ({
@@ -111,31 +93,10 @@ export const initializeQueues = async () => {
       },
     );
 
-    // Initialize Notification Queue
-    notificationQueue = new Bull<NotificationJobData>(
-      QueueNames.NOTIFICATIONS,
-      REDIS_URL,
-      {
-        settings: {
-          maxStalledCount: 2,
-          lockDuration: 10000,
-          lockRenewTime: 5000,
-        },
-        createClient: () => new IORedis(REDIS_URL, redisConfig),
-        defaultJobOptions: {
-          attempts: 3,
-          backoff: { type: "exponential", delay: 2000 },
-          removeOnComplete: 100,
-          removeOnFail: 50,
-        },
-      },
-    );
-
     // Wait for all queues to be ready
     await Promise.all([
       transcriptionQueue.isReady(),
       aiProcessingQueue.isReady(),
-      notificationQueue.isReady(),
     ]);
 
     logger.info("✅ Redis queues connected successfully");
@@ -151,16 +112,12 @@ export const initializeQueues = async () => {
     // Setup event handlers
     setupQueueEvents(transcriptionQueue, "Transcription");
     setupQueueEvents(aiProcessingQueue, "AI Processing");
-    setupQueueEvents(notificationQueue, "Notification");
 
-    logger.info(
-      "📦 Queues initialized: transcription, ai-processing, notifications",
-    );
+    logger.info("📦 Queues initialized: transcription, ai-processing");
 
     return {
       transcriptionQueue,
       aiProcessingQueue,
-      notificationQueue,
     };
   } catch (error) {
     logger.error("Failed to initialize queues:", error);
@@ -205,15 +162,6 @@ export const getAIProcessingQueue = (): Bull.Queue<AIProcessingJobData> => {
   return aiProcessingQueue;
 };
 
-export const getNotificationQueue = (): Bull.Queue<NotificationJobData> => {
-  if (!notificationQueue) {
-    throw new Error(
-      "Notification queue not initialized. Call initializeQueues() first.",
-    );
-  }
-  return notificationQueue;
-};
-
 // Cleanup function for graceful shutdown
 export const closeQueues = async (): Promise<void> => {
   try {
@@ -226,10 +174,6 @@ export const closeQueues = async (): Promise<void> => {
     if (aiProcessingQueue) {
       closePromises.push(aiProcessingQueue.close());
       aiProcessingQueue = null;
-    }
-    if (notificationQueue) {
-      closePromises.push(notificationQueue.close());
-      notificationQueue = null;
     }
 
     await Promise.all(closePromises);
