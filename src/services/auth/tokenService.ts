@@ -7,9 +7,6 @@ import {
   AuthenticatedUser,
 } from "../../types/authTypes";
 import { ErrorFactory } from "../../utils/globalErrorHandler";
-import { orgRole } from "../../types/authTypes";
-import { TokenType } from "@prisma/client";
-import prisma from "../../db/prismaClient";
 class TokenService {
   private readonly ACCESS_TOKEN_SECRET: string;
   private readonly REFRESH_TOKEN_SECRET: string;
@@ -264,26 +261,6 @@ class TokenService {
         "Email verification token verification failed",
       );
     }
-  }
-
-  async storeToken(
-    userId: string,
-    jti: string,
-    type: TokenType,
-    expiresAt: Date,
-    metadata?: Record<string, any>,
-  ) {
-    const token = await prisma.token.create({
-      data: {
-        userId,
-        jti,
-        type,
-        expiresAt,
-        metadata: metadata || undefined,
-      },
-    });
-    console.log("Token stored in database:", token);
-    return token;
   }
 }
 

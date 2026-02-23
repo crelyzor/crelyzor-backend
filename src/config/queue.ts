@@ -15,21 +15,30 @@ export enum QueueNames {
 
 // Job data interfaces
 export interface TranscriptionJobData {
+  recordingId: string;
   meetingId: string;
-  organizationId: string;
-  gcsPath: string;
 }
 
 export interface AIProcessingJobData {
   meetingId: string;
-  organizationId: string;
   transcriptId?: string;
+  ownerId: string;
 }
 
 export interface NotificationJobData {
-  type: string;
-  userId: string;
-  data: Record<string, unknown>;
+  to: string | string[];
+  subject: string;
+  templateName: string;
+  templateData: Record<string, unknown>;
+  from?: {
+    email: string;
+    name: string;
+  };
+  replyTo?: {
+    email: string;
+    name?: string;
+  };
+  orgId?: string;
 }
 
 // Queue instances

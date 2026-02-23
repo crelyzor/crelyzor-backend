@@ -1,5 +1,4 @@
 import axios from "axios";
-import prisma from "../db/prismaClient";
 
 /**
  * Brevo configuration for organization's email sending
@@ -52,67 +51,12 @@ interface NotificationPayload {
  * Fetches organization's Brevo configuration from the database
  * Returns null if org doesn't have Brevo configured
  */
-async function getOrgBrevoConfig(orgId: string): Promise<BrevoConfig | null> {
-  try {
-    const org = await prisma.organization.findUnique({
-      where: { id: orgId },
-      select: {
-        brevoApiKey: true,
-        senderEmail: true,
-        senderName: true,
-        name: true,
-      },
-    });
-
-    if (!org) {
-      console.warn(`[NotificationService] Organization not found: ${orgId}`);
-      return null;
-    }
-
-    // Return config only if all required fields are present
-    if (org.brevoApiKey && org.senderEmail) {
-      return {
-        apiKey: org.brevoApiKey,
-        senderEmail: org.senderEmail,
-        senderName: org.senderName || org.name,
-      };
-    }
-
-    return null;
-  } catch (error) {
-    console.error(
-      `[NotificationService] Error fetching org brevo config:`,
-      error,
-    );
-    return null;
-  }
+async function getOrgBrevoConfig(_orgId: string): Promise<BrevoConfig | null> {
+  return null;
 }
 
-async function getOrgBranding(orgId: string): Promise<OrgBranding | null> {
-  try {
-    const org = await prisma.organization.findUnique({
-      where: { id: orgId },
-      select: {
-        name: true,
-        orgLogoUrl: true,
-        brandColor: true,
-      },
-    });
-
-    if (!org) {
-      console.warn(`[NotificationService] Organization not found: ${orgId}`);
-      return null;
-    }
-
-    return {
-      orgName: org.name,
-      orgLogoUrl: org.orgLogoUrl || undefined,
-      brandColor: org.brandColor || undefined,
-    };
-  } catch (error) {
-    console.error(`[NotificationService] Error fetching org branding:`, error);
-    return null;
-  }
+async function getOrgBranding(_orgId: string): Promise<OrgBranding | null> {
+  return null;
 }
 
 /**

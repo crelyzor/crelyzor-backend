@@ -9,7 +9,7 @@ import { ActionItemCategory } from "@prisma/client";
  */
 export const getSummary = async (req: Request, res: Response) => {
   try {
-    const { meetingId } = req.params;
+    const meetingId = req.params.meetingId as string;
 
     const summary = await prisma.meetingAISummary.findUnique({
       where: { meetingId },
@@ -40,7 +40,7 @@ export const getSummary = async (req: Request, res: Response) => {
  */
 export const regenerateSummary = async (req: Request, res: Response) => {
   try {
-    const { meetingId } = req.params;
+    const meetingId = req.params.meetingId as string;
 
     const transcript = await prisma.meetingTranscript.findFirst({
       where: { recording: { meetingId } },
@@ -76,7 +76,7 @@ export const regenerateSummary = async (req: Request, res: Response) => {
  */
 export const getActionItems = async (req: Request, res: Response) => {
   try {
-    const { meetingId } = req.params;
+    const meetingId = req.params.meetingId as string;
 
     const actionItems = await prisma.meetingActionItem.findMany({
       where: { meetingId },
@@ -100,7 +100,7 @@ export const getActionItems = async (req: Request, res: Response) => {
  */
 export const updateActionItem = async (req: Request, res: Response) => {
   try {
-    const { actionItemId } = req.params;
+    const actionItemId = req.params.actionItemId as string;
     const {
       title,
       description,
@@ -143,7 +143,7 @@ export const updateActionItem = async (req: Request, res: Response) => {
  */
 export const createActionItem = async (req: Request, res: Response) => {
   try {
-    const { meetingId } = req.params;
+    const meetingId = req.params.meetingId as string;
     const {
       title,
       description,
@@ -197,7 +197,7 @@ export const createActionItem = async (req: Request, res: Response) => {
  */
 export const getNotes = async (req: Request, res: Response) => {
   try {
-    const { meetingId } = req.params;
+    const meetingId = req.params.meetingId as string;
 
     const notes = await prisma.meetingNote.findMany({
       where: { meetingId },
@@ -221,7 +221,7 @@ export const getNotes = async (req: Request, res: Response) => {
  */
 export const createNote = async (req: Request, res: Response) => {
   try {
-    const { meetingId } = req.params;
+    const meetingId = req.params.meetingId as string;
     const { content, timestamp } = req.body;
     // Get user ID as author
     const userId = req.user?.userId;
@@ -260,7 +260,7 @@ export const createNote = async (req: Request, res: Response) => {
  */
 export const deleteNote = async (req: Request, res: Response) => {
   try {
-    const { noteId } = req.params;
+    const noteId = req.params.noteId as string;
 
     await prisma.meetingNote.delete({
       where: { id: noteId },

@@ -12,9 +12,8 @@ interface MulterRequest extends Request {
  */
 export const uploadRecording = async (req: MulterRequest, res: Response) => {
   try {
-    const { meetingId } = req.params;
-    // Get member ID from the first org role or use userId
-    const memberId = req.user?.orgRoles?.[0]?.orgMemberId || req.user?.userId;
+    const meetingId = req.params.meetingId as string;
+    const memberId = req.user?.userId;
 
     if (!req.file) {
       throw ErrorFactory.validation("No file uploaded");
@@ -52,7 +51,7 @@ export const uploadRecording = async (req: MulterRequest, res: Response) => {
  */
 export const getRecordings = async (req: Request, res: Response) => {
   try {
-    const { meetingId } = req.params;
+    const meetingId = req.params.meetingId as string;
 
     const recordings = await recordingService.getRecordings(meetingId);
 
@@ -73,7 +72,7 @@ export const getRecordings = async (req: Request, res: Response) => {
  */
 export const deleteRecording = async (req: Request, res: Response) => {
   try {
-    const { recordingId } = req.params;
+    const recordingId = req.params.recordingId as string;
 
     await recordingService.deleteRecording(recordingId);
 
@@ -94,7 +93,7 @@ export const deleteRecording = async (req: Request, res: Response) => {
  */
 export const triggerAIProcessing = async (req: Request, res: Response) => {
   try {
-    const { meetingId } = req.params;
+    const meetingId = req.params.meetingId as string;
 
     await recordingService.triggerAIProcessing(meetingId);
 

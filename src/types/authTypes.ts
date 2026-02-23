@@ -112,3 +112,6 @@ export interface ActiveSession {
   lastAccessedAt: Date;
   expiresAt: Date;
 }
+
+// Used as jwt.verify cast result - structurally matches TokenPayload
+export type AuthenticatedUser = TokenPayload & { type?: string };

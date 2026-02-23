@@ -113,7 +113,6 @@ export const sendEmail = async (
     templateData,
     from = { email: "noreply@calendar.app", name: "Calendar App" },
     replyTo,
-    orgId,
   } = input;
 
   const recipients = Array.isArray(to) ? to : [to];
@@ -136,7 +135,6 @@ export const sendEmail = async (
     for (const recipient of recipients) {
       await prisma.notificationLog.create({
         data: {
-          orgId: orgId || null,
           senderEmail: from.email,
           recipientEmail: recipient,
           recipientRole: "USER",
@@ -164,7 +162,6 @@ export const sendEmail = async (
     for (const recipient of recipients) {
       await prisma.notificationLog.create({
         data: {
-          orgId: orgId || null,
           senderEmail: from.email,
           recipientEmail: recipient,
           recipientRole: "USER",

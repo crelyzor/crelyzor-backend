@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { TokenPayload } from "../types/authTypes";
-import { orgPayload } from "../types/orgTypes";
 import { ErrorFactory } from "../utils/globalErrorHandler";
 import { apiResponse } from "../utils/globalResponseHandler";
 import { globalErrorHandler } from "../utils/globalErrorHandler";
@@ -15,12 +14,11 @@ export class SyncController {
   async syncGoogleCalendar(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
 
       // Perform sync
       const result = await googleCalendarSyncService.syncGoogleCalendarToDB(
         user.userId,
-        org.orgId,
+        user.userId,
       );
 
       apiResponse(res, {
@@ -39,7 +37,6 @@ export class SyncController {
   async getSyncStatus(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
 
       // Get OAuth account
       const oauthAccount = await prisma.oAuthAccount.findFirst({
@@ -77,7 +74,6 @@ export class SyncController {
   async getSyncedEvents(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const org = req.org as orgPayload;
       const { startDate, endDate, limit = 50, offset = 0 } = req.query;
 
       // Validate date range

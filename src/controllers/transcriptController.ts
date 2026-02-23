@@ -7,7 +7,7 @@ import { logger } from "../utils/logging/logger";
  */
 export const getTranscript = async (req: Request, res: Response) => {
   try {
-    const { meetingId } = req.params;
+    const meetingId = req.params.meetingId as string;
 
     const transcript = await transcriptionService.getTranscript(meetingId);
 
@@ -36,7 +36,7 @@ export const getTranscript = async (req: Request, res: Response) => {
  */
 export const getTranscriptionStatus = async (req: Request, res: Response) => {
   try {
-    const { meetingId } = req.params;
+    const meetingId = req.params.meetingId as string;
 
     const transcript = await transcriptionService.getTranscript(meetingId);
 

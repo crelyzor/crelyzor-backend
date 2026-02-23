@@ -190,9 +190,10 @@ export const deleteRecording = async (recordingId: string): Promise<void> => {
  * Trigger AI processing for a meeting
  */
 export const triggerAIProcessing = async (meetingId: string): Promise<void> => {
-  const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
-  });
+  const [transcript, meeting] = await Promise.all([
+    prisma.meetingTranscript.findFirst({ where: { recording: { meetingId } } }),
+    prisma.meeting.findUnique({ where: { id: meetingId } }),
+  ]);
 
   if (!transcript) {
     throw new Error(`No transcript found for meeting ${meetingId}`);
@@ -205,6 +206,7 @@ export const triggerAIProcessing = async (meetingId: string): Promise<void> => {
       {
         meetingId,
         transcriptId: transcript.id,
+        ownerId: meeting?.createdById ?? "",
       },
       {
         jobId: `ai-${meetingId}-${Date.now()}`,

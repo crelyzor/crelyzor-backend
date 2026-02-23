@@ -3,6 +3,9 @@ import {
   getAIProcessingQueue,
   getNotificationQueue,
   closeQueues,
+  TranscriptionJobData,
+  AIProcessingJobData,
+  NotificationJobData,
 } from "../config/queue";
 import { transcriptionService } from "../services/transcription/transcriptionService";
 import { aiService } from "../services/ai/aiService";
@@ -12,17 +15,6 @@ import {
 } from "../services/notifications/notificationService";
 import { logger } from "../utils/logging/logger";
 import prisma from "../db/prismaClient";
-
-interface TranscriptionJobData {
-  recordingId: string;
-  meetingId: string;
-}
-
-interface AIProcessingJobData {
-  meetingId: string;
-  transcriptId: string;
-  ownerId: string;
-}
 
 /**
  * Initialize and start all queue processors
@@ -44,11 +36,6 @@ export const startWorker = async (): Promise<void> => {
       // Get meeting to find owner for AI processing
       const meeting = await prisma.meeting.findUnique({
         where: { id: data.meetingId },
-        include: {
-          createdByMember: {
-            include: { user: true },
-          },
-        },
       });
 
       // Automatically queue AI processing after transcription
@@ -56,7 +43,7 @@ export const startWorker = async (): Promise<void> => {
       await aiQueue.add("process-ai", {
         meetingId: data.meetingId,
         transcriptId: data.recordingId,
-        ownerId: meeting?.createdByMember?.userId || "",
+        ownerId: meeting?.createdById ?? "",
       });
 
       return { success: true };
@@ -84,23 +71,15 @@ export const startWorker = async (): Promise<void> => {
       // Send notification that transcription and AI processing is complete
       const meeting = await prisma.meeting.findUnique({
         where: { id: data.meetingId },
-        include: {
-          createdByMember: {
-            include: { user: true },
-          },
-        },
+        include: { createdBy: true },
       });
 
-      const userEmail = meeting?.createdByMember?.user?.email;
+      const userEmail = meeting?.createdBy?.email;
       if (userEmail) {
-        await notificationService.sendTranscriptionReady(
-          userEmail,
-          {
-            meetingTitle: meeting.title,
-            actionUrl: `${process.env.FRONTEND_URL}/meetings/${meeting.id}`,
-          },
-          meeting.organizationId,
-        );
+        await notificationService.sendTranscriptionReady(userEmail, {
+          meetingTitle: meeting.title,
+          actionUrl: `${process.env.FRONTEND_URL}/meetings/${meeting.id}`,
+        });
       }
 
       return { success: true, result };
@@ -116,13 +95,15 @@ export const startWorker = async (): Promise<void> => {
   // Notification queue processor
   const notificationQueue = getNotificationQueue();
   notificationQueue.process("send-email", async (job) => {
-    const data = job.data as SendEmailInput;
+    const data = job.data as NotificationJobData;
     logger.info(
       `Processing email notification to ${Array.isArray(data.to) ? data.to.join(", ") : data.to}`,
     );
 
     try {
-      const result = await notificationService.sendEmail(data);
+      const result = await notificationService.sendEmail(
+        data as SendEmailInput,
+      );
 
       if (!result.success) {
         throw new Error(result.error);

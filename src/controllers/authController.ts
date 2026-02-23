@@ -117,7 +117,7 @@ export const authController = {
   revokeSession: async (req: Request, res: Response): Promise<void> => {
     try {
       const userId = req.user?.userId;
-      const { sessionId } = req.params;
+      const sessionId = req.params.sessionId as string;
 
       if (!userId) {
         throw ErrorFactory.unauthorized("User not authenticated");
