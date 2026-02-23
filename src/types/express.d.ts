@@ -4,7 +4,6 @@ declare global {
     interface Request {
       user?: TokenPayload;
       sessionId?: string;
-      org?: { orgId: string };
       service?: {
         clientId: string;
         type: string;

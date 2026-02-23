@@ -1,7 +1,6 @@
 export interface SoftDeleteUserParams {
   adminUserId: string;
   targetUserId: string;
-  orgId: string;
 }
 
 export interface HardDeleteParams {

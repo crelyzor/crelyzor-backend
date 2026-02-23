@@ -22,7 +22,6 @@ export const corsOptions: CorsOptions = {
     "Content-Type",
     "Authorization",
     "X-Requested-With",
-    "x-organization-id",
     "Accept",
     "Origin",
   ],

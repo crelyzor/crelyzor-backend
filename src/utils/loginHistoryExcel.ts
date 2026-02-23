@@ -17,7 +17,6 @@ export async function generateLoginHistoryExcel(
   sheet.columns = [
     { header: "User Name", key: "name", width: 25 },
     { header: "Email", key: "email", width: 30 },
-    { header: "Organization(s)", key: "orgs", width: 35 },
     { header: "IP Address", key: "ip", width: 18 },
     { header: "User Agent", key: "agent", width: 45 },
     { header: "Login Time", key: "loginTime", width: 22 },
@@ -42,16 +41,9 @@ export async function generateLoginHistoryExcel(
 
   // Data rows
   for (const record of loginHistory) {
-    const orgNames =
-      record.user?.organizationMembers
-        ?.map((m: any) => m.organization?.name)
-        .filter(Boolean)
-        .join(", ") || "-";
-
     sheet.addRow({
       name: record.user?.name || "-",
       email: record.user?.email || "-",
-      orgs: orgNames,
       ip: record.ipAddress || "-",
       agent: record.userAgent || "-",
       loginTime: record.loginTime
@@ -63,7 +55,7 @@ export async function generateLoginHistoryExcel(
   // Auto filter
   sheet.autoFilter = {
     from: "A1",
-    to: "F1",
+    to: "E1",
   };
 
   // Return as buffer

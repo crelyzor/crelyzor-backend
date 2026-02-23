@@ -1,7 +1,6 @@
 export interface CreateShortenedUrlData {
   originalUrl: string;
   userId?: string;
-  orgId?: string;
 }
 
 export interface ShortenedUrlResponse {
