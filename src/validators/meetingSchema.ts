@@ -16,55 +16,10 @@ export const createMeetingSchema = z
       .refine((date) => !isNaN(Date.parse(date)), "Invalid end time")
       .transform((date) => new Date(date)),
     timezone: z.string().default("UTC"),
-    mode: z.enum(["ONLINE", "IN_PERSON"]),
     location: z.string().optional(),
     participantUserIds: z
       .array(z.string().uuid("Invalid participant ID format"))
       .optional(),
-    guestEmails: z.array(z.string().email("Invalid email format")).optional(),
-    notes: z.string().optional(),
-    eventTypeId: z.string().uuid().optional(),
-  })
-  .refine((data) => data.startTime < data.endTime, {
-    message: "Start time must be before end time",
-    path: ["endTime"],
-  })
-  .refine(
-    (data) =>
-      (data.participantUserIds && data.participantUserIds.length > 0) ||
-      (data.guestEmails && data.guestEmails.length > 0),
-    {
-      message: "At least one participant (user or external guest) is required",
-      path: ["participantUserIds"],
-    },
-  );
-
-/**
- * Schema for requesting a meeting
- * Simplified version for calendar system
- */
-export const requestMeetingSchema = z
-  .object({
-    title: z
-      .string()
-      .min(1, "Title is required")
-      .max(255, "Title must be less than 255 characters"),
-    description: z.string().optional(),
-    startTime: z
-      .string()
-      .refine((date) => !isNaN(Date.parse(date)), "Invalid start time")
-      .transform((date) => new Date(date)),
-    endTime: z
-      .string()
-      .refine((date) => !isNaN(Date.parse(date)), "Invalid end time")
-      .transform((date) => new Date(date)),
-    timezone: z.string().default("UTC"),
-    mode: z.enum(["ONLINE", "IN_PERSON"]),
-    location: z.string().optional(),
-    participantUserIds: z
-      .array(z.string().uuid("Invalid participant ID format"))
-      .optional(),
-    targetUserId: z.string().uuid("Invalid user ID format"),
     notes: z.string().optional(),
   })
   .refine((data) => data.startTime < data.endTime, {
@@ -72,57 +27,12 @@ export const requestMeetingSchema = z
     path: ["endTime"],
   });
 
-// For accept/decline/cancel endpoints - reason is optional
 export const meetingActionSchema = z.object({
   reason: z.string().optional(),
 });
 
-// For legacy support - not used in new endpoints
-export const updateMeetingStatusSchema = z.object({
-  newStatus: z.enum([
-    "PENDING_ACCEPTANCE",
-    "ACCEPTED",
-    "DECLINED",
-    "COMPLETED",
-    "CANCELLED",
-    "RESCHEDULING_REQUESTED",
-  ]),
-  reason: z.string().optional(),
-});
-
-export const proposeMeetingRescheduleSchema = z
-  .object({
-    proposedStartTime: z
-      .string()
-      .refine((date) => !isNaN(Date.parse(date)), "Invalid proposed start time")
-      .transform((date) => new Date(date)),
-    proposedEndTime: z
-      .string()
-      .refine((date) => !isNaN(Date.parse(date)), "Invalid proposed end time")
-      .transform((date) => new Date(date)),
-    reason: z.string().optional(),
-  })
-  .refine((data) => data.proposedStartTime < data.proposedEndTime, {
-    message: "Proposed start time must be before end time",
-    path: ["proposedEndTime"],
-  });
-
-export const respondToRescheduleSchema = z.object({
-  accepted: z.boolean(),
-  responseNotes: z.string().optional(),
-});
-
 export const getMeetingsSchema = z.object({
-  status: z
-    .enum([
-      "PENDING_ACCEPTANCE",
-      "ACCEPTED",
-      "DECLINED",
-      "COMPLETED",
-      "CANCELLED",
-      "RESCHEDULING_REQUESTED",
-    ])
-    .optional(),
+  status: z.enum(["CREATED", "COMPLETED", "CANCELLED"]).optional(),
   startDate: z
     .string()
     .optional()
@@ -138,16 +48,7 @@ export const getMeetingsSchema = z.object({
 });
 
 export const getMeetingsWithoutPaginationSchema = z.object({
-  status: z
-    .enum([
-      "PENDING_ACCEPTANCE",
-      "ACCEPTED",
-      "DECLINED",
-      "COMPLETED",
-      "CANCELLED",
-      "RESCHEDULING_REQUESTED",
-    ])
-    .optional(),
+  status: z.enum(["CREATED", "COMPLETED", "CANCELLED"]).optional(),
   startDate: z
     .string()
     .optional()
@@ -179,12 +80,10 @@ export const updateMeetingSchema = z
       .transform((date) => new Date(date))
       .optional(),
     timezone: z.string().optional(),
-    mode: z.enum(["ONLINE", "IN_PERSON"]).optional(),
     location: z.string().optional(),
     participantUserIds: z
       .array(z.string().uuid("Invalid participant ID format"))
       .optional(),
-    guestEmails: z.array(z.string().email("Invalid email format")).optional(),
     notes: z.string().optional(),
   })
   .refine(
@@ -201,15 +100,5 @@ export const updateMeetingSchema = z
   );
 
 export type CreateMeetingInput = z.infer<typeof createMeetingSchema>;
-export type RequestMeetingInput = z.infer<typeof requestMeetingSchema>;
-export type UpdateMeetingStatusInput = z.infer<
-  typeof updateMeetingStatusSchema
->;
 export type UpdateMeetingInput = z.infer<typeof updateMeetingSchema>;
-export type ProposeMeetingRescheduleInput = z.infer<
-  typeof proposeMeetingRescheduleSchema
->;
-export type RespondToRescheduleInput = z.infer<
-  typeof respondToRescheduleSchema
->;
 export type GetMeetingsInput = z.infer<typeof getMeetingsSchema>;

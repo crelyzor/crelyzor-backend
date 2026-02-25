@@ -35,9 +35,6 @@ model User {
   state   String?
   city    String?
 
-  // Meeting preference
-  meetingPreference ProviderEnum?
-
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -53,12 +50,10 @@ model User {
   cardContacts CardContact[]
 
   // Meetings (user-level)
-  meetingsCreated             Meeting[]                  @relation("MeetingCreatedBy")
-  meetingParticipations       MeetingParticipant[]
-  meetingStateChanges         MeetingStateHistory[]      @relation("MeetingStateChanges")
-  rescheduleRequestsCreated   MeetingRescheduleRequest[] @relation("RescheduleRequestedBy")
-  rescheduleRequestsResponded MeetingRescheduleRequest[] @relation("RescheduleRespondedBy")
-  meetingSpeakers             MeetingSpeaker[]
+  meetingsCreated       Meeting[]             @relation("MeetingCreatedBy")
+  meetingParticipations MeetingParticipant[]
+  meetingStateChanges   MeetingStateHistory[] @relation("MeetingStateChanges")
+  meetingSpeakers       MeetingSpeaker[]
 }
 
 model Session {
@@ -100,47 +95,40 @@ model RefreshToken {
 }
 
 model OAuthAccount {
-  id             String                  @id @default(uuid()) @db.Uuid
-  provider       ProviderEnum
-  providerId     String
-  accessToken    String
-  refreshToken   String
-  expiry         Int
-  scopes         String[]
-  createdAt      DateTime                @default(now())
-  userId         String                  @db.Uuid
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String       @id @default(uuid()) @db.Uuid
+  provider     ProviderEnum
+  providerId   String
+  accessToken  String
+  refreshToken String
+  expiry       Int
+  scopes       String[]
+  createdAt    DateTime     @default(now())
+  userId       String       @db.Uuid
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerId])
 }
 
-
 // ================================
-// CALENDAR & MEETING MANAGEMENT
+// MEETING MANAGEMENT
 // ================================
 
 model Meeting {
-  id            String        @id @default(uuid()) @db.Uuid
-  title         String
-  description   String?
-  startTime     DateTime
-  endTime       DateTime
-  timezone      String        @default("UTC")
-  mode          MeetingMode
-  status        MeetingStatus @default(PENDING_ACCEPTANCE)
-  location      String?       // For in-person meetings
-  notes         String?
+  id          String        @id @default(uuid()) @db.Uuid
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+  timezone    String        @default("UTC")
+  status      MeetingStatus @default(CREATED)
+  location    String?
+  notes       String?
 
-  // Guest booking info (for future use)
-  guestEmail   String?
-  guestName    String?
-  guestMessage String?
-
-  // Tracking (user-level)
-  createdById String  @db.Uuid
-  isDeleted   Boolean @default(false)
+  // Tracking
+  createdById String    @db.Uuid
+  isDeleted   Boolean   @default(false)
   deletedAt   DateTime?
-  deletedBy   String? @db.Uuid
+  deletedBy   String?   @db.Uuid
 
   // Transcription processing status
   transcriptionStatus TranscriptionStatus @default(NONE)
@@ -150,11 +138,9 @@ model Meeting {
   updatedAt DateTime @updatedAt
 
   // Relations
-  createdBy          User                       @relation("MeetingCreatedBy", fields: [createdById], references: [id])
-  participants       MeetingParticipant[]
-  guests             MeetingGuest[]
-  stateHistory       MeetingStateHistory[]
-  rescheduleRequests MeetingRescheduleRequest[]
+  createdBy    User                 @relation("MeetingCreatedBy", fields: [createdById], references: [id])
+  participants MeetingParticipant[]
+  stateHistory MeetingStateHistory[]
 
   // Smart Meeting Assistant relations
   recording    MeetingRecording?
@@ -166,7 +152,6 @@ model Meeting {
   @@index([createdById])
   @@index([startTime])
   @@index([status, isDeleted])
-  @@index([guestEmail])
   @@index([transcriptionStatus])
 }
 
@@ -175,8 +160,6 @@ model MeetingParticipant {
   meetingId       String          @db.Uuid
   userId          String          @db.Uuid
   participantType ParticipantType
-  responseStatus  ResponseStatus  @default(PENDING)
-  respondedAt     DateTime?
   joinedAt        DateTime?
 
   meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
@@ -185,22 +168,6 @@ model MeetingParticipant {
   @@unique([meetingId, userId])
   @@index([userId])
   @@index([meetingId])
-}
-
-model MeetingGuest {
-  id             String         @id @default(uuid()) @db.Uuid
-  meetingId      String         @db.Uuid
-  email          String
-  name           String?
-  responseStatus ResponseStatus @default(PENDING)
-  respondedAt    DateTime?
-  createdAt      DateTime       @default(now())
-
-  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-
-  @@unique([meetingId, email])
-  @@index([meetingId])
-  @@index([email])
 }
 
 model MeetingStateHistory {
@@ -219,62 +186,40 @@ model MeetingStateHistory {
   @@index([toStatus])
 }
 
-model MeetingRescheduleRequest {
-  id                String         @id @default(uuid()) @db.Uuid
-  meetingId         String         @db.Uuid
-  requestedById     String         @db.Uuid
-  proposedStartTime DateTime
-  proposedEndTime   DateTime
-  reason            String?
-  status            ResponseStatus @default(PENDING)
-  respondedById     String?        @db.Uuid
-  respondedAt       DateTime?
-  responseNotes     String?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
-
-  meeting     Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  requestedBy User    @relation("RescheduleRequestedBy", fields: [requestedById], references: [id])
-  respondedBy User?   @relation("RescheduleRespondedBy", fields: [respondedById], references: [id])
-
-  @@index([meetingId])
-  @@index([status])
-}
-
 // ================================
 // TRANSCRIPTION & AI (Smart Meeting Assistant)
 // ================================
 
 model MeetingRecording {
-  id        String  @id @default(uuid()) @db.Uuid
-  meetingId String  @unique @db.Uuid
+  id        String @id @default(uuid()) @db.Uuid
+  meetingId String @unique @db.Uuid
 
-  gcsPath   String  // Path in Google Cloud Storage
-  duration  Int     // Duration in seconds
-  fileSize  Int     // File size in bytes
-  fileName  String
+  gcsPath  String // Path in Google Cloud Storage
+  duration Int    // Duration in seconds
+  fileSize Int    // File size in bytes
+  fileName String
 
   uploadedBy String   @db.Uuid
   uploadedAt DateTime @default(now())
 
-  meeting    Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  meeting    Meeting           @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   transcript MeetingTranscript?
 
   @@index([meetingId])
 }
 
 model MeetingTranscript {
-  id          String  @id @default(uuid()) @db.Uuid
-  recordingId String  @unique @db.Uuid
+  id          String @id @default(uuid()) @db.Uuid
+  recordingId String @unique @db.Uuid
 
-  fullText String   // Complete transcript text
+  fullText String // Complete transcript text
 
   deepgramJobId String?   // Track Deepgram async job
   processedAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  recording MeetingRecording     @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  recording MeetingRecording    @relation(fields: [recordingId], references: [id], onDelete: Cascade)
   segments  TranscriptSegment[]
 
   @@index([recordingId])
@@ -284,10 +229,10 @@ model TranscriptSegment {
   id           String @id @default(uuid()) @db.Uuid
   transcriptId String @db.Uuid
 
-  speaker   String  // "Speaker 1", "Speaker 2", etc.
+  speaker   String // "Speaker 1", "Speaker 2", etc.
   text      String
-  startTime Float   // seconds
-  endTime   Float   // seconds
+  startTime Float  // seconds
+  endTime   Float  // seconds
 
   transcript MeetingTranscript @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
 
@@ -322,7 +267,7 @@ model MeetingActionItem {
 
   title       String
   description String?
-  owner       String @db.Uuid // userId
+  owner       String             @db.Uuid // userId
   category    ActionItemCategory
 
   suggestedStartDate DateTime?
@@ -359,8 +304,8 @@ model MeetingAISummary {
   id        String @id @default(uuid()) @db.Uuid
   meetingId String @unique @db.Uuid
 
-  summary    String
-  keyPoints  String[]
+  summary   String
+  keyPoints String[]
 
   generatedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -481,31 +426,15 @@ enum ProviderEnum {
   ZOOM
 }
 
-
-enum MeetingMode {
-  ONLINE
-  IN_PERSON
-}
-
 enum MeetingStatus {
   CREATED
-  PENDING_ACCEPTANCE
-  ACCEPTED
-  DECLINED
   COMPLETED
   CANCELLED
-  RESCHEDULING_REQUESTED
 }
 
 enum ParticipantType {
   ORGANIZER
   ATTENDEE
-}
-
-enum ResponseStatus {
-  PENDING
-  ACCEPTED
-  DECLINED
 }
 
 enum TranscriptionStatus {
