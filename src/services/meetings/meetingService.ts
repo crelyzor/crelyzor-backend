@@ -6,7 +6,6 @@ import {
   MeetingParticipant,
   Prisma,
 } from "@prisma/client";
-import { googleService } from "../googleService";
 
 // Standard include for meeting queries - user-level
 const meetingInclude = {
@@ -189,11 +188,6 @@ export const meetingService = {
     if (!meeting) {
       throw ErrorFactory.validation("Failed to create meeting");
     }
-
-    // Sync to Google Calendar (non-blocking)
-    this.syncMeetingToGoogleCalendar(meeting).catch((err) =>
-      console.error("[meetingService] Google Calendar sync failed:", err),
-    );
 
     return meeting;
   },
@@ -468,13 +462,6 @@ export const meetingService = {
       throw ErrorFactory.validation("Failed to update meeting");
     }
 
-    // Sync to Google Calendar if event exists (non-blocking)
-    if (meeting.googleEventId) {
-      this.updateGoogleCalendarEvent(updatedMeeting).catch((err) =>
-        console.error("[meetingService] Google Calendar sync failed:", err),
-      );
-    }
-
     return updatedMeeting;
   },
 
@@ -529,13 +516,6 @@ export const meetingService = {
 
     if (!updatedMeeting) {
       throw ErrorFactory.notFound("Meeting not found");
-    }
-
-    // Sync to Google Calendar if no event yet (non-blocking)
-    if (!meeting.googleEventId) {
-      this.syncMeetingToGoogleCalendar(updatedMeeting).catch((err) =>
-        console.error("[meetingService] Google Calendar sync failed:", err),
-      );
     }
 
     return updatedMeeting;
@@ -647,16 +627,6 @@ export const meetingService = {
       },
       { timeout: 15000 },
     );
-
-    // Delete from Google Calendar (non-blocking)
-    if (meeting.googleEventId) {
-      this.deleteGoogleCalendarEvent(
-        meeting.createdById,
-        meeting.googleEventId,
-      ).catch((err) =>
-        console.error("[meetingService] Google Calendar delete failed:", err),
-      );
-    }
 
     return updatedMeeting;
   },
@@ -852,16 +822,6 @@ export const meetingService = {
             },
             include: meetingInclude,
           });
-
-          // Update Google Calendar
-          if (meeting.googleEventId) {
-            this.updateGoogleCalendarEvent(updated).catch((err) =>
-              console.error(
-                "[meetingService] Google Calendar sync failed:",
-                err,
-              ),
-            );
-          }
         } else {
           updated = await tx.meeting.update({
             where: { id: meeting.id },
@@ -1059,94 +1019,5 @@ export const meetingService = {
     }
 
     return conflicts;
-  },
-
-  /**
-   * Helper: Sync meeting to Google Calendar
-   */
-  async syncMeetingToGoogleCalendar(meeting: any): Promise<void> {
-    try {
-      const participants = meeting.participants || [];
-      const attendees = participants
-        .filter((p: any) => p.userId !== meeting.createdById)
-        .map((p: any) => ({ email: p.user?.email }))
-        .filter((a: any) => a.email);
-
-      const googleEvent = await googleService.createEvent(meeting.createdById, {
-        summary: meeting.title,
-        description: meeting.description || "",
-        start: meeting.startTime.toISOString(),
-        end: meeting.endTime.toISOString(),
-        conferenceData:
-          meeting.mode === "ONLINE"
-            ? {
-                createRequest: {
-                  requestId: `${meeting.id}-${Date.now()}`,
-                  conferenceSolutionKey: { type: "hangoutsMeet" },
-                },
-              }
-            : undefined,
-        attendees: attendees.length > 0 ? attendees : undefined,
-      });
-
-      if (googleEvent) {
-        const meetLink =
-          googleEvent.conferenceData?.entryPoints?.[0]?.uri ||
-          googleEvent.hangoutLink ||
-          null;
-        await prisma.meeting.update({
-          where: { id: meeting.id },
-          data: {
-            meetingLink: meetLink,
-            googleEventId: googleEvent.id || meeting.id,
-          },
-        });
-      }
-    } catch (err) {
-      console.error("[meetingService] Google Calendar sync error:", err);
-    }
-  },
-
-  /**
-   * Helper: Update Google Calendar event
-   */
-  async updateGoogleCalendarEvent(meeting: any): Promise<void> {
-    if (!meeting.googleEventId) return;
-
-    try {
-      const participants = meeting.participants || [];
-      const attendees = participants
-        .filter((p: any) => p.userId !== meeting.createdById)
-        .map((p: any) => ({ email: p.user?.email }))
-        .filter((a: any) => a.email);
-
-      await googleService.updateEvent(
-        meeting.createdById,
-        meeting.googleEventId,
-        {
-          summary: meeting.title,
-          description: meeting.description || "",
-          start: meeting.startTime.toISOString(),
-          end: meeting.endTime.toISOString(),
-          attendees: attendees.length > 0 ? attendees : undefined,
-        },
-      );
-    } catch (err) {
-      console.error("[meetingService] Google Calendar update error:", err);
-    }
-  },
-
-  /**
-   * Helper: Delete Google Calendar event
-   */
-  async deleteGoogleCalendarEvent(
-    userId: string,
-    googleEventId: string,
-  ): Promise<void> {
-    try {
-      await googleService.deleteEvent(userId, googleEventId);
-    } catch (err) {
-      console.error("[meetingService] Google Calendar delete error:", err);
-    }
   },
 };

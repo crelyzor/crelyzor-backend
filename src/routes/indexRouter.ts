@@ -2,8 +2,6 @@ import { Router } from "express";
 import authRouter from "./authRoutes";
 import googleOAuthRouter from "./auth/googleOAuthRoutes";
 import userRouter from "./userRoutes";
-import googleCalendarRouter from "./integrations/googleCalendarRoutes";
-import syncRouter from "./syncRoutes";
 import storageRouter from "./storageRoutes";
 import meetingRouter from "./meetingRoutes";
 import smaRouter from "./smaRoutes";
@@ -23,12 +21,6 @@ indexRouter.use("/auth", authRouter);
 // 👤 USER ROUTES
 // ========================================
 indexRouter.use("/users", userRouter);
-
-// ========================================
-// 🔗 INTEGRATION ROUTES
-// ========================================
-indexRouter.use("/integrations/calendar/sync", syncRouter);
-indexRouter.use("/integrations/calendar", googleCalendarRouter);
 
 // ========================================
 // 📅 MEETING ROUTES

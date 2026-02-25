@@ -46,9 +46,7 @@ model User {
   loginHistory  LoginHistory[]
   oauthAccounts OAuthAccount[]
   refreshTokens RefreshToken[]
-  sessions               Session[]
-  calendarEvents         GoogleCalendarEvent[]
-  googleCalendarSyncLogs GoogleCalendarSyncLog[]
+  sessions      Session[]
 
   // Digital Cards
   cards        Card[]
@@ -111,65 +109,11 @@ model OAuthAccount {
   scopes         String[]
   createdAt      DateTime                @default(now())
   userId         String                  @db.Uuid
-  user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  calendarEvents GoogleCalendarEvent[]
-  syncLogs       GoogleCalendarSyncLog[]
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerId])
 }
 
-
-// ================================
-// GOOGLE CALENDAR INTEGRATION
-// ================================
-
-model GoogleCalendarEvent {
-  id               String   @id @default(uuid()) @db.Uuid
-  userId           String   @db.Uuid
-  oauthAccountId   String   @db.Uuid
-  googleEventId    String
-  summary          String?
-  description      String?
-  location         String?
-  startTime        DateTime
-  endTime          DateTime
-  status           String?
-  attendees        Json?
-  isAllDay         Boolean  @default(false)
-  recurring        Boolean  @default(false)
-  recurringEventId String?
-  metadata         Json?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  lastSyncedAt     DateTime @default(now())
-
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  oauthAccount OAuthAccount @relation(fields: [oauthAccountId], references: [id], onDelete: Cascade)
-
-  @@unique([oauthAccountId, googleEventId])
-  @@index([userId])
-  @@index([startTime])
-}
-
-model GoogleCalendarSyncLog {
-  id                String   @id @default(uuid()) @db.Uuid
-  userId            String   @db.Uuid
-  oauthAccountId    String   @db.Uuid
-  lastSyncTime      DateTime @default(now())
-  nextSyncToken     String?
-  fullSyncCompleted Boolean  @default(false)
-  status            String   @default("PENDING")
-  errorMessage      String?
-  eventsSynced      Int      @default(0)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  oauthAccount OAuthAccount @relation(fields: [oauthAccountId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, oauthAccountId])
-  @@index([oauthAccountId, lastSyncTime])
-}
 
 // ================================
 // CALENDAR & MEETING MANAGEMENT
@@ -185,11 +129,6 @@ model Meeting {
   mode          MeetingMode
   status        MeetingStatus @default(PENDING_ACCEPTANCE)
   location      String?       // For in-person meetings
-  meetingLink   String?       // Zoom/GMeet URL
-  meetingProvider ProviderEnum? // Which provider generated the link
-  videoMeetingId  String?       // External meeting ID (Zoom meeting ID, Google Meet ID)
-  googleEventId String?
-  recordingLink String?
   notes         String?
 
   // Guest booking info (for future use)
@@ -226,7 +165,6 @@ model Meeting {
 
   @@index([createdById])
   @@index([startTime])
-  @@index([googleEventId])
   @@index([status, isDeleted])
   @@index([guestEmail])
   @@index([transcriptionStatus])
@@ -543,11 +481,6 @@ enum ProviderEnum {
   ZOOM
 }
 
-enum SyncStatus {
-  SUCCESS
-  FAILED
-  PENDING
-}
 
 enum MeetingMode {
   ONLINE
