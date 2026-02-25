@@ -406,9 +406,6 @@ export class MeetingController {
           stateHistory: true,
           rescheduleRequests: true,
           guests: true,
-          eventType: {
-            select: { id: true, title: true, slug: true, duration: true },
-          },
           createdBy: {
             select: {
               id: true,

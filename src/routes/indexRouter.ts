@@ -6,10 +6,6 @@ import googleCalendarRouter from "./integrations/googleCalendarRoutes";
 import syncRouter from "./syncRoutes";
 import storageRouter from "./storageRoutes";
 import meetingRouter from "./meetingRoutes";
-import availabilityRouter from "./availabilityRoutes";
-import scheduleRouter from "./scheduleRoutes";
-import eventTypeRouter from "./eventTypeRoutes";
-import publicBookingRouter from "./publicBookingRoutes";
 import smaRouter from "./smaRoutes";
 import cardRouter from "./cardRoutes";
 import publicCardRouter from "./publicCardRoutes";
@@ -35,12 +31,9 @@ indexRouter.use("/integrations/calendar/sync", syncRouter);
 indexRouter.use("/integrations/calendar", googleCalendarRouter);
 
 // ========================================
-// 📅 MEETING & AVAILABILITY ROUTES
+// 📅 MEETING ROUTES
 // ========================================
 indexRouter.use("/meetings", meetingRouter);
-indexRouter.use("/schedules", scheduleRouter);
-indexRouter.use("/event-types", eventTypeRouter);
-indexRouter.use("/availability", availabilityRouter);
 
 // ========================================
 // 💳 DIGITAL CARD ROUTES
@@ -50,7 +43,6 @@ indexRouter.use("/cards", cardRouter);
 // ========================================
 // 🌐 PUBLIC ROUTES
 // ========================================
-indexRouter.use("/public", publicBookingRouter);
 indexRouter.use("/public", publicCardRouter);
 
 // ========================================

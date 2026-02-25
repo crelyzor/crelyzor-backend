@@ -24,9 +24,6 @@ const meetingInclude = {
   },
   guests: true,
   stateHistory: true,
-  eventType: {
-    select: { id: true, title: true, slug: true, duration: true },
-  },
 } satisfies Prisma.MeetingInclude;
 
 export interface CreateMeetingDTO {
@@ -41,7 +38,6 @@ export interface CreateMeetingDTO {
   participantUserIds?: string[];
   guestEmails?: string[];
   notes?: string;
-  eventTypeId?: string;
 }
 
 export interface UpdateMeetingStatusDTO {
@@ -90,7 +86,6 @@ export const meetingService = {
       participantUserIds,
       guestEmails = [],
       notes,
-      eventTypeId,
     } = data;
 
     if (startTime >= endTime) {
@@ -145,7 +140,6 @@ export const meetingService = {
             location,
             notes,
             createdById,
-            eventTypeId,
           },
         });
 
@@ -1065,141 +1059,6 @@ export const meetingService = {
     }
 
     return conflicts;
-  },
-
-  /**
-   * Create meeting from public booking (no auth)
-   */
-  async createPublicBooking(data: {
-    userId: string; // The user being booked
-    eventTypeId: string;
-    guestEmail: string;
-    guestName: string;
-    startTime: Date;
-    endTime: Date;
-    timezone: string;
-    guestMessage?: string;
-  }): Promise<Meeting> {
-    const {
-      userId,
-      eventTypeId,
-      guestEmail,
-      guestName,
-      startTime,
-      endTime,
-      timezone,
-      guestMessage,
-    } = data;
-
-    if (startTime >= endTime) {
-      throw ErrorFactory.validation("Start time must be before end time");
-    }
-
-    // Validate user is active
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user || !user.isActive) {
-      throw ErrorFactory.notFound("User not available");
-    }
-
-    // Validate event type
-    const eventType = await prisma.eventType.findUnique({
-      where: { id: eventTypeId },
-    });
-    if (!eventType || eventType.userId !== userId || !eventType.isActive) {
-      throw ErrorFactory.notFound("Event type not found or inactive");
-    }
-
-    // Check for conflicts
-    const conflicts = await this.detectConflicts({
-      userId,
-      startTime,
-      endTime,
-    });
-
-    if (conflicts.length > 0) {
-      throw ErrorFactory.conflict(
-        "Requested time slot is not available. Please choose another time.",
-      );
-    }
-
-    const meeting = await prisma.$transaction(
-      async (tx) => {
-        const newMeeting = await tx.meeting.create({
-          data: {
-            title: eventType.title,
-            startTime,
-            endTime,
-            timezone,
-            mode: "ONLINE",
-            status: MeetingStatus.CREATED,
-            createdById: userId,
-            eventTypeId,
-            guestEmail,
-            guestName,
-            guestMessage,
-          },
-        });
-
-        // Add host as organizer
-        await tx.meetingParticipant.create({
-          data: {
-            meetingId: newMeeting.id,
-            userId,
-            participantType: "ORGANIZER",
-            responseStatus: "ACCEPTED",
-            respondedAt: new Date(),
-          },
-        });
-
-        return tx.meeting.findUnique({
-          where: { id: newMeeting.id },
-          include: meetingInclude,
-        });
-      },
-      { timeout: 15000 },
-    );
-
-    if (!meeting) {
-      throw ErrorFactory.validation("Failed to create booking");
-    }
-
-    // Sync to Google Calendar (non-blocking)
-    try {
-      const googleEvent = await googleService.createEvent(userId, {
-        summary: eventType.title,
-        description: `Guest: ${guestName} (${guestEmail})${guestMessage ? `\nMessage: ${guestMessage}` : ""}`,
-        start: startTime.toISOString(),
-        end: endTime.toISOString(),
-        conferenceData: {
-          createRequest: {
-            requestId: `${meeting.id}-${Date.now()}`,
-            conferenceSolutionKey: { type: "hangoutsMeet" },
-          },
-        },
-        attendees: [{ email: guestEmail }],
-      });
-
-      if (googleEvent) {
-        const meetLink =
-          googleEvent.conferenceData?.entryPoints?.[0]?.uri ||
-          googleEvent.hangoutLink ||
-          null;
-        await prisma.meeting.update({
-          where: { id: meeting.id },
-          data: {
-            meetingLink: meetLink,
-            googleEventId: googleEvent.id || meeting.id,
-          },
-        });
-      }
-    } catch (syncError) {
-      console.error(
-        "[meetingService] Failed to sync public booking to Google Calendar:",
-        syncError,
-      );
-    }
-
-    return meeting;
   },
 
   /**

@@ -238,6 +238,55 @@ Return ONLY a JSON array, no other text.`;
 };
 
 /**
+ * Generate a short, meaningful meeting title from transcript
+ * Called after transcription — silently replaces the timestamp default title
+ */
+export const generateMeetingTitle = async (
+  meetingId: string,
+  transcriptText: string,
+): Promise<string | null> => {
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  try {
+    const prompt = `Based on this meeting transcript, generate a short, descriptive meeting title (4-7 words max).
+The title should capture the main topic or purpose of the meeting.
+Return ONLY the title text, nothing else.
+
+Transcript (first 2000 chars):
+${transcriptText.slice(0, 2000)}`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You generate concise, professional meeting titles. Return only the title, no quotes or punctuation at the end.",
+        },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 30,
+      temperature: 0.4,
+    });
+
+    const title = response.choices[0]?.message?.content?.trim();
+    if (!title) return null;
+
+    // Update meeting title in DB
+    await prisma.meeting.update({
+      where: { id: meetingId },
+      data: { title },
+    });
+
+    logger.info(`Meeting ${meetingId} renamed to: "${title}"`);
+    return title;
+  } catch (err) {
+    logger.warn(`Failed to generate title for meeting ${meetingId}:`, err);
+    return null;
+  }
+};
+
+/**
  * Process meeting with all AI features
  */
 export const processTranscriptWithAI = async (
@@ -256,6 +305,7 @@ export const processTranscriptWithAI = async (
     generateSummary(meetingId, transcript.fullText),
     extractKeyPoints(meetingId, transcript.fullText),
     extractActionItems(meetingId, transcript.fullText, ownerId),
+    generateMeetingTitle(meetingId, transcript.fullText),
   ]);
 
   return {
@@ -269,5 +319,6 @@ export const aiService = {
   generateSummary,
   extractKeyPoints,
   extractActionItems,
+  generateMeetingTitle,
   processTranscriptWithAI,
 };

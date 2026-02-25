@@ -49,13 +49,10 @@ model User {
   sessions               Session[]
   calendarEvents         GoogleCalendarEvent[]
   googleCalendarSyncLogs GoogleCalendarSyncLog[]
+
   // Digital Cards
   cards        Card[]
   cardContacts CardContact[]
-
-  // Availability & Booking
-  availabilitySchedules AvailabilitySchedule[]
-  eventTypes            EventType[]
 
   // Meetings (user-level)
   meetingsCreated             Meeting[]                  @relation("MeetingCreatedBy")
@@ -195,10 +192,7 @@ model Meeting {
   recordingLink String?
   notes         String?
 
-  // Event type reference (for booking-created meetings)
-  eventTypeId String? @db.Uuid
-
-  // Guest booking info (for public bookings)
+  // Guest booking info (for future use)
   guestEmail   String?
   guestName    String?
   guestMessage String?
@@ -217,7 +211,6 @@ model Meeting {
   updatedAt DateTime @updatedAt
 
   // Relations
-  eventType          EventType?                 @relation(fields: [eventTypeId], references: [id])
   createdBy          User                       @relation("MeetingCreatedBy", fields: [createdById], references: [id])
   participants       MeetingParticipant[]
   guests             MeetingGuest[]
@@ -237,7 +230,6 @@ model Meeting {
   @@index([status, isDeleted])
   @@index([guestEmail])
   @@index([transcriptionStatus])
-  @@index([eventTypeId])
 }
 
 model MeetingParticipant {
@@ -312,123 +304,13 @@ model MeetingRescheduleRequest {
 }
 
 // ================================
-// AVAILABILITY & SCHEDULING
-// ================================
-
-model AvailabilitySchedule {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @db.Uuid
-  name      String   @default("Working Hours")
-  timezone  String   @default("UTC")
-  isDefault Boolean  @default(false)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  slots        ScheduleAvailability[]
-  overrides    ScheduleOverride[]
-  blockedTimes ScheduleBlockedTime[]
-  eventTypes   EventType[]
-
-  @@index([userId, isDefault])
-  @@index([userId, isActive])
-}
-
-model ScheduleAvailability {
-  id         String    @id @default(uuid()) @db.Uuid
-  scheduleId String    @db.Uuid
-  dayOfWeek  DayOfWeek
-  startTime  String    // "HH:MM"
-  endTime    String    // "HH:MM"
-  isActive   Boolean   @default(true)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-
-  schedule AvailabilitySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
-
-  @@unique([scheduleId, dayOfWeek, startTime, endTime])
-  @@index([scheduleId, isActive])
-}
-
-model ScheduleOverride {
-  id         String   @id @default(uuid()) @db.Uuid
-  scheduleId String   @db.Uuid
-  date       DateTime
-  startTime  String   // "HH:MM"
-  endTime    String   // "HH:MM"
-  isActive   Boolean  @default(true)
-  notes      String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  schedule AvailabilitySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
-
-  @@index([scheduleId, date])
-  @@index([scheduleId, isActive])
-}
-
-model ScheduleBlockedTime {
-  id             String         @id @default(uuid()) @db.Uuid
-  scheduleId     String         @db.Uuid
-  startTime      DateTime
-  endTime        DateTime
-  reason         String?
-  recurrenceRule RecurrenceRule @default(NONE)
-  recurrenceEnd  DateTime?
-  isActive       Boolean        @default(true)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-
-  schedule AvailabilitySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
-
-  @@index([scheduleId, startTime, endTime])
-  @@index([scheduleId, isActive])
-}
-
-// ================================
-// EVENT TYPES
-// ================================
-
-model EventType {
-  id          String       @id @default(uuid()) @db.Uuid
-  userId      String       @db.Uuid
-  title       String       // "30 Minute Meeting"
-  slug        String       // "30-min-meeting"
-  description String?
-  duration    Int          // minutes (e.g. 30)
-  scheduleId  String       @db.Uuid
-  bookingModel BookingModel @default(ONE_ON_ONE)
-
-  // Booking constraints
-  bufferBefore Int @default(0)  // minutes before meeting
-  bufferAfter  Int @default(0)  // minutes after meeting
-  minNotice    Int @default(24) // minimum hours notice before booking
-  maxAdvance   Int @default(60) // maximum days in advance
-
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  user     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  schedule AvailabilitySchedule @relation(fields: [scheduleId], references: [id])
-  meetings Meeting[]
-
-  @@unique([userId, slug])
-  @@index([userId, isActive])
-  @@index([scheduleId])
-}
-
-// ================================
 // TRANSCRIPTION & AI (Smart Meeting Assistant)
 // ================================
 
 model MeetingRecording {
   id        String  @id @default(uuid()) @db.Uuid
   meetingId String  @unique @db.Uuid
-  
+
   gcsPath   String  // Path in Google Cloud Storage
   duration  Int     // Duration in seconds
   fileSize  Int     // File size in bytes
@@ -541,7 +423,7 @@ model MeetingAISummary {
 
   summary    String
   keyPoints  String[]
-  
+
   generatedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -693,22 +575,6 @@ enum ResponseStatus {
   DECLINED
 }
 
-enum DayOfWeek {
-  MONDAY
-  TUESDAY
-  WEDNESDAY
-  THURSDAY
-  FRIDAY
-  SATURDAY
-  SUNDAY
-}
-
-enum RecurrenceRule {
-  NONE
-  WEEKLY
-  MONTHLY
-}
-
 enum TranscriptionStatus {
   NONE        // No recording uploaded
   UPLOADED    // Recording uploaded to GCS
@@ -723,10 +589,4 @@ enum ActionItemCategory {
   DOCUMENT_REQUIRED
   UPCOMING_EVENT
   OTHER
-}
-
-enum BookingModel {
-  ONE_ON_ONE
-  ROUND_ROBIN   // Phase 2 - team
-  COLLECTIVE    // Phase 2 - team
 }
