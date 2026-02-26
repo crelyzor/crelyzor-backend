@@ -34,8 +34,6 @@ class TokenService {
 
     return jwt.sign(tokenPayload, this.ACCESS_TOKEN_SECRET, {
       expiresIn: this.ACCESS_TOKEN_EXPIRY,
-      issuer: "calendar-api",
-      audience: "calendar-app",
     });
   }
 
@@ -49,17 +47,15 @@ class TokenService {
 
     return jwt.sign(payload, this.REFRESH_TOKEN_SECRET, {
       expiresIn: this.REFRESH_TOKEN_EXPIRY,
-      issuer: "calendar-api",
-      audience: "calendar-app",
     });
   }
 
   verifyAccessToken(token: string): TokenPayload {
     try {
-      const decoded = jwt.verify(token, this.ACCESS_TOKEN_SECRET, {
-        issuer: "calendar-api",
-        audience: "calendar-app",
-      }) as AuthenticatedUser;
+      const decoded = jwt.verify(
+        token,
+        this.ACCESS_TOKEN_SECRET,
+      ) as AuthenticatedUser;
 
       if (
         !decoded.userId ||
@@ -83,10 +79,10 @@ class TokenService {
 
   verifyRefreshToken(token: string): RefreshTokenPayload {
     try {
-      const decoded = jwt.verify(token, this.REFRESH_TOKEN_SECRET, {
-        issuer: "calendar-api",
-        audience: "calendar-app",
-      }) as RefreshTokenPayload;
+      const decoded = jwt.verify(
+        token,
+        this.REFRESH_TOKEN_SECRET,
+      ) as RefreshTokenPayload;
 
       if (!decoded.userId || !decoded.jti || !decoded.sessionId) {
         throw ErrorFactory.unauthorized(
