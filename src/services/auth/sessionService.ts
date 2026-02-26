@@ -259,7 +259,6 @@ class SessionService {
         expiresAt: { gt: new Date() },
       },
     });
-    console.log("Refresh Token Validity Check:", refreshToken);
 
     return !!refreshToken;
   }

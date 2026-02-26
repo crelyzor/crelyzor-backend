@@ -1,11 +1,10 @@
 import { LoginMethod, ProviderEnum } from "@prisma/client";
-import { User } from "@prisma/client";
+import type { User } from "@prisma/client";
 import prisma from "../../db/prismaClient";
 import { tokenService } from "./tokenService";
 import { sessionService } from "./sessionService";
 import { ErrorFactory } from "../../utils/globalErrorHandler";
 import {
-  TokenResponse,
   UserResponse,
   RefreshTokenRequest,
   LogoutRequest,
@@ -41,7 +40,7 @@ class AuthService {
           refreshTokenPayload.sessionId,
         );
       } catch (error) {
-        console.log("Invalid refresh token during logout:", error);
+        // refresh token invalid or already expired — logout proceeds silently
       }
       return { message: "Logged out successfully" };
     } else if (currentSessionId) {
@@ -154,86 +153,10 @@ class AuthService {
     };
   }
 
-  async findOrCreateGoogleUser(profile: {
-    email: string;
-    name: string;
-    picture?: string | null;
-    googleId: string;
-  }) {
-    const provider = "GOOGLE";
-
-    const existingOAuth = await prisma.oAuthAccount.findUnique({
-      where: {
-        provider_providerId: {
-          provider,
-          providerId: profile.googleId,
-        },
-      },
-      include: { user: true },
-    });
-
-    if (existingOAuth && existingOAuth.user) {
-      // Refresh avatarUrl from Google on each login
-      if (profile.picture && existingOAuth.user.avatarUrl !== profile.picture) {
-        return prisma.user.update({
-          where: { id: existingOAuth.user.id },
-          data: { avatarUrl: profile.picture },
-        });
-      }
-      return existingOAuth.user;
-    }
-
-    let user = await prisma.user.findUnique({
-      where: { email: profile.email },
-    });
-
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          email: profile.email,
-          name: profile.name,
-          avatarUrl: profile.picture || undefined,
-          isActive: true,
-          emailVerified: true,
-        },
-      });
-    } else if (profile.picture && !user.avatarUrl) {
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: { avatarUrl: profile.picture },
-      });
-    }
-
-    await prisma.oAuthAccount.upsert({
-      where: {
-        provider_providerId: {
-          provider,
-          providerId: profile.googleId,
-        },
-      },
-      update: {
-        userId: user.id,
-      },
-      create: {
-        provider,
-        providerId: profile.googleId,
-        userId: user.id,
-        accessToken: "",
-        refreshToken: "",
-        expiry: 0,
-        scopes: [],
-      },
-    });
-
-    return user;
-  }
-
   async generateTokens(
     user: User,
     deviceInfo?: string,
     ipAddress?: string,
-    loginMethod: LoginMethod = LoginMethod.OAUTH,
-    provider: ProviderEnum | null = null,
   ): Promise<{
     accessToken: string;
     refreshToken: string;
@@ -257,10 +180,10 @@ class AuthService {
     await this.logLoginHistory(
       user.id,
       true,
-      loginMethod,
+      LoginMethod.OAUTH,
       ipAddress,
       deviceInfo,
-      provider,
+      ProviderEnum.GOOGLE,
     );
 
     return {

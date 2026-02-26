@@ -7,11 +7,12 @@ import {
   AuthenticatedUser,
 } from "../../types/authTypes";
 import { ErrorFactory } from "../../utils/globalErrorHandler";
+
 class TokenService {
   private readonly ACCESS_TOKEN_SECRET: string;
   private readonly REFRESH_TOKEN_SECRET: string;
-  private readonly ACCESS_TOKEN_EXPIRY = "1h"; // 1 hour
-  private readonly REFRESH_TOKEN_EXPIRY = "7d"; // 7 days
+  private readonly ACCESS_TOKEN_EXPIRY = "1h";
+  private readonly REFRESH_TOKEN_EXPIRY = "7d";
 
   constructor() {
     this.ACCESS_TOKEN_SECRET = process.env.JWT_ACCESS_SECRET || "";
@@ -33,8 +34,8 @@ class TokenService {
 
     return jwt.sign(tokenPayload, this.ACCESS_TOKEN_SECRET, {
       expiresIn: this.ACCESS_TOKEN_EXPIRY,
-      issuer: "sso-system",
-      audience: "sso-clients",
+      issuer: "calendar-api",
+      audience: "calendar-app",
     });
   }
 
@@ -48,16 +49,16 @@ class TokenService {
 
     return jwt.sign(payload, this.REFRESH_TOKEN_SECRET, {
       expiresIn: this.REFRESH_TOKEN_EXPIRY,
-      issuer: "sso-system",
-      audience: "sso-clients",
+      issuer: "calendar-api",
+      audience: "calendar-app",
     });
   }
 
   verifyAccessToken(token: string): TokenPayload {
     try {
       const decoded = jwt.verify(token, this.ACCESS_TOKEN_SECRET, {
-        issuer: "sso-system",
-        audience: "sso-clients",
+        issuer: "calendar-api",
+        audience: "calendar-app",
       }) as AuthenticatedUser;
 
       if (
@@ -83,8 +84,8 @@ class TokenService {
   verifyRefreshToken(token: string): RefreshTokenPayload {
     try {
       const decoded = jwt.verify(token, this.REFRESH_TOKEN_SECRET, {
-        issuer: "sso-system",
-        audience: "sso-clients",
+        issuer: "calendar-api",
+        audience: "calendar-app",
       }) as RefreshTokenPayload;
 
       if (!decoded.userId || !decoded.jti || !decoded.sessionId) {
@@ -122,81 +123,10 @@ class TokenService {
     return {
       accessToken,
       refreshToken,
-      expiresIn: 3600, // 1 hour in seconds
+      expiresIn: 3600,
     };
   }
 
-  isTokenExpired(token: string): boolean {
-    try {
-      const decoded = jwt.decode(token) as any;
-      if (!decoded || !decoded.exp) {
-        return true;
-      }
-      return Date.now() >= decoded.exp * 1000;
-    } catch (error) {
-      return true;
-    }
-  }
-
-  generatePasswordResetToken(userId: string, email: string): string {
-    const payload = {
-      userId,
-      email,
-      type: "password_reset",
-      jti: uuidv7(),
-    };
-
-    return jwt.sign(payload, this.ACCESS_TOKEN_SECRET, {
-      expiresIn: "15m",
-      issuer: "sso-system",
-      audience: "password-reset",
-    });
-  }
-  decodeTokenWithoutVerification(token: string): any {
-    try {
-      return jwt.decode(token);
-    } catch (error) {
-      return null;
-    }
-  }
-  verifyPasswordResetToken(token: string): {
-    userId: string;
-    email: string;
-    jti: string;
-  } {
-    try {
-      const decoded = jwt.verify(token, this.ACCESS_TOKEN_SECRET, {
-        issuer: "sso-system",
-        audience: "password-reset",
-      }) as AuthenticatedUser & {
-        type: string;
-      };
-
-      if (
-        !decoded.userId ||
-        !decoded.email ||
-        !decoded.jti ||
-        decoded.type !== "password_reset"
-      ) {
-        throw ErrorFactory.unauthorized("Invalid password reset token");
-      }
-
-      return {
-        userId: decoded.userId,
-        email: decoded.email,
-        jti: decoded.jti,
-      };
-    } catch (error) {
-      if (error instanceof jwt.TokenExpiredError) {
-        throw ErrorFactory.unauthorized("Password reset token expired");
-      } else if (error instanceof jwt.JsonWebTokenError) {
-        throw ErrorFactory.unauthorized("Invalid password reset token");
-      }
-      throw ErrorFactory.unauthorized(
-        "Password reset token verification failed",
-      );
-    }
-  }
   getTokenExpiration(token: string): Date | null {
     try {
       const decoded = jwt.decode(token) as any;
@@ -206,60 +136,6 @@ class TokenService {
       return new Date(decoded.exp * 1000);
     } catch (error) {
       return null;
-    }
-  }
-
-  generateEmailVerificationToken(userId: string, email: string): string {
-    const payload = {
-      userId,
-      email,
-      type: "email_verification",
-      jti: uuidv7(),
-    };
-
-    return jwt.sign(payload, this.ACCESS_TOKEN_SECRET, {
-      expiresIn: "24h",
-      issuer: "sso-system",
-      audience: "email-verification",
-    });
-  }
-
-  verifyEmailVerificationToken(token: string): {
-    userId: string;
-    email: string;
-    jti: string;
-  } {
-    try {
-      const decoded = jwt.verify(token, this.ACCESS_TOKEN_SECRET, {
-        issuer: "sso-system",
-        audience: "email-verification",
-      }) as AuthenticatedUser & {
-        type: string;
-      };
-
-      if (
-        !decoded.userId ||
-        !decoded.email ||
-        !decoded.jti ||
-        decoded.type !== "email_verification"
-      ) {
-        throw ErrorFactory.unauthorized("Invalid email verification token");
-      }
-
-      return {
-        userId: decoded.userId,
-        email: decoded.email,
-        jti: decoded.jti,
-      };
-    } catch (error) {
-      if (error instanceof jwt.TokenExpiredError) {
-        throw ErrorFactory.unauthorized("Email verification token expired");
-      } else if (error instanceof jwt.JsonWebTokenError) {
-        throw ErrorFactory.unauthorized("Invalid email verification token");
-      }
-      throw ErrorFactory.unauthorized(
-        "Email verification token verification failed",
-      );
     }
   }
 }

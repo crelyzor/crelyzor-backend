@@ -15,9 +15,7 @@ export const userController = {
       if (!parsedData.success) {
         throw ErrorFactory.validation(parsedData.error);
       }
-      console.log("request body", req);
       const userId = req.user?.userId;
-      console.log("userId", userId);
       if (!userId) {
         throw ErrorFactory.unauthorized("User not authenticated");
       }

@@ -32,7 +32,6 @@ export const verifyJWT = async (
     }
 
     const decoded = tokenService.verifyAccessToken(token);
-    console.log("Decoded Token:", decoded);
     const isSessionValid = await sessionService.validateSession(
       decoded.sessionId,
       decoded.userId,
@@ -107,7 +106,6 @@ export const validateRefreshToken = async (
     }
 
     const decoded = tokenService.verifyRefreshToken(refreshToken);
-    console.log("Decoded Refresh Token:", decoded);
     const isValid = await sessionService.isRefreshTokenValid(decoded.jti);
 
     if (!isValid) {
@@ -175,59 +173,6 @@ function extractToken(req: Request): string | null {
 
   return null;
 }
-
-// Extract token from header OR query parameter (for OAuth flows where header auth isn't possible)
-function extractTokenFromHeaderOrQuery(req: Request): string | null {
-  // Try header first
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    return authHeader.substring(7);
-  }
-
-  // Fall back to query parameter
-  const queryToken = req.query.accessToken as string;
-  if (queryToken) {
-    return queryToken;
-  }
-
-  return null;
-}
-
-// Middleware for routes that need JWT but use query parameters (like OAuth callbacks)
-export const verifyJWTFromQueryOrHeader = async (
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> => {
-  try {
-    const token = extractTokenFromHeaderOrQuery(req);
-
-    if (!token) {
-      throw ErrorFactory.unauthorized("Access token is required");
-    }
-
-    const decoded = tokenService.verifyAccessToken(token);
-    const isSessionValid = await sessionService.validateSession(
-      decoded.sessionId,
-      decoded.userId,
-    );
-
-    if (!isSessionValid) {
-      throw ErrorFactory.unauthorized("Session is invalid or expired");
-    }
-
-    await authService.validateUserAccess(decoded.userId);
-    await sessionService.updateSessionActivity(decoded.sessionId);
-
-    req.user = decoded;
-    req.sessionId = decoded.sessionId;
-
-    next();
-  } catch (error) {
-    console.error("JWT verification error:", error);
-    globalErrorHandler(error as BaseError, req, res);
-  }
-};
 
 export function getClientIP(req: Request): string {
   return (

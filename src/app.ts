@@ -14,8 +14,7 @@ app.use(express.urlencoded({ extended: false }));
 
 // Routes
 
-app.get("/", (req: Request, res: Response) => {
-  console.log("Root route hit");
+app.get("/", (_req: Request, res: Response) => {
   res.status(200).send("Auth Service is Live");
 });
 import indexRouter from "./routes/indexRouter";
