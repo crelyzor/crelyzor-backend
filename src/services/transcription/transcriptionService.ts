@@ -143,6 +143,26 @@ export const transcribeRecording = async (
       data: { transcriptionStatus: TranscriptionStatus.COMPLETED },
     });
 
+    // Auto-create MeetingSpeaker records for each distinct speaker label
+    const distinctSpeakers = [...new Set(segments.map((seg) => seg.speaker))];
+    await Promise.all(
+      distinctSpeakers.map((speakerLabel) =>
+        prisma.meetingSpeaker.upsert({
+          where: {
+            meetingId_speakerLabel: {
+              meetingId: recording.meetingId,
+              speakerLabel,
+            },
+          },
+          create: { meetingId: recording.meetingId, speakerLabel },
+          update: {},
+        }),
+      ),
+    );
+
+    logger.info(
+      `Created ${distinctSpeakers.length} speaker records for meeting ${recording.meetingId}`,
+    );
     logger.info(`Transcription completed for recording ${recordingId}`);
 
     return {

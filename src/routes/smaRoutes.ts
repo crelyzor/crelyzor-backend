@@ -4,6 +4,7 @@ import { singleFileUpload } from "../middleware/uploadMiddleware";
 import * as recordingController from "../controllers/recordingController";
 import * as transcriptController from "../controllers/transcriptController";
 import * as aiController from "../controllers/aiController";
+import * as speakerController from "../controllers/speakerController";
 
 const router = Router();
 
@@ -50,6 +51,19 @@ router.get(
 router.get(
   "/meetings/:meetingId/transcript/status",
   transcriptController.getTranscriptionStatus,
+);
+
+// ========================================
+// 🎙️ SPEAKER ROUTES
+// ========================================
+
+// Get all speakers for a meeting
+router.get("/meetings/:meetingId/speakers", speakerController.getSpeakers);
+
+// Rename / update a speaker
+router.patch(
+  "/meetings/:meetingId/speakers/:speakerId",
+  speakerController.renameSpeaker,
 );
 
 // ========================================
