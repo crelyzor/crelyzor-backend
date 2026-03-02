@@ -3,23 +3,23 @@ import { logger } from "../../utils/logging/logger";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
 
-const GCS_PROJECT_ID = process.env.GCS_PROJECT_ID;
-const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || "calendar-recordings";
-const GCS_KEY_FILE = process.env.GCS_KEY_FILE;
-
 let storage: Storage | null = null;
+
+const getBucketName = (): string => {
+  const name = process.env.GCS_BUCKET_NAME;
+  if (!name) throw new Error("GCS_BUCKET_NAME environment variable is not set");
+  return name;
+};
 
 const getStorage = (): Storage => {
   if (!storage) {
     const options: ConstructorParameters<typeof Storage>[0] = {};
 
-    if (GCS_PROJECT_ID) {
-      options.projectId = GCS_PROJECT_ID;
-    }
+    const projectId = process.env.GCS_PROJECT_ID;
+    if (projectId) options.projectId = projectId;
 
-    if (GCS_KEY_FILE) {
-      options.keyFilename = GCS_KEY_FILE;
-    }
+    const keyFile = process.env.GCS_KEY_FILE;
+    if (keyFile) options.keyFilename = keyFile;
 
     storage = new Storage(options);
   }
@@ -49,8 +49,9 @@ export const uploadFile = async (
   folder: string = "recordings",
   contentType: string = "audio/webm",
 ): Promise<UploadResult> => {
+  const bucketName = getBucketName();
   const gcs = getStorage();
-  const bucket = gcs.bucket(GCS_BUCKET_NAME);
+  const bucket = gcs.bucket(bucketName);
 
   const ext = path.extname(originalFileName) || ".webm";
   const uniqueFileName = `${uuidv4()}${ext}`;
@@ -71,10 +72,10 @@ export const uploadFile = async (
   logger.info(`File uploaded to GCS: ${filePath}`);
 
   return {
-    url: `gs://${GCS_BUCKET_NAME}/${filePath}`,
+    url: `gs://${bucketName}/${filePath}`,
     fileName: uniqueFileName,
     filePath,
-    bucket: GCS_BUCKET_NAME,
+    bucket: bucketName,
     contentType,
     size: Number(metadata.size) || buffer.length,
   };
@@ -88,7 +89,7 @@ export const getSignedUrl = async (
   options: SignedUrlOptions = {},
 ): Promise<string> => {
   const gcs = getStorage();
-  const bucket = gcs.bucket(GCS_BUCKET_NAME);
+  const bucket = gcs.bucket(getBucketName());
   const file = bucket.file(filePath);
 
   const expiresInMs = (options.expiresInMinutes || 60) * 60 * 1000;
@@ -107,7 +108,7 @@ export const getSignedUrl = async (
  */
 export const downloadFile = async (filePath: string): Promise<Buffer> => {
   const gcs = getStorage();
-  const bucket = gcs.bucket(GCS_BUCKET_NAME);
+  const bucket = gcs.bucket(getBucketName());
   const file = bucket.file(filePath);
 
   const [contents] = await file.download();
@@ -120,7 +121,7 @@ export const downloadFile = async (filePath: string): Promise<Buffer> => {
  */
 export const deleteFile = async (filePath: string): Promise<void> => {
   const gcs = getStorage();
-  const bucket = gcs.bucket(GCS_BUCKET_NAME);
+  const bucket = gcs.bucket(getBucketName());
   const file = bucket.file(filePath);
 
   await file.delete();
@@ -133,7 +134,7 @@ export const deleteFile = async (filePath: string): Promise<void> => {
  */
 export const fileExists = async (filePath: string): Promise<boolean> => {
   const gcs = getStorage();
-  const bucket = gcs.bucket(GCS_BUCKET_NAME);
+  const bucket = gcs.bucket(getBucketName());
   const file = bucket.file(filePath);
 
   const [exists] = await file.exists();
