@@ -3,6 +3,7 @@ import { ErrorFactory } from "../../utils/globalErrorHandler";
 import {
   Meeting,
   MeetingStatus,
+  MeetingType,
   MeetingParticipant,
   Prisma,
 } from "@prisma/client";
@@ -25,10 +26,11 @@ const meetingInclude = {
 
 export interface CreateMeetingDTO {
   createdById: string;
-  title: string;
+  title?: string;
   description?: string;
-  startTime: Date;
-  endTime: Date;
+  type?: MeetingType;
+  startTime?: Date;
+  endTime?: Date;
   timezone: string;
   location?: string;
   participantUserIds?: string[];
@@ -53,45 +55,58 @@ export const meetingService = {
   async createMeeting(data: CreateMeetingDTO): Promise<Meeting> {
     const {
       createdById,
-      title,
       description,
-      startTime,
-      endTime,
+      type = MeetingType.SCHEDULED,
       timezone,
       location,
       participantUserIds,
       notes,
     } = data;
 
-    if (startTime >= endTime) {
+    const isScheduled = type === MeetingType.SCHEDULED;
+
+    // Auto-populate title for non-scheduled types (AI will rename after transcription)
+    const title = data.title || (isScheduled ? "" : "New Recording");
+
+    // Auto-populate times for non-scheduled types
+    const now = new Date();
+    const startTime = data.startTime ?? now;
+    const endTime = data.endTime ?? new Date(now.getTime() + 60 * 60 * 1000);
+
+    if (isScheduled && startTime >= endTime) {
       throw ErrorFactory.validation("Start time must be before end time");
     }
 
-    if (participantUserIds && participantUserIds.includes(createdById)) {
-      throw ErrorFactory.validation(
-        "Meeting creator cannot be included in the participants list.",
-      );
-    }
-
-    if (participantUserIds && participantUserIds.length > 0) {
-      const participants = await prisma.user.findMany({
-        where: { id: { in: participantUserIds }, isActive: true },
-      });
-
-      if (participants.length !== participantUserIds.length) {
-        throw ErrorFactory.notFound("Some participants not found or inactive");
+    // Participants only relevant for scheduled meetings
+    if (isScheduled) {
+      if (participantUserIds && participantUserIds.includes(createdById)) {
+        throw ErrorFactory.validation(
+          "Meeting creator cannot be included in the participants list.",
+        );
       }
-    }
 
-    const conflicts = await this.detectConflicts({
-      userId: createdById,
-      startTime,
-      endTime,
-    });
-    if (conflicts.length > 0) {
-      throw ErrorFactory.conflict(
-        `You have conflicting meetings at this time: ${conflicts.map((c) => c.details).join(", ")}`,
-      );
+      if (participantUserIds && participantUserIds.length > 0) {
+        const participants = await prisma.user.findMany({
+          where: { id: { in: participantUserIds }, isActive: true },
+        });
+
+        if (participants.length !== participantUserIds.length) {
+          throw ErrorFactory.notFound(
+            "Some participants not found or inactive",
+          );
+        }
+      }
+
+      const conflicts = await this.detectConflicts({
+        userId: createdById,
+        startTime,
+        endTime,
+      });
+      if (conflicts.length > 0) {
+        throw ErrorFactory.conflict(
+          `You have conflicting meetings at this time: ${conflicts.map((c) => c.details).join(", ")}`,
+        );
+      }
     }
 
     const meeting = await prisma.$transaction(
@@ -100,6 +115,7 @@ export const meetingService = {
           data: {
             title,
             description,
+            type,
             startTime,
             endTime,
             timezone,
@@ -110,22 +126,25 @@ export const meetingService = {
           },
         });
 
-        await tx.meetingParticipant.create({
-          data: {
-            meetingId: newMeeting.id,
-            userId: createdById,
-            participantType: "ORGANIZER",
-          },
-        });
-
-        if (participantUserIds && participantUserIds.length > 0) {
-          await tx.meetingParticipant.createMany({
-            data: participantUserIds.map((userId) => ({
+        // Participants only for scheduled meetings
+        if (isScheduled) {
+          await tx.meetingParticipant.create({
+            data: {
               meetingId: newMeeting.id,
-              userId,
-              participantType: "ATTENDEE" as const,
-            })),
+              userId: createdById,
+              participantType: "ORGANIZER",
+            },
           });
+
+          if (participantUserIds && participantUserIds.length > 0) {
+            await tx.meetingParticipant.createMany({
+              data: participantUserIds.map((userId) => ({
+                meetingId: newMeeting.id,
+                userId,
+                participantType: "ATTENDEE" as const,
+              })),
+            });
+          }
         }
 
         return tx.meeting.findUnique({
@@ -361,13 +380,14 @@ export const meetingService = {
       throw ErrorFactory.notFound("Meeting");
     }
 
-    const organizer = meeting.participants.find(
+    const isCreator = meeting.createdById === requesterUserId;
+    const isOrganizer = meeting.participants.some(
       (p) => p.userId === requesterUserId && p.participantType === "ORGANIZER",
     );
 
-    if (!organizer) {
+    if (!isCreator && !isOrganizer) {
       throw ErrorFactory.forbidden(
-        "Only the organizer can mark meeting as completed",
+        "Only the meeting creator can mark it as completed",
       );
     }
 
@@ -404,6 +424,7 @@ export const meetingService = {
   async getMeetings(params: {
     userId: string;
     status?: MeetingStatus;
+    type?: MeetingType;
     startDate?: Date;
     endDate?: Date;
     limit?: number;
@@ -412,6 +433,7 @@ export const meetingService = {
     const {
       userId,
       status,
+      type,
       startDate,
       endDate,
       limit = 20,
@@ -424,6 +446,7 @@ export const meetingService = {
     };
 
     if (status) where.status = status;
+    if (type) where.type = type;
 
     if (startDate || endDate) {
       where.startTime = {};
@@ -434,7 +457,7 @@ export const meetingService = {
     return prisma.meeting.findMany({
       where,
       include: meetingInclude,
-      orderBy: { startTime: "asc" },
+      orderBy: { createdAt: "desc" },
       take: limit,
       skip: offset,
     }) as any;
@@ -443,10 +466,11 @@ export const meetingService = {
   async getMeetingsWithoutPagination(params: {
     userId: string;
     status?: MeetingStatus;
+    type?: MeetingType;
     startDate?: Date;
     endDate?: Date;
   }): Promise<(Meeting & { participants: MeetingParticipant[] })[]> {
-    const { userId, status, startDate, endDate } = params;
+    const { userId, status, type, startDate, endDate } = params;
 
     const where: Prisma.MeetingWhereInput = {
       isDeleted: false,
@@ -454,6 +478,7 @@ export const meetingService = {
     };
 
     if (status) where.status = status;
+    if (type) where.type = type;
 
     if (startDate || endDate) {
       where.startTime = {};
@@ -464,7 +489,7 @@ export const meetingService = {
     return prisma.meeting.findMany({
       where,
       include: meetingInclude,
-      orderBy: { startTime: "asc" },
+      orderBy: { createdAt: "desc" },
       take: 1000,
     }) as any;
   },

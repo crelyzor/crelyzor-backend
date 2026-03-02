@@ -108,6 +108,7 @@ export class MeetingController {
       const meetings = await meetingService.getMeetings({
         userId: user.userId,
         status: validatedData.status as any,
+        type: validatedData.type as any,
         startDate: validatedData.startDate,
         endDate: validatedData.endDate,
         limit: validatedData.limit,
@@ -142,6 +143,7 @@ export class MeetingController {
       const meetings = await meetingService.getMeetingsWithoutPagination({
         userId: user.userId,
         status: validatedData.status as any,
+        type: validatedData.type as any,
         startDate: validatedData.startDate,
         endDate: validatedData.endDate,
       });
@@ -192,11 +194,11 @@ export class MeetingController {
         throw ErrorFactory.notFound("Meeting");
       }
 
-      const isParticipant =
+      const hasAccess =
         meeting.createdById === user.userId ||
         meeting.participants.some((p) => p.userId === user.userId);
 
-      if (!isParticipant) {
+      if (!hasAccess) {
         throw ErrorFactory.forbidden(
           "You are not a participant in this meeting",
         );
