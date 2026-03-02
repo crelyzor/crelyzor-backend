@@ -116,7 +116,7 @@ Return ONLY a JSON array, no other text.`;
   const content = response.choices[0]?.message?.content || "[]";
 
   try {
-    const keyPoints = JSON.parse(content);
+    const keyPoints = JSON.parse(stripMarkdownJson(content));
 
     // Update the summary with key points
     await prisma.meetingAISummary.upsert({
@@ -144,6 +144,13 @@ Return ONLY a JSON array, no other text.`;
 /**
  * Map AI category string to ActionItemCategory enum
  */
+/** Strip markdown code fences that GPT sometimes wraps JSON in */
+const stripMarkdownJson = (content: string): string => {
+  const match = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (match) return match[1].trim();
+  return content.trim();
+};
+
 const mapToActionItemCategory = (category: string): ActionItemCategory => {
   const categoryMap: Record<string, ActionItemCategory> = {
     PARTICIPANT_TASK: ActionItemCategory.PARTICIPANT_TASK,
@@ -199,7 +206,7 @@ Return ONLY a JSON array, no other text.`;
   const content = response.choices[0]?.message?.content || "[]";
 
   try {
-    const rawActionItems = JSON.parse(content) as Array<{
+    const rawActionItems = JSON.parse(stripMarkdownJson(content)) as Array<{
       title: string;
       description?: string;
       category?: string;
