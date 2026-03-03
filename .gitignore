@@ -8,7 +8,6 @@ dist
 .env
 .vscode
 *.log
-*.md
 .vercel
 scripts/**/*.js
 scripts/**/*.js.map
