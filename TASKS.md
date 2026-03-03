@@ -1,35 +1,15 @@
 # calendar-backend — Task List
 
-Last updated: 2026-03-03 (speakers done)
+Last updated: 2026-03-03
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
 
 ---
 
-## P0 — Build Next (in order)
+## P0 — Build Next
 
-### 1. Auto-create MeetingSpeaker records after transcription
-After Deepgram transcription completes, extract distinct speaker labels from
-`TranscriptSegment` and create `MeetingSpeaker` rows so the UI can show/rename them.
-
-- [x] In transcription job completion handler — query distinct `speaker` values from `TranscriptSegment`
-- [x] `upsert` a `MeetingSpeaker` row for each (speakerLabel, meetingId) — skip if already exists
-- [x] `displayName` and `role` default to null
-
-### 2. Speaker rename endpoint
-- [x] `PATCH /sma/meetings/:meetingId/speakers/:speakerId`
-  - Body: `{ displayName?: string, role?: string }`
-  - Verify meeting belongs to requesting user
-  - Update `MeetingSpeaker.displayName` and/or `role`
-  - Zod validation
-
-### 3. Get speakers endpoint
-- [x] `GET /sma/meetings/:meetingId/speakers`
-  - Returns all `MeetingSpeaker[]` for the meeting
-  - Ordered by speakerLabel
-
-### 4. Ask AI endpoint
+### Ask AI endpoint
 - [ ] `POST /sma/meetings/:meetingId/ask`
   - Verify meeting belongs to user
   - Fetch `MeetingTranscript` with all `TranscriptSegment[]`
@@ -38,6 +18,11 @@ After Deepgram transcription completes, extract distinct speaker labels from
   - Add to `smaRoutes.ts` with `verifyJWT`
   - Zod schema: `{ question: z.string().min(1).max(1000) }`
   - Rate limit: max 20 requests per user per hour
+
+### Auth — Refresh Token
+- [ ] `POST /auth/refresh` endpoint — exchange refresh token for new access token
+- [ ] Issue refresh token on login (httpOnly cookie or response body), store hashed in DB
+- [ ] Rotate refresh tokens on use
 
 ---
 
@@ -71,6 +56,9 @@ After Deepgram transcription completes, extract distinct speaker labels from
 - [x] Zod validation on all existing routes
 - [x] Rate limiting
 - [x] Bull job queue
+- [x] Auto-create MeetingSpeaker records after transcription (distinct speaker labels from TranscriptSegment → upsert MeetingSpeaker rows)
+- [x] `PATCH /sma/meetings/:meetingId/speakers/:speakerId` — rename speaker (displayName + role)
+- [x] `GET /sma/meetings/:meetingId/speakers` — list all speakers for a meeting
 
 ---
 
