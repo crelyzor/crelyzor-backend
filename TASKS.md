@@ -167,6 +167,6 @@ Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have 
 
 ## Phase 3 — Future
 
-- [ ] `Task` model (standalone, optional meetingId) — promotes MeetingActionItem
-- [ ] Tasks CRUD API
-- [ ] Tag junction for Tasks (`TaskTag`)
+- [ ] Standalone tasks API — `GET /tasks` (all tasks, not scoped to a meeting), with filter/sort/pagination
+- [ ] Tag junction for Tasks (`TaskTag` — extends universal Tag system)
+- [ ] Due date + priority support (model already has the fields, just needs API + UI)
