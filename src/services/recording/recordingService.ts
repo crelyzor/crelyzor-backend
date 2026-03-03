@@ -1,3 +1,6 @@
+import os from "os";
+import path from "path";
+import fs from "fs/promises";
 import prisma from "../../db/prismaClient";
 import { MeetingRecording } from "@prisma/client";
 import { gcsService } from "../gcs/gcsService";
@@ -7,6 +10,7 @@ import {
 } from "../../config/queue";
 import { logger } from "../../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
+import { getAudioDuration } from "../../utils/audio/getAudioDuration";
 
 export interface UploadRecordingInput {
   meetingId: string;
@@ -17,7 +21,8 @@ export interface UploadRecordingInput {
     size: number;
   };
   uploadedBy: string;
-  duration?: number;
+  /** Duration sent by the client (ms-accurate stopwatch). Used as fallback if ffprobe/ffmpeg fail. */
+  clientDuration?: number;
 }
 
 export interface RecordingResponse {
@@ -38,7 +43,7 @@ export interface RecordingResponse {
 export const uploadRecording = async (
   input: UploadRecordingInput,
 ): Promise<RecordingResponse> => {
-  const { meetingId, file, uploadedBy, duration = 0 } = input;
+  const { meetingId, file, uploadedBy, clientDuration } = input;
 
   // Verify meeting exists
   const meeting = await prisma.meeting.findUnique({
@@ -47,6 +52,31 @@ export const uploadRecording = async (
 
   if (!meeting) {
     throw new Error(`Meeting not found: ${meetingId}`);
+  }
+
+  // Extract audio duration. Try ffprobe/ffmpeg first; fall back to client-reported value.
+  let duration = 0;
+  const tmpPath = path.join(
+    os.tmpdir(),
+    `${Date.now()}-${path.basename(file.originalname)}`,
+  );
+  try {
+    await fs.writeFile(tmpPath, file.buffer);
+    duration = await getAudioDuration(tmpPath);
+  } catch (err) {
+    logger.warn("Could not extract audio duration via ffprobe/ffmpeg", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    if (clientDuration && clientDuration > 0) {
+      duration = clientDuration;
+      logger.info("Using client-reported duration as fallback", { duration });
+    }
+  } finally {
+    try {
+      await fs.unlink(tmpPath);
+    } catch {
+      /* ignore cleanup errors */
+    }
   }
 
   // Upload to GCS

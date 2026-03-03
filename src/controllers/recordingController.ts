@@ -23,6 +23,10 @@ export const uploadRecording = async (req: MulterRequest, res: Response) => {
       throw ErrorFactory.unauthorized("User not authenticated");
     }
 
+    const clientDuration = req.body?.duration
+      ? parseInt(req.body.duration, 10)
+      : undefined;
+
     const recording = await recordingService.uploadRecording({
       meetingId,
       file: {
@@ -32,6 +36,7 @@ export const uploadRecording = async (req: MulterRequest, res: Response) => {
         size: req.file.size,
       },
       uploadedBy: memberId,
+      clientDuration,
     });
 
     res.status(201).json({
