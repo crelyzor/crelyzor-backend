@@ -9,20 +9,107 @@ Last updated: 2026-03-03
 
 ## P0 — Build Next
 
-### Ask AI endpoint
+### Task model — replace MeetingActionItem
+The `MeetingActionItem` model is being dropped. `Task` is the permanent model from day one.
+Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have `meetingId: null`.
+
+- [ ] Add `Task` model to `schema.prisma`:
+  ```
+  Task { id, userId, meetingId (nullable FK), title, description?,
+         isCompleted, completedAt?, dueDate?, priority?, source (AI_EXTRACTED|MANUAL),
+         createdAt, updatedAt, isDeleted, deletedAt }
+  ```
+- [ ] Run `pnpm db:migrate` — create migration
+- [ ] Update AI extraction service: write `Task` records (with meetingId + `source: AI_EXTRACTED`) instead of `MeetingActionItem`
+- [ ] Drop `MeetingActionItem` from schema (it has no production data worth keeping)
+- [ ] `GET /meetings/:meetingId/tasks` — list tasks for a meeting
+- [ ] `POST /meetings/:meetingId/tasks` — create task manually (`source: MANUAL`)
+- [ ] `PATCH /tasks/:taskId` — update (toggle isCompleted, edit title, set dueDate)
+- [ ] `DELETE /tasks/:taskId` — soft delete
+- [ ] All routes under `verifyJWT`, Zod validated
+
+### Auth — Refresh Token
+- [ ] `POST /auth/refresh` — exchange refresh token for new access token
+- [ ] Issue refresh token on login (httpOnly cookie), store hashed in DB
+- [ ] Rotate refresh tokens on use (old token invalidated)
+- [ ] `POST /auth/logout` — invalidate refresh token in DB
+
+---
+
+## P1 — Next Sprint
+
+### Ask AI
 - [ ] `POST /sma/meetings/:meetingId/ask`
   - Verify meeting belongs to user
   - Fetch `MeetingTranscript` with all `TranscriptSegment[]`
-  - Build OpenAI prompt: system + transcript context (use displayName if set, else speakerLabel) + user question
-  - Stream response back to client
-  - Add to `smaRoutes.ts` with `verifyJWT`
-  - Zod schema: `{ question: z.string().min(1).max(1000) }`
-  - Rate limit: max 20 requests per user per hour
+  - Build prompt: system + transcript (use `displayName` if set, else `speakerLabel`) + user question
+  - Stream response back to client (SSE or chunked transfer)
+  - Zod: `{ question: z.string().min(1).max(1000) }`
+  - Rate limit: max 20 req/user/hour
 
-### Auth — Refresh Token
-- [ ] `POST /auth/refresh` endpoint — exchange refresh token for new access token
-- [ ] Issue refresh token on login (httpOnly cookie or response body), store hashed in DB
-- [ ] Rotate refresh tokens on use
+### AI Content Generation
+- [ ] `POST /sma/meetings/:meetingId/generate`
+  - Body: `{ type: "MEETING_REPORT" | "MAIN_POINTS" | "TODO_LIST" | "TWEET" | "BLOG_POST" | "EMAIL" }`
+  - Each type gets its own OpenAI prompt template
+  - Cache result — store in `MeetingAIContent` (new model) keyed by meetingId + type
+  - Zod: `{ type: z.enum([...]) }`
+
+### Regenerate Actions
+- [ ] `POST /sma/meetings/:meetingId/regenerate`
+  - Body: `{ target: "TITLE" | "SUMMARY" | "TRANSCRIPT" }`
+  - TITLE + SUMMARY: re-run OpenAI with existing transcript
+  - TRANSCRIPT: re-run Deepgram (TRANSCRIPT only if recording exists)
+  - Re-queue as Bull job, return 202 + jobId
+  - `GET /sma/meetings/:meetingId/regenerate/:jobId/status` — poll job status
+
+### Change Language
+- [ ] `POST /sma/meetings/:meetingId/language`
+  - Body: `{ language: string }` (BCP 47 code e.g. "en-US", "es", "fr")
+  - Re-run Deepgram with specified language
+  - Re-queue as Bull job
+
+---
+
+## P2 — Deeper Features
+
+### Public Meeting Links
+- [ ] Schema: `MeetingShare` model — `id`, `meetingId`, `shortId` (nanoid 8 chars), `isPublic`, `createdAt`
+- [ ] Migration + Prisma generate
+- [ ] `POST /sma/meetings/:meetingId/share` — create or get existing share (idempotent)
+- [ ] `PATCH /sma/meetings/:meetingId/share` — toggle `isPublic`
+- [ ] `GET /public/meetings/:shortId` — public endpoint, returns meeting data (transcript + summary) if isPublic
+
+### Export
+- [ ] `GET /sma/meetings/:meetingId/export`
+  - Query params: `?format=pdf|txt&content=transcript|summary`
+  - PDF: use a lightweight lib (e.g. pdfkit or puppeteer)
+  - TXT: plain text, streamed as file download
+  - Auth required (private export)
+
+### Tags (Universal)
+- [ ] Schema: `Tag` model — `id`, `userId`, `name`, `color`, `createdAt`
+- [ ] Schema: `MeetingTag` junction — `meetingId`, `tagId`
+- [ ] Schema: `CardTag` junction — `cardId`, `tagId`
+- [ ] Migration + Prisma generate
+- [ ] `GET /tags` — list user's tags
+- [ ] `POST /tags` — create tag
+- [ ] `DELETE /tags/:tagId` — delete tag (cascades junctions)
+- [ ] `POST /meetings/:meetingId/tags` — attach tag
+- [ ] `DELETE /meetings/:meetingId/tags/:tagId` — detach tag
+- [ ] `POST /cards/:cardId/tags` — attach tag
+- [ ] `DELETE /cards/:cardId/tags/:tagId` — detach tag
+
+### Attachments
+- [ ] Schema: `MeetingAttachment` model — `id`, `meetingId`, `userId`, `type` (FILE | LINK | PHOTO), `url`, `name`, `size`, `createdAt`
+- [ ] `POST /meetings/:meetingId/attachments` — upload file to GCS or save link
+- [ ] `DELETE /meetings/:meetingId/attachments/:attachmentId`
+- [ ] `GET /meetings/:meetingId/attachments`
+
+### Edit Transcript / Summary
+- [ ] `PATCH /sma/meetings/:meetingId/transcript/segments/:segmentId`
+  - Body: `{ text: string }` — edit a single segment's text
+- [ ] `PATCH /sma/meetings/:meetingId/summary`
+  - Body: `{ summary?: string, keyPoints?: string[], title?: string }` — manual override
 
 ---
 
@@ -42,7 +129,7 @@ Last updated: 2026-03-03
 - [x] Key points extraction (fixed markdown JSON parsing)
 - [x] Action items extraction (fixed markdown JSON parsing)
 - [x] AI meeting title generation
-- [x] Meeting notes CRUD
+- [x] Meeting notes CRUD (`GET/POST /sma/meetings/:id/notes`, `DELETE /sma/notes/:noteId`)
 - [x] Meeting state history
 - [x] Google OAuth + JWT
 - [x] Card CRUD
@@ -56,9 +143,9 @@ Last updated: 2026-03-03
 - [x] Zod validation on all existing routes
 - [x] Rate limiting
 - [x] Bull job queue
-- [x] Auto-create MeetingSpeaker records after transcription (distinct speaker labels from TranscriptSegment → upsert MeetingSpeaker rows)
-- [x] `PATCH /sma/meetings/:meetingId/speakers/:speakerId` — rename speaker (displayName + role)
-- [x] `GET /sma/meetings/:meetingId/speakers` — list all speakers for a meeting
+- [x] Auto-create MeetingSpeaker records after transcription
+- [x] `PATCH /sma/meetings/:id/speakers/:speakerId` — rename speaker
+- [x] `GET /sma/meetings/:id/speakers` — list speakers
 
 ---
 
@@ -74,10 +161,12 @@ Last updated: 2026-03-03
 ## Phase 2 — Future
 
 - [ ] Vector embeddings pipeline
-- [ ] RAG query endpoint
+- [ ] RAG query endpoint (global Ask AI)
 
 ---
 
 ## Phase 3 — Future
 
-- [ ] Tasks model + CRUD API
+- [ ] `Task` model (standalone, optional meetingId) — promotes MeetingActionItem
+- [ ] Tasks CRUD API
+- [ ] Tag junction for Tasks (`TaskTag`)
