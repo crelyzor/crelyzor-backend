@@ -37,4 +37,9 @@ router.get("/:meetingId", (req, res) =>
   meetingController.getMeetingById(req, res),
 );
 
+/** DELETE /api/v1/meetings/:meetingId — soft delete */
+router.delete("/:meetingId", (req, res) =>
+  meetingController.deleteMeeting(req, res),
+);
+
 export default router;

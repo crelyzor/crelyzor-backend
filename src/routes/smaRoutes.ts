@@ -5,6 +5,7 @@ import * as recordingController from "../controllers/recordingController";
 import * as transcriptController from "../controllers/transcriptController";
 import * as aiController from "../controllers/aiController";
 import * as speakerController from "../controllers/speakerController";
+import * as taskController from "../controllers/taskController";
 
 const router = Router();
 
@@ -77,10 +78,11 @@ router.post(
   aiController.regenerateSummary,
 );
 
-// Action Items routes
-router.get("/meetings/:meetingId/action-items", aiController.getActionItems);
-router.post("/meetings/:meetingId/action-items", aiController.createActionItem);
-router.patch("/action-items/:actionItemId", aiController.updateActionItem);
+// Tasks routes
+router.get("/meetings/:meetingId/tasks", taskController.getTasks);
+router.post("/meetings/:meetingId/tasks", taskController.createTask);
+router.patch("/tasks/:taskId", taskController.updateTask);
+router.delete("/tasks/:taskId", taskController.deleteTask);
 
 // Notes routes
 router.get("/meetings/:meetingId/notes", aiController.getNotes);

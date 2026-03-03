@@ -54,6 +54,7 @@ model User {
   meetingParticipations MeetingParticipant[]
   meetingStateChanges   MeetingStateHistory[] @relation("MeetingStateChanges")
   meetingSpeakers       MeetingSpeaker[]
+  tasks                 Task[]
 }
 
 model Session {
@@ -146,7 +147,7 @@ model Meeting {
   // Smart Meeting Assistant relations
   recording    MeetingRecording?
   speakers     MeetingSpeaker[]
-  actionItems  MeetingActionItem[]
+  tasks        Task[]
   meetingNotes MeetingNote[]
   aiSummary    MeetingAISummary?
 
@@ -263,26 +264,30 @@ model MeetingSpeaker {
   @@index([userId])
 }
 
-model MeetingActionItem {
-  id        String @id @default(uuid()) @db.Uuid
-  meetingId String @db.Uuid
+model Task {
+  id          String        @id @default(uuid()) @db.Uuid
+  userId      String        @db.Uuid
+  meetingId   String?       @db.Uuid
 
   title       String
   description String?
-  owner       String             @db.Uuid // userId
-  category    ActionItemCategory
+  isCompleted Boolean       @default(false)
+  completedAt DateTime?
+  dueDate     DateTime?
+  priority    TaskPriority?
+  source      TaskSource    @default(MANUAL)
 
-  suggestedStartDate DateTime?
-  suggestedEndDate   DateTime?
-  assignedTo         String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  meeting Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
 
-  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-
+  @@index([userId])
   @@index([meetingId])
-  @@index([owner])
+  @@index([userId, isDeleted])
 }
 
 model MeetingNote {
@@ -453,10 +458,13 @@ enum TranscriptionStatus {
   FAILED      // Transcription failed
 }
 
-enum ActionItemCategory {
-  PARTICIPANT_TASK
-  SHARED_TASK
-  DOCUMENT_REQUIRED
-  UPCOMING_EVENT
-  OTHER
+enum TaskSource {
+  AI_EXTRACTED
+  MANUAL
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
 }

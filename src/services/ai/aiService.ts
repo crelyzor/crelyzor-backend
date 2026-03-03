@@ -1,7 +1,6 @@
 import OpenAI from "openai";
 import prisma from "../../db/prismaClient";
 import { logger } from "../../utils/logging/logger";
-import { ActionItemCategory } from "@prisma/client";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -10,15 +9,12 @@ const openai = new OpenAI({
 export interface AIProcessingResult {
   summary?: string;
   keyPoints?: string[];
-  actionItems?: ActionItemResult[];
+  tasks?: ExtractedTask[];
 }
 
-export interface ActionItemResult {
+export interface ExtractedTask {
   title: string;
   description?: string;
-  category: ActionItemCategory;
-  suggestedStartDate?: Date;
-  suggestedEndDate?: Date;
   assigneeHint?: string;
 }
 
@@ -141,9 +137,6 @@ Return ONLY a JSON array, no other text.`;
   }
 };
 
-/**
- * Map AI category string to ActionItemCategory enum
- */
 /** Strip markdown code fences that GPT sometimes wraps JSON in */
 const stripMarkdownJson = (content: string): string => {
   const match = content.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -151,37 +144,22 @@ const stripMarkdownJson = (content: string): string => {
   return content.trim();
 };
 
-const mapToActionItemCategory = (category: string): ActionItemCategory => {
-  const categoryMap: Record<string, ActionItemCategory> = {
-    PARTICIPANT_TASK: ActionItemCategory.PARTICIPANT_TASK,
-    SHARED_TASK: ActionItemCategory.SHARED_TASK,
-    DOCUMENT_REQUIRED: ActionItemCategory.DOCUMENT_REQUIRED,
-    UPCOMING_EVENT: ActionItemCategory.UPCOMING_EVENT,
-    TASK: ActionItemCategory.PARTICIPANT_TASK,
-    FOLLOW_UP: ActionItemCategory.SHARED_TASK,
-    DECISION: ActionItemCategory.OTHER,
-    RESEARCH: ActionItemCategory.OTHER,
-  };
-  return categoryMap[category.toUpperCase()] || ActionItemCategory.OTHER;
-};
-
 /**
- * Extract action items from transcript
+ * Extract tasks from transcript and save as Task records
  */
-export const extractActionItems = async (
+export const extractTasks = async (
   meetingId: string,
   transcriptText: string,
-  ownerId: string,
-): Promise<ActionItemResult[]> => {
+  userId: string,
+): Promise<ExtractedTask[]> => {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is required for AI features");
   }
 
-  const prompt = `Extract action items from this meeting transcript.
+  const prompt = `Extract action items and tasks from this meeting transcript.
 Return them as a JSON array of objects with these fields:
-- title: string (short action item title)
+- title: string (short, actionable task title)
 - description: string (optional, more details)
-- category: string (one of: "PARTICIPANT_TASK", "SHARED_TASK", "DOCUMENT_REQUIRED", "UPCOMING_EVENT", "OTHER")
 - assigneeHint: string (optional, name/role of person responsible if mentioned)
 
 Transcript:
@@ -195,7 +173,7 @@ Return ONLY a JSON array, no other text.`;
       {
         role: "system",
         content:
-          "You extract action items from meetings and return them as JSON.",
+          "You extract tasks from meeting transcripts and return them as JSON.",
       },
       { role: "user", content: prompt },
     ],
@@ -206,40 +184,36 @@ Return ONLY a JSON array, no other text.`;
   const content = response.choices[0]?.message?.content || "[]";
 
   try {
-    const rawActionItems = JSON.parse(stripMarkdownJson(content)) as Array<{
+    const rawTasks = JSON.parse(stripMarkdownJson(content)) as Array<{
       title: string;
       description?: string;
-      category?: string;
       assigneeHint?: string;
     }>;
 
-    const actionItems: ActionItemResult[] = rawActionItems.map((item) => ({
+    const tasks: ExtractedTask[] = rawTasks.map((item) => ({
       title: item.title,
       description: item.description,
-      category: mapToActionItemCategory(item.category || "OTHER"),
       assigneeHint: item.assigneeHint,
     }));
 
-    // Save action items to database
-    for (const item of actionItems) {
-      await prisma.meetingActionItem.create({
+    // Save tasks to database
+    for (const task of tasks) {
+      await prisma.task.create({
         data: {
           meetingId,
-          title: item.title,
-          description: item.description,
-          owner: ownerId,
-          category: item.category,
+          userId,
+          title: task.title,
+          description: task.description,
+          source: "AI_EXTRACTED",
         },
       });
     }
 
-    logger.info(
-      `${actionItems.length} action items extracted for meeting ${meetingId}`,
-    );
+    logger.info(`${tasks.length} tasks extracted for meeting ${meetingId}`);
 
-    return actionItems;
+    return tasks;
   } catch {
-    logger.error("Failed to parse action items JSON");
+    logger.error("Failed to parse tasks JSON");
     return [];
   }
 };
@@ -298,7 +272,7 @@ ${transcriptText.slice(0, 2000)}`;
  */
 export const processTranscriptWithAI = async (
   meetingId: string,
-  ownerId: string,
+  userId: string,
 ): Promise<AIProcessingResult> => {
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { recording: { meetingId } },
@@ -308,24 +282,24 @@ export const processTranscriptWithAI = async (
     throw new Error(`No transcript found for meeting ${meetingId}`);
   }
 
-  const [summary, keyPoints, actionItems] = await Promise.all([
+  const [summary, keyPoints, tasks] = await Promise.all([
     generateSummary(meetingId, transcript.fullText),
     extractKeyPoints(meetingId, transcript.fullText),
-    extractActionItems(meetingId, transcript.fullText, ownerId),
+    extractTasks(meetingId, transcript.fullText, userId),
     generateMeetingTitle(meetingId, transcript.fullText),
   ]);
 
   return {
     summary,
     keyPoints,
-    actionItems,
+    tasks,
   };
 };
 
 export const aiService = {
   generateSummary,
   extractKeyPoints,
-  extractActionItems,
+  extractTasks,
   generateMeetingTitle,
   processTranscriptWithAI,
 };

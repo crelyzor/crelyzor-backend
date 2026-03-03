@@ -13,26 +13,21 @@ Last updated: 2026-03-03
 The `MeetingActionItem` model is being dropped. `Task` is the permanent model from day one.
 Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have `meetingId: null`.
 
-- [ ] Add `Task` model to `schema.prisma`:
-  ```
-  Task { id, userId, meetingId (nullable FK), title, description?,
-         isCompleted, completedAt?, dueDate?, priority?, source (AI_EXTRACTED|MANUAL),
-         createdAt, updatedAt, isDeleted, deletedAt }
-  ```
-- [ ] Run `pnpm db:migrate` — create migration
-- [ ] Update AI extraction service: write `Task` records (with meetingId + `source: AI_EXTRACTED`) instead of `MeetingActionItem`
-- [ ] Drop `MeetingActionItem` from schema (it has no production data worth keeping)
-- [ ] `GET /meetings/:meetingId/tasks` — list tasks for a meeting
-- [ ] `POST /meetings/:meetingId/tasks` — create task manually (`source: MANUAL`)
-- [ ] `PATCH /tasks/:taskId` — update (toggle isCompleted, edit title, set dueDate)
-- [ ] `DELETE /tasks/:taskId` — soft delete
-- [ ] All routes under `verifyJWT`, Zod validated
+- [x] Add `Task` model to `schema.prisma` with `TaskSource` and `TaskPriority` enums
+- [x] Run `pnpm db:push` — schema synced to DB
+- [x] Update AI extraction service: write `Task` records (with meetingId + `source: AI_EXTRACTED`) instead of `MeetingActionItem`
+- [x] Drop `MeetingActionItem` from schema (it has no production data worth keeping)
+- [x] `GET /sma/meetings/:meetingId/tasks` — list tasks for a meeting
+- [x] `POST /sma/meetings/:meetingId/tasks` — create task manually (`source: MANUAL`)
+- [x] `PATCH /sma/tasks/:taskId` — update (toggle isCompleted, edit title, set dueDate)
+- [x] `DELETE /sma/tasks/:taskId` — soft delete
+- [x] All routes under `verifyJWT`, Zod validated
 
 ### Auth — Refresh Token
-- [ ] `POST /auth/refresh` — exchange refresh token for new access token
-- [ ] Issue refresh token on login (httpOnly cookie), store hashed in DB
-- [ ] Rotate refresh tokens on use (old token invalidated)
-- [ ] `POST /auth/logout` — invalidate refresh token in DB
+- [x] `POST /auth/refresh-token` — already fully implemented
+- [x] Refresh token issued on login, stored in DB
+- [x] Token rotation on refresh (old token revoked)
+- [x] `POST /auth/logout` — invalidates refresh token in DB
 
 ---
 

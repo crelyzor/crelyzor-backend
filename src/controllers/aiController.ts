@@ -2,7 +2,6 @@ import type { Request, Response } from "express";
 import prisma from "../db/prismaClient";
 import { aiService } from "../services/ai/aiService";
 import { logger } from "../utils/logging/logger";
-import { ActionItemCategory } from "@prisma/client";
 
 /**
  * Get AI summary for a meeting
@@ -65,127 +64,6 @@ export const regenerateSummary = async (req: Request, res: Response) => {
     });
   } catch (error) {
     logger.error("Error regenerating summary:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
-};
-
-/**
- * Get action items for a meeting
- */
-export const getActionItems = async (req: Request, res: Response) => {
-  try {
-    const meetingId = req.params.meetingId as string;
-
-    const actionItems = await prisma.meetingActionItem.findMany({
-      where: { meetingId },
-      orderBy: { createdAt: "desc" },
-    });
-
-    res.status(200).json({
-      success: true,
-      data: actionItems,
-    });
-  } catch (error) {
-    logger.error("Error getting action items:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
-};
-
-/**
- * Update action item
- */
-export const updateActionItem = async (req: Request, res: Response) => {
-  try {
-    const actionItemId = req.params.actionItemId as string;
-    const {
-      title,
-      description,
-      category,
-      assignedTo,
-      suggestedStartDate,
-      suggestedEndDate,
-    } = req.body;
-
-    const actionItem = await prisma.meetingActionItem.update({
-      where: { id: actionItemId },
-      data: {
-        ...(title && { title }),
-        ...(description !== undefined && { description }),
-        ...(category && { category: category as ActionItemCategory }),
-        ...(assignedTo !== undefined && { assignedTo }),
-        ...(suggestedStartDate && {
-          suggestedStartDate: new Date(suggestedStartDate),
-        }),
-        ...(suggestedEndDate && {
-          suggestedEndDate: new Date(suggestedEndDate),
-        }),
-      },
-    });
-
-    res.status(200).json({
-      success: true,
-      data: actionItem,
-    });
-  } catch (error) {
-    logger.error("Error updating action item:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
-};
-
-/**
- * Create a manual action item
- */
-export const createActionItem = async (req: Request, res: Response) => {
-  try {
-    const meetingId = req.params.meetingId as string;
-    const {
-      title,
-      description,
-      category,
-      suggestedStartDate,
-      suggestedEndDate,
-      assignedTo,
-    } = req.body;
-    // Get user ID as owner
-    const userId = req.user?.userId;
-
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
-      return;
-    }
-
-    const actionItem = await prisma.meetingActionItem.create({
-      data: {
-        meetingId,
-        title,
-        description,
-        owner: userId,
-        category: (category as ActionItemCategory) || ActionItemCategory.OTHER,
-        suggestedStartDate: suggestedStartDate
-          ? new Date(suggestedStartDate)
-          : undefined,
-        suggestedEndDate: suggestedEndDate
-          ? new Date(suggestedEndDate)
-          : undefined,
-        assignedTo,
-      },
-    });
-
-    res.status(201).json({
-      success: true,
-      data: actionItem,
-    });
-  } catch (error) {
-    logger.error("Error creating action item:", {
       error: error instanceof Error ? error.message : String(error),
     });
     throw error;

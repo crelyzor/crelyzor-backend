@@ -213,6 +213,41 @@ export class MeetingController {
       globalErrorHandler(error as Error, req, res);
     }
   }
+
+  async deleteMeeting(req: Request, res: Response): Promise<void> {
+    try {
+      const user = req.user as TokenPayload;
+      const meetingId = req.params.meetingId as string;
+
+      const meeting = await prisma.meeting.findUnique({
+        where: { id: meetingId },
+      });
+
+      if (!meeting || meeting.isDeleted) {
+        throw ErrorFactory.notFound("Meeting");
+      }
+
+      if (meeting.createdById !== user.userId) {
+        throw ErrorFactory.forbidden("Only the meeting creator can delete it");
+      }
+
+      await prisma.meeting.update({
+        where: { id: meetingId },
+        data: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedBy: user.userId,
+        },
+      });
+
+      apiResponse(res, {
+        statusCode: 200,
+        message: "Meeting deleted successfully",
+      });
+    } catch (error) {
+      globalErrorHandler(error as Error, req, res);
+    }
+  }
 }
 
 export const meetingController = new MeetingController();
