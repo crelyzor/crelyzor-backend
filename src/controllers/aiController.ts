@@ -4,6 +4,7 @@ import { aiService } from "../services/ai/aiService";
 import { logger } from "../utils/logging/logger";
 import { AppError } from "../utils/errors/AppError";
 import { askAISchema } from "../validators/askAISchema";
+import { generateContentSchema } from "../validators/generateContentSchema";
 
 /**
  * Get AI summary for a meeting
@@ -191,6 +192,44 @@ export const askAI = async (req: Request, res: Response) => {
 
   // askAI handles its own response (SSE stream) — do not use apiResponse here
   await aiService.askAI(meetingId, userId, validated.data.question, res);
+};
+
+/**
+ * POST /sma/meetings/:meetingId/generate
+ * Generate structured content from transcript (cached per type).
+ */
+export const generateContent = async (req: Request, res: Response) => {
+  const meetingId = req.params.meetingId as string;
+  const userId = req.user?.userId;
+  if (!userId) throw new AppError("Unauthorized", 401);
+
+  const validated = generateContentSchema.safeParse(req.body);
+  if (!validated.success) {
+    throw new AppError("Validation failed: valid type is required", 400);
+  }
+
+  const content = await aiService.generateContent(
+    meetingId,
+    userId,
+    validated.data.type,
+  );
+
+  res
+    .status(200)
+    .json({ success: true, data: { type: validated.data.type, content } });
+};
+
+/**
+ * GET /sma/meetings/:meetingId/generated
+ * Return all previously generated content for a meeting.
+ */
+export const getGeneratedContents = async (req: Request, res: Response) => {
+  const meetingId = req.params.meetingId as string;
+  const userId = req.user?.userId;
+  if (!userId) throw new AppError("Unauthorized", 401);
+
+  const contents = await aiService.getGeneratedContents(meetingId, userId);
+  res.status(200).json({ success: true, data: { contents } });
 };
 
 /**

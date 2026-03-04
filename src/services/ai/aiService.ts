@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { Response } from "express";
+import type { AIContentType } from "@prisma/client";
 import prisma from "../../db/prismaClient";
 import { getOpenAIClient } from "../../config/openai";
 import { logger } from "../../utils/logging/logger";
@@ -436,6 +437,105 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
   }
 };
 
+// ── AI Content Generation ──────────────────────────────────────────────────
+
+const CONTENT_PROMPTS: Record<AIContentType, (transcript: string) => string> = {
+  MEETING_REPORT: (t) =>
+    `Based on this meeting transcript, write a formal meeting report/minutes document. Include: Participants (from who's speaking), Key Discussion Points, Decisions Made, and Action Items. Format it professionally with clear sections.\n\nTranscript:\n${t}\n\nMeeting Report:`,
+
+  TWEET: (t) =>
+    `Write a single tweet (under 280 characters) that captures the main outcome or topic of this meeting. Be engaging and professional.\n\nTranscript excerpt:\n${t.slice(0, 3000)}\n\nTweet:`,
+
+  BLOG_POST: (t) =>
+    `Write a 300-400 word blog post about the topic discussed in this meeting. Give it a compelling title. Make it engaging and informative for a professional audience.\n\nTranscript:\n${t}\n\nBlog Post:`,
+
+  EMAIL: (t) =>
+    `Write a professional follow-up email to send to meeting participants. Include: brief summary of what was discussed, key decisions made, action items (with owners if mentioned), and a professional closing. Write only the email body — no subject line or headers.\n\nTranscript:\n${t}\n\nFollow-up Email:`,
+};
+
+/**
+ * Generate structured content from a meeting transcript.
+ * Returns cached result if already generated for this (meetingId, type) pair.
+ */
+export const generateContent = async (
+  meetingId: string,
+  userId: string,
+  type: AIContentType,
+): Promise<string> => {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new AppError("OPENAI_API_KEY is required for AI features", 500);
+  }
+
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+
+  // Return cached result if it exists
+  const cached = await prisma.meetingAIContent.findUnique({
+    where: { meetingId_type: { meetingId, type } },
+  });
+  if (cached) return cached.content;
+
+  const transcript = await prisma.meetingTranscript.findFirst({
+    where: { recording: { meetingId } },
+  });
+  if (!transcript) {
+    throw new AppError(
+      "No transcript available. Upload a recording first.",
+      400,
+    );
+  }
+
+  const openai = getOpenAIClient();
+  const prompt = CONTENT_PROMPTS[type](transcript.fullText);
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a professional meeting assistant that generates well-structured content from meeting transcripts. Be concise, accurate, and professional.",
+      },
+      { role: "user", content: prompt },
+    ],
+    max_tokens: type === "TWEET" ? 100 : 1500,
+    temperature: 0.6,
+  });
+
+  const content = response.choices[0]?.message?.content?.trim() ?? "";
+
+  await prisma.meetingAIContent.upsert({
+    where: { meetingId_type: { meetingId, type } },
+    create: { meetingId, type, content },
+    update: { content, updatedAt: new Date() },
+  });
+
+  logger.info(`Generated ${type} content for meeting ${meetingId}`);
+  return content;
+};
+
+/**
+ * Get all previously generated content for a meeting.
+ */
+export const getGeneratedContents = async (
+  meetingId: string,
+  userId: string,
+): Promise<{ type: string; content: string }[]> => {
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+
+  return prisma.meetingAIContent.findMany({
+    where: { meetingId },
+    select: { type: true, content: true },
+  });
+};
+
 export const aiService = {
   generateSummary,
   extractKeyPoints,
@@ -443,4 +543,6 @@ export const aiService = {
   generateMeetingTitle,
   processTranscriptWithAI,
   askAI,
+  generateContent,
+  getGeneratedContents,
 };

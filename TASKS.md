@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-03-04
+Last updated: 2026-03-05
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -43,11 +43,12 @@ Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have 
   - Rate limit: max 20 req/user/hour
 
 ### AI Content Generation
-- [ ] `POST /sma/meetings/:meetingId/generate`
+- [x] `POST /sma/meetings/:meetingId/generate`
   - Body: `{ type: "MEETING_REPORT" | "MAIN_POINTS" | "TODO_LIST" | "TWEET" | "BLOG_POST" | "EMAIL" }`
   - Each type gets its own OpenAI prompt template
   - Cache result — store in `MeetingAIContent` (new model) keyed by meetingId + type
   - Zod: `{ type: z.enum([...]) }`
+- [x] `GET /sma/meetings/:meetingId/generated` — list all cached generated content
 
 ### Regenerate Actions
 - [x] `POST /sma/meetings/:meetingId/summary/regenerate` — re-runs OpenAI summary + key points

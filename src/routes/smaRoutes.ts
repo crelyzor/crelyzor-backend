@@ -85,6 +85,10 @@ router.post(
 // Ask AI — streams response via SSE
 router.post("/meetings/:meetingId/ask", aiController.askAI);
 
+// AI Content Generation
+router.get("/meetings/:meetingId/generated", aiController.getGeneratedContents);
+router.post("/meetings/:meetingId/generate", aiController.generateContent);
+
 // Tasks routes
 router.get("/meetings/:meetingId/tasks", taskController.getTasks);
 router.post("/meetings/:meetingId/tasks", taskController.createTask);
