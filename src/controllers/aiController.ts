@@ -2,6 +2,8 @@ import type { Request, Response } from "express";
 import prisma from "../db/prismaClient";
 import { aiService } from "../services/ai/aiService";
 import { logger } from "../utils/logging/logger";
+import { AppError } from "../utils/errors/AppError";
+import { askAISchema } from "../validators/askAISchema";
 
 /**
  * Get AI summary for a meeting
@@ -131,6 +133,30 @@ export const createNote = async (req: Request, res: Response) => {
     });
     throw error;
   }
+};
+
+/**
+ * POST /sma/meetings/:meetingId/ask
+ * Streams an AI answer about the meeting via SSE.
+ */
+export const askAI = async (req: Request, res: Response) => {
+  const meetingId = req.params.meetingId as string;
+  const userId = req.user?.userId;
+
+  if (!userId) {
+    throw new AppError("Unauthorized", 401);
+  }
+
+  const validated = askAISchema.safeParse(req.body);
+  if (!validated.success) {
+    throw new AppError(
+      "Validation failed: question is required (max 1000 chars)",
+      400,
+    );
+  }
+
+  // askAI handles its own response (SSE stream) — do not use apiResponse here
+  await aiService.askAI(meetingId, userId, validated.data.question, res);
 };
 
 /**

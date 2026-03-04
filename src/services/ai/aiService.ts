@@ -1,6 +1,10 @@
 import OpenAI from "openai";
+import type { Response } from "express";
 import prisma from "../../db/prismaClient";
+import { getOpenAIClient } from "../../config/openai";
 import { logger } from "../../utils/logging/logger";
+import { AppError } from "../../utils/errors/AppError";
+import { redis } from "../../config/redisClient";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -296,10 +300,147 @@ export const processTranscriptWithAI = async (
   };
 };
 
+const ASK_AI_RATE_LIMIT = 20; // max requests per user per hour
+
+/**
+ * Check and increment rate limit for Ask AI.
+ * Uses Redis sliding window (hourly). Fails open if Redis is unavailable.
+ */
+const checkAskAIRateLimit = async (userId: string): Promise<void> => {
+  try {
+    const key = `ask_ai:${userId}:${Math.floor(Date.now() / 3_600_000)}`;
+    const count = await redis.incr(key);
+    if (count === 1) {
+      await redis.expire(key, 3600);
+    }
+    if (count > ASK_AI_RATE_LIMIT) {
+      throw new AppError(
+        "Rate limit exceeded — max 20 Ask AI requests per hour",
+        429,
+      );
+    }
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    // Redis unavailable — fail open
+    logger.warn("Redis unavailable for Ask AI rate limit check", { userId });
+  }
+};
+
+/**
+ * Build transcript context string with speaker display names substituted.
+ */
+const buildTranscriptContext = (
+  segments: { speaker: string; text: string; startTime: number }[],
+  speakers: { speakerLabel: string; displayName: string | null }[],
+): string => {
+  const nameMap = new Map(
+    speakers.map((s) => [s.speakerLabel, s.displayName ?? s.speakerLabel]),
+  );
+  return segments
+    .map((seg) => `${nameMap.get(seg.speaker) ?? seg.speaker}: ${seg.text}`)
+    .join("\n");
+};
+
+/**
+ * Ask AI — streams an answer to a question about a specific meeting.
+ * POST /sma/meetings/:meetingId/ask
+ * Response: text/event-stream (SSE)
+ */
+export const askAI = async (
+  meetingId: string,
+  userId: string,
+  question: string,
+  res: Response,
+): Promise<void> => {
+  await checkAskAIRateLimit(userId);
+
+  // Verify meeting belongs to user
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true, title: true },
+  });
+
+  if (!meeting) {
+    throw new AppError("Meeting not found", 404);
+  }
+
+  // Fetch transcript with segments
+  const transcript = await prisma.meetingTranscript.findFirst({
+    where: { recording: { meetingId } },
+    include: {
+      segments: { orderBy: { startTime: "asc" } },
+    },
+  });
+
+  if (!transcript || transcript.segments.length === 0) {
+    throw new AppError("No transcript available for this meeting", 400);
+  }
+
+  // Fetch speakers for display name resolution
+  const speakers = await prisma.meetingSpeaker.findMany({
+    where: { meetingId },
+    select: { speakerLabel: true, displayName: true },
+  });
+
+  const transcriptContext = buildTranscriptContext(
+    transcript.segments,
+    speakers,
+  );
+
+  const systemPrompt = `You are an intelligent meeting assistant. You have access to the full transcript of a meeting titled "${meeting.title ?? "Untitled Meeting"}".
+Answer the user's questions based solely on the transcript content.
+Be concise, accurate, and helpful. If the answer isn't in the transcript, say so clearly.`;
+
+  const userMessage = `Transcript:\n${transcriptContext}\n\nQuestion: ${question}`;
+
+  // Stream SSE headers
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  const openai = getOpenAIClient();
+
+  try {
+    const stream = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ],
+      max_tokens: 1500,
+      temperature: 0.5,
+      stream: true,
+    });
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        res.write(`data: ${JSON.stringify({ token: delta })}\n\n`);
+      }
+    }
+
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    res.end();
+
+    logger.info("Ask AI completed", { meetingId, userId });
+  } catch (err) {
+    logger.error("Ask AI streaming error", {
+      error: err instanceof Error ? err.message : String(err),
+      meetingId,
+      userId,
+    });
+    res.write(`data: ${JSON.stringify({ error: "AI response failed" })}\n\n`);
+    res.end();
+  }
+};
+
 export const aiService = {
   generateSummary,
   extractKeyPoints,
   extractTasks,
   generateMeetingTitle,
   processTranscriptWithAI,
+  askAI,
 };
