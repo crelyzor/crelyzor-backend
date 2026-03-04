@@ -37,39 +37,73 @@ export const getSummary = async (req: Request, res: Response) => {
 };
 
 /**
- * Regenerate AI summary
+ * Regenerate AI summary + key points
+ * POST /sma/meetings/:meetingId/summary/regenerate
  */
 export const regenerateSummary = async (req: Request, res: Response) => {
-  try {
-    const meetingId = req.params.meetingId as string;
+  const meetingId = req.params.meetingId as string;
+  const userId = req.user?.userId;
 
-    const transcript = await prisma.meetingTranscript.findFirst({
-      where: { recording: { meetingId } },
-    });
+  if (!userId) throw new AppError("Unauthorized", 401);
 
-    if (!transcript) {
-      res.status(400).json({
-        success: false,
-        message: "No transcript available. Upload a recording first.",
-      });
-      return;
-    }
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
 
-    const summary = await aiService.generateSummary(
-      meetingId,
-      transcript.fullText,
+  const transcript = await prisma.meetingTranscript.findFirst({
+    where: { recording: { meetingId } },
+  });
+  if (!transcript) {
+    throw new AppError(
+      "No transcript available. Upload a recording first.",
+      400,
     );
-
-    res.status(200).json({
-      success: true,
-      data: { summary },
-    });
-  } catch (error) {
-    logger.error("Error regenerating summary:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
   }
+
+  const [summary, keyPoints] = await Promise.all([
+    aiService.generateSummary(meetingId, transcript.fullText),
+    aiService.extractKeyPoints(meetingId, transcript.fullText),
+  ]);
+
+  res.status(200).json({ success: true, data: { summary, keyPoints } });
+};
+
+/**
+ * Regenerate meeting title from transcript
+ * POST /sma/meetings/:meetingId/title/regenerate
+ */
+export const regenerateTitle = async (req: Request, res: Response) => {
+  const meetingId = req.params.meetingId as string;
+  const userId = req.user?.userId;
+
+  if (!userId) throw new AppError("Unauthorized", 401);
+
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+
+  const transcript = await prisma.meetingTranscript.findFirst({
+    where: { recording: { meetingId } },
+  });
+  if (!transcript) {
+    throw new AppError(
+      "No transcript available. Upload a recording first.",
+      400,
+    );
+  }
+
+  const title = await aiService.generateMeetingTitle(
+    meetingId,
+    transcript.fullText,
+  );
+  if (!title) throw new AppError("Failed to generate title", 500);
+
+  logger.info("Title regenerated", { meetingId, userId, title });
+  res.status(200).json({ success: true, data: { title } });
 };
 
 /**

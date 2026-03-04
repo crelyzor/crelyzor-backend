@@ -77,6 +77,10 @@ router.post(
   "/meetings/:meetingId/summary/regenerate",
   aiController.regenerateSummary,
 );
+router.post(
+  "/meetings/:meetingId/title/regenerate",
+  aiController.regenerateTitle,
+);
 
 // Ask AI — streams response via SSE
 router.post("/meetings/:meetingId/ask", aiController.askAI);

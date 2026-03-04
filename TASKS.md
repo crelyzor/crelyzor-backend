@@ -50,12 +50,8 @@ Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have 
   - Zod: `{ type: z.enum([...]) }`
 
 ### Regenerate Actions
-- [ ] `POST /sma/meetings/:meetingId/regenerate`
-  - Body: `{ target: "TITLE" | "SUMMARY" | "TRANSCRIPT" }`
-  - TITLE + SUMMARY: re-run OpenAI with existing transcript
-  - TRANSCRIPT: re-run Deepgram (TRANSCRIPT only if recording exists)
-  - Re-queue as Bull job, return 202 + jobId
-  - `GET /sma/meetings/:meetingId/regenerate/:jobId/status` — poll job status
+- [x] `POST /sma/meetings/:meetingId/summary/regenerate` — re-runs OpenAI summary + key points
+- [x] `POST /sma/meetings/:meetingId/title/regenerate` — re-runs OpenAI title generation
 
 ### Change Language
 - [ ] `POST /sma/meetings/:meetingId/language`
