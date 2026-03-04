@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-03-03
+Last updated: 2026-03-04
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -34,7 +34,7 @@ Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have 
 ## P1 — Next Sprint
 
 ### Ask AI
-- [ ] `POST /sma/meetings/:meetingId/ask`
+- [x] `POST /sma/meetings/:meetingId/ask`
   - Verify meeting belongs to user
   - Fetch `MeetingTranscript` with all `TranscriptSegment[]`
   - Build prompt: system + transcript (use `displayName` if set, else `speakerLabel`) + user question
