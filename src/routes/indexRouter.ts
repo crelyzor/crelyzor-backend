@@ -7,6 +7,7 @@ import meetingRouter from "./meetingRoutes";
 import smaRouter from "./smaRoutes";
 import cardRouter from "./cardRoutes";
 import publicCardRouter from "./publicCardRoutes";
+import publicMeetingRouter from "./publicMeetingRoutes";
 
 const indexRouter = Router();
 
@@ -36,6 +37,7 @@ indexRouter.use("/cards", cardRouter);
 // 🌐 PUBLIC ROUTES
 // ========================================
 indexRouter.use("/public", publicCardRouter);
+indexRouter.use("/public", publicMeetingRouter);
 
 // ========================================
 // 🤖 SMA (Smart Meeting Assistant) ROUTES

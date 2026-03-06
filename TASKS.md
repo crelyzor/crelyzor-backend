@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-03-05
+Last updated: 2026-03-06
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -65,11 +65,11 @@ Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have 
 ## P2 — Deeper Features
 
 ### Public Meeting Links
-- [ ] Schema: `MeetingShare` model — `id`, `meetingId`, `shortId` (nanoid 8 chars), `isPublic`, `createdAt`
-- [ ] Migration + Prisma generate
-- [ ] `POST /sma/meetings/:meetingId/share` — create or get existing share (idempotent)
-- [ ] `PATCH /sma/meetings/:meetingId/share` — toggle `isPublic`
-- [ ] `GET /public/meetings/:shortId` — public endpoint, returns meeting data (transcript + summary) if isPublic
+- [x] Schema: `MeetingShare` model — `id`, `meetingId`, `userId`, `shortId` (nanoid 8 chars), `isPublic`, `showTranscript`, `showSummary`, `showTasks`, soft delete, `createdAt`
+- [x] `pnpm db:push` — schema synced to DB
+- [x] `POST /sma/meetings/:meetingId/share` — create or get existing share (idempotent)
+- [x] `PATCH /sma/meetings/:meetingId/share` — update `isPublic` + field flags
+- [x] `GET /public/meetings/:shortId` — public endpoint, returns meeting data (transcript + summary + tasks) if isPublic
 
 ### Export
 - [ ] `GET /sma/meetings/:meetingId/export`

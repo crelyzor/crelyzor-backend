@@ -6,6 +6,7 @@ import * as transcriptController from "../controllers/transcriptController";
 import * as aiController from "../controllers/aiController";
 import * as speakerController from "../controllers/speakerController";
 import * as taskController from "../controllers/taskController";
+import * as shareController from "../controllers/shareController";
 
 const router = Router();
 
@@ -99,5 +100,15 @@ router.delete("/tasks/:taskId", taskController.deleteTask);
 router.get("/meetings/:meetingId/notes", aiController.getNotes);
 router.post("/meetings/:meetingId/notes", aiController.createNote);
 router.delete("/notes/:noteId", aiController.deleteNote);
+
+// ========================================
+// 🔗 SHARE ROUTES
+// ========================================
+
+// Create or get share for a meeting (idempotent)
+router.post("/meetings/:meetingId/share", shareController.createShare);
+
+// Update share visibility + field flags
+router.patch("/meetings/:meetingId/share", shareController.patchShare);
 
 export default router;
