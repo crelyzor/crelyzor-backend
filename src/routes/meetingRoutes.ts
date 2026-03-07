@@ -2,6 +2,8 @@ import { Router } from "express";
 import { verifyJWT } from "../middleware/authMiddleware";
 import { meetingController } from "../controllers/meetingController";
 import * as tagController from "../controllers/tagController";
+import { attachmentController } from "../controllers/attachmentController";
+import { singleAttachmentUpload } from "../middleware/attachmentUploadMiddleware";
 
 const router = Router();
 
@@ -55,5 +57,31 @@ router.post("/:meetingId/tags/:tagId", tagController.attachTagToMeeting);
 
 /** DELETE /api/v1/meetings/:meetingId/tags/:tagId */
 router.delete("/:meetingId/tags/:tagId", tagController.detachTagFromMeeting);
+
+// ────────────────────────────────────────────────────────────
+// ATTACHMENT SUB-ROUTES
+// ────────────────────────────────────────────────────────────
+
+/** GET /api/v1/meetings/:meetingId/attachments */
+router.get("/:meetingId/attachments", (req, res) =>
+  attachmentController.getAttachments(req, res),
+);
+
+/** POST /api/v1/meetings/:meetingId/attachments/link */
+router.post("/:meetingId/attachments/link", (req, res) =>
+  attachmentController.addLink(req, res),
+);
+
+/** POST /api/v1/meetings/:meetingId/attachments/file */
+router.post(
+  "/:meetingId/attachments/file",
+  singleAttachmentUpload,
+  (req, res) => attachmentController.uploadFile(req, res),
+);
+
+/** DELETE /api/v1/meetings/:meetingId/attachments/:attachmentId */
+router.delete("/:meetingId/attachments/:attachmentId", (req, res) =>
+  attachmentController.deleteAttachment(req, res),
+);
 
 export default router;

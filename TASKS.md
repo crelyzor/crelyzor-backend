@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-03-06
+Last updated: 2026-03-07
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -96,10 +96,11 @@ Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have 
 - [x] All routes under `verifyJWT`, Zod validated, ownership verified on both meeting/tag
 
 ### Attachments
-- [ ] Schema: `MeetingAttachment` model — `id`, `meetingId`, `userId`, `type` (FILE | LINK | PHOTO), `url`, `name`, `size`, `createdAt`
-- [ ] `POST /meetings/:meetingId/attachments` — upload file to GCS or save link
-- [ ] `DELETE /meetings/:meetingId/attachments/:attachmentId`
-- [ ] `GET /meetings/:meetingId/attachments`
+- [x] Schema: `MeetingAttachment` model — `id`, `meetingId`, `userId`, `type` (FILE | LINK | PHOTO), `url`, `name`, `size`, `createdAt`
+- [x] `POST /meetings/:meetingId/attachments/link` — save link (SSRF-safe URL validation)
+- [x] `POST /meetings/:meetingId/attachments/file` — upload file to GCS (images + PDF + doc, 50MB max)
+- [x] `DELETE /meetings/:meetingId/attachments/:attachmentId` — soft delete
+- [x] `GET /meetings/:meetingId/attachments` — list with signed GCS URLs (60min TTL)
 
 ### Edit Transcript / Summary
 - [ ] `PATCH /sma/meetings/:meetingId/transcript/segments/:segmentId`

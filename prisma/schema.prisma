@@ -57,6 +57,7 @@ model User {
   tasks                 Task[]
   meetingShares         MeetingShare[]
   tags                  Tag[]
+  meetingAttachments    MeetingAttachment[]
 }
 
 model Session {
@@ -155,6 +156,7 @@ model Meeting {
   aiContents   MeetingAIContent[]
   share        MeetingShare?
   tags         MeetingTag[]
+  attachments  MeetingAttachment[]
 
   @@index([createdById])
   @@index([startTime])
@@ -467,6 +469,34 @@ model CardView {
 }
 
 // ================================
+// ATTACHMENTS
+// ================================
+
+model MeetingAttachment {
+  id        String         @id @default(uuid()) @db.Uuid
+  meetingId String         @db.Uuid
+  userId    String         @db.Uuid
+
+  type     AttachmentType
+  name     String
+  url      String?        // LINK: raw URL
+  gcsPath  String?        // FILE/PHOTO: GCS object path
+  mimeType String?
+  size     Int?           // bytes
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  meeting Meeting @relation(fields: [meetingId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([meetingId, isDeleted])
+  @@index([userId])
+}
+
+// ================================
 // TAGS (Universal)
 // ================================
 
@@ -572,4 +602,10 @@ enum AIContentType {
   TWEET
   BLOG_POST
   EMAIL
+}
+
+enum AttachmentType {
+  FILE
+  LINK
+  PHOTO
 }
