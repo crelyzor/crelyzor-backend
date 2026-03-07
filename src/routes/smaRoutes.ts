@@ -7,6 +7,7 @@ import * as aiController from "../controllers/aiController";
 import * as speakerController from "../controllers/speakerController";
 import * as taskController from "../controllers/taskController";
 import * as shareController from "../controllers/shareController";
+import * as exportController from "../controllers/exportController";
 
 const router = Router();
 
@@ -110,5 +111,15 @@ router.post("/meetings/:meetingId/share", shareController.createShare);
 
 // Update share visibility + field flags
 router.patch("/meetings/:meetingId/share", shareController.patchShare);
+
+// ========================================
+// 📄 EXPORT ROUTES
+// ========================================
+
+// Export transcript or summary as PDF or TXT
+router.get(
+  "/meetings/:meetingId/export",
+  exportController.exportMeetingContent,
+);
 
 export default router;
