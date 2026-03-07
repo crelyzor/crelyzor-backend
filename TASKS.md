@@ -72,24 +72,28 @@ Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have 
 - [x] `GET /public/meetings/:shortId` — public endpoint, returns meeting data (transcript + summary + tasks) if isPublic
 
 ### Export
-- [ ] `GET /sma/meetings/:meetingId/export`
+- [x] `GET /sma/meetings/:meetingId/export`
   - Query params: `?format=pdf|txt&content=transcript|summary`
   - PDF: use a lightweight lib (e.g. pdfkit or puppeteer)
   - TXT: plain text, streamed as file download
   - Auth required (private export)
 
 ### Tags (Universal)
-- [ ] Schema: `Tag` model — `id`, `userId`, `name`, `color`, `createdAt`
-- [ ] Schema: `MeetingTag` junction — `meetingId`, `tagId`
-- [ ] Schema: `CardTag` junction — `cardId`, `tagId`
-- [ ] Migration + Prisma generate
-- [ ] `GET /tags` — list user's tags
-- [ ] `POST /tags` — create tag
-- [ ] `DELETE /tags/:tagId` — delete tag (cascades junctions)
-- [ ] `POST /meetings/:meetingId/tags` — attach tag
-- [ ] `DELETE /meetings/:meetingId/tags/:tagId` — detach tag
-- [ ] `POST /cards/:cardId/tags` — attach tag
-- [ ] `DELETE /cards/:cardId/tags/:tagId` — detach tag
+- [x] Schema: `Tag` model — `id`, `userId`, `name`, `color`, `createdAt`, soft delete
+- [x] Schema: `MeetingTag` junction — `meetingId`, `tagId`
+- [x] Schema: `CardTag` junction — `cardId`, `tagId`
+- [x] `pnpm db:push` — schema synced to DB
+- [x] `GET /tags` — list user's tags
+- [x] `POST /tags` — create tag (hex color validated, P2002 → 409)
+- [x] `PATCH /tags/:tagId` — update tag name/color
+- [x] `DELETE /tags/:tagId` — soft delete (cascades junction rows in transaction)
+- [x] `GET /meetings/:meetingId/tags` — list tags on a meeting
+- [x] `POST /meetings/:meetingId/tags/:tagId` — attach tag (idempotent upsert)
+- [x] `DELETE /meetings/:meetingId/tags/:tagId` — detach tag
+- [x] `GET /cards/:cardId/tags` — list tags on a card
+- [x] `POST /cards/:cardId/tags/:tagId` — attach tag to card
+- [x] `DELETE /cards/:cardId/tags/:tagId` — detach tag from card
+- [x] All routes under `verifyJWT`, Zod validated, ownership verified on both meeting/tag
 
 ### Attachments
 - [ ] Schema: `MeetingAttachment` model — `id`, `meetingId`, `userId`, `type` (FILE | LINK | PHOTO), `url`, `name`, `size`, `createdAt`

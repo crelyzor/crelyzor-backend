@@ -8,6 +8,7 @@ import smaRouter from "./smaRoutes";
 import cardRouter from "./cardRoutes";
 import publicCardRouter from "./publicCardRoutes";
 import publicMeetingRouter from "./publicMeetingRoutes";
+import tagRouter from "./tagRoutes";
 
 const indexRouter = Router();
 
@@ -43,6 +44,11 @@ indexRouter.use("/public", publicMeetingRouter);
 // 🤖 SMA (Smart Meeting Assistant) ROUTES
 // ========================================
 indexRouter.use("/sma", smaRouter);
+
+// ========================================
+// 🏷️ TAG ROUTES
+// ========================================
+indexRouter.use("/tags", tagRouter);
 
 // ========================================
 // 📦 STORAGE ROUTES

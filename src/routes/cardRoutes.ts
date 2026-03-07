@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { verifyJWT } from "../middleware/authMiddleware";
 import { cardController } from "../controllers/cardController";
+import * as tagController from "../controllers/tagController";
 
 const cardRouter = Router();
 
@@ -73,5 +74,18 @@ cardRouter.patch("/contacts/:contactId/tags", (req, res) =>
 cardRouter.delete("/contacts/:contactId", (req, res) =>
   cardController.deleteContact(req, res),
 );
+
+// ────────────────────────────────────────────────────────────
+// TAG SUB-ROUTES
+// ────────────────────────────────────────────────────────────
+
+/** GET /api/v1/cards/:cardId/tags */
+cardRouter.get("/:cardId/tags", tagController.getCardTags);
+
+/** POST /api/v1/cards/:cardId/tags/:tagId */
+cardRouter.post("/:cardId/tags/:tagId", tagController.attachTagToCard);
+
+/** DELETE /api/v1/cards/:cardId/tags/:tagId */
+cardRouter.delete("/:cardId/tags/:tagId", tagController.detachTagFromCard);
 
 export default cardRouter;
