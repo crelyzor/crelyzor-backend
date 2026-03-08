@@ -55,7 +55,7 @@ Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have 
 - [x] `POST /sma/meetings/:meetingId/title/regenerate` — re-runs OpenAI title generation
 
 ### Change Language
-- [ ] `POST /sma/meetings/:meetingId/language`
+- [x] `POST /sma/meetings/:meetingId/language`
   - Body: `{ language: string }` (BCP 47 code e.g. "en-US", "es", "fr")
   - Re-run Deepgram with specified language
   - Re-queue as Bull job
