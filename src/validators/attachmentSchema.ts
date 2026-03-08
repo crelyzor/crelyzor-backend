@@ -40,7 +40,7 @@ const safePublicUrl = z
         return false;
       }
     },
-    { message: "URL must be a public http(s) address" }
+    { message: "URL must be a public http(s) address" },
   );
 
 // ── Body schemas ──────────────────────────────────────────────────────────────

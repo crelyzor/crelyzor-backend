@@ -48,7 +48,7 @@ export async function createTag(userId: string, data: CreateTagInput) {
 export async function updateTag(
   userId: string,
   tagId: string,
-  data: UpdateTagInput
+  data: UpdateTagInput,
 ) {
   const existing = await prisma.tag.findFirst({
     where: { id: tagId, userId, isDeleted: false },
@@ -95,7 +95,7 @@ export async function deleteTag(userId: string, tagId: string) {
         data: { isDeleted: true, deletedAt: new Date() },
       });
     },
-    { timeout: 15000 }
+    { timeout: 15000 },
   );
 }
 
@@ -137,7 +137,7 @@ export async function getMeetingTags(userId: string, meetingId: string) {
 export async function attachTagToMeeting(
   userId: string,
   meetingId: string,
-  tagId: string
+  tagId: string,
 ) {
   await verifyMeetingOwnership(meetingId, userId);
   await verifyTagOwnership(tagId, userId);
@@ -154,7 +154,7 @@ export async function attachTagToMeeting(
 export async function detachTagFromMeeting(
   userId: string,
   meetingId: string,
-  tagId: string
+  tagId: string,
 ) {
   await verifyMeetingOwnership(meetingId, userId);
   await verifyTagOwnership(tagId, userId);
@@ -194,7 +194,7 @@ export async function getCardTags(userId: string, cardId: string) {
 export async function attachTagToCard(
   userId: string,
   cardId: string,
-  tagId: string
+  tagId: string,
 ) {
   await verifyCardOwnership(cardId, userId);
   await verifyTagOwnership(tagId, userId);
@@ -211,7 +211,7 @@ export async function attachTagToCard(
 export async function detachTagFromCard(
   userId: string,
   cardId: string,
-  tagId: string
+  tagId: string,
 ) {
   await verifyCardOwnership(cardId, userId);
   await verifyTagOwnership(tagId, userId);

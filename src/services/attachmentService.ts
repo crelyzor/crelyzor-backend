@@ -50,7 +50,9 @@ async function verifyMeetingOwnership(
 }
 
 function detectAttachmentType(mimeType: string): AttachmentType {
-  return mimeType.startsWith("image/") ? AttachmentType.PHOTO : AttachmentType.FILE;
+  return mimeType.startsWith("image/")
+    ? AttachmentType.PHOTO
+    : AttachmentType.FILE;
 }
 
 async function toResponse(attachment: {
@@ -157,7 +159,11 @@ export async function addLink(
     },
   });
 
-  logger.info("Attachment link added", { attachmentId: attachment.id, meetingId, userId });
+  logger.info("Attachment link added", {
+    attachmentId: attachment.id,
+    meetingId,
+    userId,
+  });
 
   return toResponse(attachment);
 }

@@ -49,7 +49,11 @@ export async function createOrGetShare(meetingId: string, userId: string) {
     },
   });
 
-  logger.info("Meeting share created", { meetingId, userId, shortId: share.shortId });
+  logger.info("Meeting share created", {
+    meetingId,
+    userId,
+    shortId: share.shortId,
+  });
 
   return share;
 }
@@ -85,7 +89,9 @@ export async function updateShare(
     where: { meetingId },
     data: {
       ...(data.isPublic !== undefined && { isPublic: data.isPublic }),
-      ...(data.showTranscript !== undefined && { showTranscript: data.showTranscript }),
+      ...(data.showTranscript !== undefined && {
+        showTranscript: data.showTranscript,
+      }),
       ...(data.showSummary !== undefined && { showSummary: data.showSummary }),
       ...(data.showTasks !== undefined && { showTasks: data.showTasks }),
     },
@@ -136,7 +142,13 @@ export async function getPublicMeetingByShortId(shortId: string) {
     throw new AppError("Meeting not found or not published", 404);
   }
 
-  const { showTranscript, showSummary, showTasks, meeting, shortId: sid } = share;
+  const {
+    showTranscript,
+    showSummary,
+    showTasks,
+    meeting,
+    shortId: sid,
+  } = share;
 
   // Fetch speakers always (needed to resolve speakerLabel → displayName in transcript)
   const speakers = await prisma.meetingSpeaker.findMany({

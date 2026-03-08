@@ -19,7 +19,11 @@ export const attachmentController = {
       req.user!.userId,
     );
 
-    return apiResponse(res, { statusCode: 200, message: "Attachments fetched", data: { attachments } });
+    return apiResponse(res, {
+      statusCode: 200,
+      message: "Attachments fetched",
+      data: { attachments },
+    });
   },
 
   async addLink(req: Request, res: Response) {
@@ -40,7 +44,11 @@ export const attachmentController = {
       userId: req.user!.userId,
     });
 
-    return apiResponse(res, { statusCode: 201, message: "Link added", data: { attachment } });
+    return apiResponse(res, {
+      statusCode: 201,
+      message: "Link added",
+      data: { attachment },
+    });
   },
 
   async uploadFile(req: Request, res: Response) {
@@ -58,7 +66,11 @@ export const attachmentController = {
       name,
     );
 
-    return apiResponse(res, { statusCode: 201, message: "File uploaded", data: { attachment } });
+    return apiResponse(res, {
+      statusCode: 201,
+      message: "File uploaded",
+      data: { attachment },
+    });
   },
 
   async deleteAttachment(req: Request, res: Response) {

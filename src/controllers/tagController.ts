@@ -24,7 +24,11 @@ export const listTags = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
   const tags = await tagService.listTags(userId);
 
-  return apiResponse(res, { statusCode: 200, message: "Tags fetched", data: { tags } });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Tags fetched",
+    data: { tags },
+  });
 };
 
 /**
@@ -40,7 +44,11 @@ export const createTag = async (req: Request, res: Response) => {
 
   logger.info("Tag created", { tagId: tag.id, userId });
 
-  return apiResponse(res, { statusCode: 201, message: "Tag created", data: { tag } });
+  return apiResponse(res, {
+    statusCode: 201,
+    message: "Tag created",
+    data: { tag },
+  });
 };
 
 /**
@@ -55,11 +63,19 @@ export const updateTag = async (req: Request, res: Response) => {
   const validated = updateTagSchema.safeParse(req.body);
   if (!validated.success) throw new AppError("Validation failed", 400);
 
-  const tag = await tagService.updateTag(userId, params.data.tagId, validated.data);
+  const tag = await tagService.updateTag(
+    userId,
+    params.data.tagId,
+    validated.data,
+  );
 
   logger.info("Tag updated", { tagId: tag.id, userId });
 
-  return apiResponse(res, { statusCode: 200, message: "Tag updated", data: { tag } });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Tag updated",
+    data: { tag },
+  });
 };
 
 /**
@@ -93,7 +109,11 @@ export const getMeetingTags = async (req: Request, res: Response) => {
 
   const tags = await tagService.getMeetingTags(userId, params.data.meetingId);
 
-  return apiResponse(res, { statusCode: 200, message: "Meeting tags fetched", data: { tags } });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Meeting tags fetched",
+    data: { tags },
+  });
 };
 
 /**
@@ -105,9 +125,16 @@ export const attachTagToMeeting = async (req: Request, res: Response) => {
   const params = tagMeetingParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid parameters", 400);
 
-  await tagService.attachTagToMeeting(userId, params.data.meetingId, params.data.tagId);
+  await tagService.attachTagToMeeting(
+    userId,
+    params.data.meetingId,
+    params.data.tagId,
+  );
 
-  return apiResponse(res, { statusCode: 200, message: "Tag attached to meeting" });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Tag attached to meeting",
+  });
 };
 
 /**
@@ -119,9 +146,16 @@ export const detachTagFromMeeting = async (req: Request, res: Response) => {
   const params = tagMeetingParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid parameters", 400);
 
-  await tagService.detachTagFromMeeting(userId, params.data.meetingId, params.data.tagId);
+  await tagService.detachTagFromMeeting(
+    userId,
+    params.data.meetingId,
+    params.data.tagId,
+  );
 
-  return apiResponse(res, { statusCode: 200, message: "Tag removed from meeting" });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Tag removed from meeting",
+  });
 };
 
 // ────────────────────────────────────────────────────────────
@@ -139,7 +173,11 @@ export const getCardTags = async (req: Request, res: Response) => {
 
   const tags = await tagService.getCardTags(userId, params.data.cardId);
 
-  return apiResponse(res, { statusCode: 200, message: "Card tags fetched", data: { tags } });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Card tags fetched",
+    data: { tags },
+  });
 };
 
 /**
@@ -151,7 +189,11 @@ export const attachTagToCard = async (req: Request, res: Response) => {
   const params = tagCardParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid parameters", 400);
 
-  await tagService.attachTagToCard(userId, params.data.cardId, params.data.tagId);
+  await tagService.attachTagToCard(
+    userId,
+    params.data.cardId,
+    params.data.tagId,
+  );
 
   return apiResponse(res, { statusCode: 200, message: "Tag attached to card" });
 };
@@ -165,7 +207,14 @@ export const detachTagFromCard = async (req: Request, res: Response) => {
   const params = tagCardParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid parameters", 400);
 
-  await tagService.detachTagFromCard(userId, params.data.cardId, params.data.tagId);
+  await tagService.detachTagFromCard(
+    userId,
+    params.data.cardId,
+    params.data.tagId,
+  );
 
-  return apiResponse(res, { statusCode: 200, message: "Tag removed from card" });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Tag removed from card",
+  });
 };
