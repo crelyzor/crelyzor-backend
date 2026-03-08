@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-03-07
+Last updated: 2026-03-08 (all Phase 1 tasks complete)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -146,7 +146,7 @@ Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have 
 
 ---
 
-## Phase 1.2 — Future
+## Phase 2 — Online Meetings (next)
 
 - [ ] Recall.ai webhook + bot deployment
 - [ ] Availability slots API
@@ -155,14 +155,14 @@ Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have 
 
 ---
 
-## Phase 2 — Future
+## Phase 3 — Big Brain
 
 - [ ] Vector embeddings pipeline
 - [ ] RAG query endpoint (global Ask AI)
 
 ---
 
-## Phase 3 — Future
+## Phase 4 — Standalone Tasks
 
 - [ ] Standalone tasks API — `GET /tasks` (all tasks, not scoped to a meeting), with filter/sort/pagination
 - [ ] Tag junction for Tasks (`TaskTag` — extends universal Tag system)
