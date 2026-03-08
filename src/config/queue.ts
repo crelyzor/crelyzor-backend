@@ -16,6 +16,7 @@ export enum QueueNames {
 export interface TranscriptionJobData {
   recordingId: string;
   meetingId: string;
+  language?: string; // BCP 47 code — optional, defaults to "en" in transcription service
 }
 
 export interface AIProcessingJobData {

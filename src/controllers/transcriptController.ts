@@ -6,8 +6,12 @@ import { apiResponse } from "../utils/globalResponseHandler";
 import {
   patchSegmentBodySchema,
   patchSummaryBodySchema,
+  changeLanguageSchema,
 } from "../validators/transcriptEditSchema";
 import { updateSegment, updateSummary } from "../services/smaEditService";
+import { z } from "zod";
+
+const uuidSchema = z.string().uuid();
 
 /**
  * Get transcript for a meeting
@@ -94,5 +98,59 @@ export const getTranscriptionStatus = async (req: Request, res: Response) => {
       transcriptId: transcript?.id || null,
       isEnabled: transcriptionService.isEnabled(),
     },
+  });
+};
+
+/**
+ * POST /sma/meetings/:meetingId/transcript/regenerate
+ * Re-run Deepgram transcription for the existing recording (same language).
+ */
+export const regenerateTranscript = async (req: Request, res: Response) => {
+  const meetingIdResult = uuidSchema.safeParse(req.params.meetingId);
+  if (!meetingIdResult.success) throw new AppError("Invalid meetingId", 400);
+
+  const meetingId = meetingIdResult.data;
+  const userId = req.user!.userId;
+
+  await transcriptionService.regenerateTranscript(meetingId, userId);
+
+  logger.info("Transcript regeneration triggered", { meetingId, userId });
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Transcription started",
+  });
+};
+
+/**
+ * POST /sma/meetings/:meetingId/language
+ * Re-run Deepgram transcription with a new BCP 47 language code.
+ */
+export const changeLanguage = async (req: Request, res: Response) => {
+  const meetingIdResult = uuidSchema.safeParse(req.params.meetingId);
+  if (!meetingIdResult.success) throw new AppError("Invalid meetingId", 400);
+
+  const meetingId = meetingIdResult.data;
+  const userId = req.user!.userId;
+
+  const body = changeLanguageSchema.safeParse(req.body);
+  if (!body.success)
+    throw new AppError("language is required (BCP 47, e.g. en, en-US)", 400);
+
+  await transcriptionService.regenerateTranscript(
+    meetingId,
+    userId,
+    body.data.language,
+  );
+
+  logger.info("Language change triggered", {
+    meetingId,
+    userId,
+    language: body.data.language,
+  });
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Transcription started",
   });
 };

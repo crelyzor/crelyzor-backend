@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyJWT } from "../middleware/authMiddleware";
+import { verifyJWT, userRateLimit } from "../middleware/authMiddleware";
 import { singleFileUpload } from "../middleware/uploadMiddleware";
 import * as recordingController from "../controllers/recordingController";
 import * as transcriptController from "../controllers/transcriptController";
@@ -54,6 +54,20 @@ router.get(
 router.get(
   "/meetings/:meetingId/transcript/status",
   transcriptController.getTranscriptionStatus,
+);
+
+// Regenerate transcript (re-run Deepgram on existing recording, same language) — 5/hour
+router.post(
+  "/meetings/:meetingId/transcript/regenerate",
+  userRateLimit(5, 60 * 60 * 1000),
+  transcriptController.regenerateTranscript,
+);
+
+// Change language and re-run Deepgram — 5/hour
+router.post(
+  "/meetings/:meetingId/language",
+  userRateLimit(5, 60 * 60 * 1000),
+  transcriptController.changeLanguage,
 );
 
 // Edit a transcript segment

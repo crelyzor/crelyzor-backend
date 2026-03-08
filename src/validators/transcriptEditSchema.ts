@@ -18,5 +18,17 @@ export const patchSummaryBodySchema = z
     { message: "At least one field must be provided" },
   );
 
+// BCP 47 language tag: 2-3 letter primary subtag with optional subtags (e.g. "en", "en-US", "pt-BR")
+export const changeLanguageSchema = z.object({
+  language: z
+    .string()
+    .min(2)
+    .max(20)
+    .regex(/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/, {
+      message: "language must be a valid BCP 47 tag (e.g. en, en-US, pt-BR)",
+    }),
+});
+
 export type PatchSegmentInput = z.infer<typeof patchSegmentBodySchema>;
 export type PatchSummaryInput = z.infer<typeof patchSummaryBodySchema>;
+export type ChangeLanguageInput = z.infer<typeof changeLanguageSchema>;

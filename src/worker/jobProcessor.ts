@@ -25,7 +25,10 @@ export const startWorker = async (): Promise<void> => {
     );
 
     try {
-      await transcriptionService.transcribeRecording(data.recordingId);
+      await transcriptionService.transcribeRecording(
+        data.recordingId,
+        data.language,
+      );
 
       // Get meeting to find owner for AI processing
       const meeting = await prisma.meeting.findUnique({

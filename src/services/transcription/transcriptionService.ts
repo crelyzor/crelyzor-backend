@@ -3,9 +3,11 @@ import {
   isTranscriptionEnabled,
 } from "../../config/deepgram";
 import { gcsService } from "../gcs/gcsService";
+import { getTranscriptionQueue } from "../../config/queue";
 import prisma from "../../db/prismaClient";
 import { logger } from "../../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
+import { AppError } from "../../utils/errors/AppError";
 
 export interface TranscriptionResult {
   transcriptId: string;
@@ -23,9 +25,11 @@ export interface TranscriptSegment {
 
 /**
  * Start transcription for a recording
+ * @param language Optional BCP 47 language code (defaults to "en")
  */
 export const transcribeRecording = async (
   recordingId: string,
+  language?: string,
 ): Promise<TranscriptionResult> => {
   if (!isTranscriptionEnabled()) {
     throw new Error("Transcription is not enabled - DEEPGRAM_API_KEY required");
@@ -60,7 +64,7 @@ export const transcribeRecording = async (
         diarize: true,
         punctuate: true,
         utterances: true,
-        language: "en",
+        language: language ?? "en",
       },
     );
 
@@ -187,6 +191,91 @@ export const transcribeRecording = async (
 };
 
 /**
+ * Regenerate transcript for a meeting — deletes existing transcript, re-queues Deepgram.
+ *
+ * Deliberate hard deletes on MeetingTranscript and MeetingSpeaker: these are derivative,
+ * fully reprocessable records. Hard-deleting before re-running is the correct reset
+ * semantics (no data loss — the source audio in GCS is untouched).
+ *
+ * @param language Optional BCP 47 language code (defaults to "en")
+ */
+export const regenerateTranscript = async (
+  meetingId: string,
+  userId: string,
+  language?: string,
+): Promise<void> => {
+  if (!isTranscriptionEnabled()) {
+    throw new AppError(
+      "Transcription is not enabled - DEEPGRAM_API_KEY required",
+      503,
+    );
+  }
+
+  // Ownership + recording check
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    include: { recording: true },
+  });
+
+  if (!meeting) throw new AppError("Meeting not found", 404);
+  if (!meeting.recording)
+    throw new AppError("No recording found for this meeting", 404);
+
+  // 409 guard — do not allow re-triggering while already in progress
+  if (
+    meeting.transcriptionStatus === TranscriptionStatus.PROCESSING ||
+    meeting.transcriptionStatus === TranscriptionStatus.UPLOADED
+  ) {
+    throw new AppError(
+      "A transcription job is already in progress for this meeting",
+      409,
+    );
+  }
+
+  const recordingId = meeting.recording.id;
+
+  await prisma.$transaction(
+    async (tx) => {
+      // Delete existing transcript (CASCADE handles TranscriptSegments)
+      const existing = await tx.meetingTranscript.findUnique({
+        where: { recordingId },
+      });
+      if (existing) {
+        await tx.meetingTranscript.delete({ where: { id: existing.id } });
+      }
+
+      // Delete speakers (new ones will be created after re-transcription)
+      await tx.meetingSpeaker.deleteMany({ where: { meetingId } });
+
+      // Soft-delete AI-extracted tasks to prevent duplicates when AI re-runs
+      await tx.task.updateMany({
+        where: { meetingId, source: "AI_EXTRACTED", isDeleted: false },
+        data: { isDeleted: true, deletedAt: new Date() },
+      });
+
+      // Reset transcription status
+      await tx.meeting.update({
+        where: { id: meetingId },
+        data: { transcriptionStatus: TranscriptionStatus.UPLOADED },
+      });
+    },
+    { timeout: 15000 },
+  );
+
+  // Queue new transcription job
+  const queue = getTranscriptionQueue();
+  await queue.add(
+    "transcribe",
+    { recordingId, meetingId, language },
+    { jobId: `transcribe-regen-${recordingId}-${Date.now()}` },
+  );
+
+  logger.info(`Regenerate transcript queued for meeting ${meetingId}`, {
+    language: language ?? "en",
+  });
+};
+
+/**
  * Get transcript for a meeting
  */
 export const getTranscript = async (meetingId: string) => {
@@ -202,6 +291,7 @@ export const getTranscript = async (meetingId: string) => {
 
 export const transcriptionService = {
   transcribeRecording,
+  regenerateTranscript,
   getTranscript,
   isEnabled: isTranscriptionEnabled,
 };
