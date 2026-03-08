@@ -103,9 +103,9 @@ Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have 
 - [x] `GET /meetings/:meetingId/attachments` — list with signed GCS URLs (60min TTL)
 
 ### Edit Transcript / Summary
-- [ ] `PATCH /sma/meetings/:meetingId/transcript/segments/:segmentId`
+- [x] `PATCH /sma/meetings/:meetingId/transcript/segments/:segmentId`
   - Body: `{ text: string }` — edit a single segment's text
-- [ ] `PATCH /sma/meetings/:meetingId/summary`
+- [x] `PATCH /sma/meetings/:meetingId/summary`
   - Body: `{ summary?: string, keyPoints?: string[], title?: string }` — manual override
 
 ---

@@ -56,6 +56,15 @@ router.get(
   transcriptController.getTranscriptionStatus,
 );
 
+// Edit a transcript segment
+router.patch(
+  "/meetings/:meetingId/transcript/segments/:segmentId",
+  transcriptController.patchSegment,
+);
+
+// Edit AI summary / key points / title
+router.patch("/meetings/:meetingId/summary", transcriptController.patchSummary);
+
 // ========================================
 // 🎙️ SPEAKER ROUTES
 // ========================================
