@@ -22,6 +22,13 @@ const meetingInclude = {
     },
   },
   stateHistory: true,
+  tags: {
+    include: {
+      tag: {
+        select: { id: true, name: true, color: true },
+      },
+    },
+  },
 } satisfies Prisma.MeetingInclude;
 
 export interface CreateMeetingDTO {
