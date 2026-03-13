@@ -9,13 +9,14 @@ import {
 } from "../utils/globalErrorHandler";
 import { TokenPayload } from "../types/authTypes";
 import { ZodError } from "zod";
+import { logger } from "../utils/logging/logger";
 
 // Extend Express Request to include authenticated user
 declare module "express" {
   export interface Request {
     user?: TokenPayload;
     sessionId?: string;
-    service?: any; // For internal service tokens
+    service?: Record<string, unknown>; // For internal service tokens
   }
 }
 
@@ -50,7 +51,9 @@ export const verifyJWT = async (
 
     next();
   } catch (error) {
-    console.error("JWT verification error:", error);
+    logger.error("JWT verification error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     globalErrorHandler(error as BaseError, req, res);
   }
 };
@@ -80,6 +83,9 @@ export const autoRefreshToken = async (
 
     next();
   } catch (error) {
+    logger.warn("autoRefreshToken error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     next();
   }
 };

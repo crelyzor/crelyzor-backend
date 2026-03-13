@@ -10,31 +10,28 @@ import { generateContentSchema } from "../validators/generateContentSchema";
  * Get AI summary for a meeting
  */
 export const getSummary = async (req: Request, res: Response) => {
-  try {
-    const meetingId = req.params.meetingId as string;
+  const meetingId = req.params.meetingId as string;
+  const userId = req.user?.userId;
 
-    const summary = await prisma.meetingAISummary.findUnique({
-      where: { meetingId },
-    });
+  if (!userId) throw new AppError("Unauthorized", 401);
 
-    if (!summary) {
-      res.status(404).json({
-        success: false,
-        message: "No AI summary found for this meeting",
-      });
-      return;
-    }
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
 
-    res.status(200).json({
-      success: true,
-      data: summary,
-    });
-  } catch (error) {
-    logger.error("Error getting summary:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
+  const summary = await prisma.meetingAISummary.findUnique({
+    where: { meetingId },
+  });
+
+  if (!summary) throw new AppError("No AI summary found for this meeting", 404);
+
+  return (await import("../utils/globalResponseHandler")).apiResponse(res, {
+    statusCode: 200,
+    message: "Summary fetched",
+    data: summary,
+  });
 };
 
 /**
@@ -111,63 +108,67 @@ export const regenerateTitle = async (req: Request, res: Response) => {
  * Get notes for a meeting
  */
 export const getNotes = async (req: Request, res: Response) => {
-  try {
-    const meetingId = req.params.meetingId as string;
+  const meetingId = req.params.meetingId as string;
+  const userId = req.user?.userId;
 
-    const notes = await prisma.meetingNote.findMany({
-      where: { meetingId },
-      orderBy: { createdAt: "desc" },
-    });
+  if (!userId) throw new AppError("Unauthorized", 401);
 
-    res.status(200).json({
-      success: true,
-      data: notes,
-    });
-  } catch (error) {
-    logger.error("Error getting notes:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+
+  const notes = await prisma.meetingNote.findMany({
+    where: { meetingId },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return (await import("../utils/globalResponseHandler")).apiResponse(res, {
+    statusCode: 200,
+    message: "Notes fetched",
+    data: notes,
+  });
 };
 
 /**
  * Create a note for a meeting
  */
 export const createNote = async (req: Request, res: Response) => {
-  try {
-    const meetingId = req.params.meetingId as string;
-    const { content, timestamp } = req.body;
-    // Get user ID as author
-    const userId = req.user?.userId;
+  const meetingId = req.params.meetingId as string;
+  const userId = req.user?.userId;
 
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
-      return;
-    }
+  if (!userId) throw new AppError("Unauthorized", 401);
 
-    const note = await prisma.meetingNote.create({
-      data: {
-        meetingId,
-        content,
-        author: userId,
-        timestamp: timestamp ? parseFloat(timestamp) : undefined,
-      },
-    });
+  const { z } = await import("zod");
+  const noteSchema = z.object({
+    content: z.string().min(1).max(10000),
+    timestamp: z.number().optional(),
+  });
+  const parsed = noteSchema.safeParse(req.body);
+  if (!parsed.success)
+    throw new AppError("content is required (max 10000 chars)", 400);
 
-    res.status(201).json({
-      success: true,
-      data: note,
-    });
-  } catch (error) {
-    logger.error("Error creating note:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+
+  const note = await prisma.meetingNote.create({
+    data: {
+      meetingId,
+      content: parsed.data.content,
+      author: userId,
+      timestamp: parsed.data.timestamp,
+    },
+  });
+
+  return (await import("../utils/globalResponseHandler")).apiResponse(res, {
+    statusCode: 201,
+    message: "Note created",
+    data: note,
+  });
 };
 
 /**
@@ -236,21 +237,25 @@ export const getGeneratedContents = async (req: Request, res: Response) => {
  * Delete a note
  */
 export const deleteNote = async (req: Request, res: Response) => {
-  try {
-    const noteId = req.params.noteId as string;
+  const noteId = req.params.noteId as string;
+  const userId = req.user?.userId;
 
-    await prisma.meetingNote.delete({
-      where: { id: noteId },
-    });
+  if (!userId) throw new AppError("Unauthorized", 401);
 
-    res.status(200).json({
-      success: true,
-      message: "Note deleted successfully",
-    });
-  } catch (error) {
-    logger.error("Error deleting note:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
+  // Verify the note belongs to a meeting owned by the caller
+  const note = await prisma.meetingNote.findFirst({
+    where: {
+      id: noteId,
+      meeting: { createdById: userId, isDeleted: false },
+    },
+    select: { id: true },
+  });
+  if (!note) throw new AppError("Note not found", 404);
+
+  await prisma.meetingNote.delete({ where: { id: noteId } });
+
+  return (await import("../utils/globalResponseHandler")).apiResponse(res, {
+    statusCode: 200,
+    message: "Note deleted successfully",
+  });
 };

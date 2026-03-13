@@ -163,8 +163,8 @@ export class MeetingController {
       const user = req.user as TokenPayload;
       const meetingId = req.params.meetingId as string;
 
-      const meeting = await prisma.meeting.findUnique({
-        where: { id: meetingId },
+      const meeting = await prisma.meeting.findFirst({
+        where: { id: meetingId, isDeleted: false },
         include: {
           participants: {
             include: {

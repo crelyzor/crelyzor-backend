@@ -6,8 +6,8 @@ import { logger } from "../../utils/logging/logger";
  * Get all speakers for a meeting, ordered by speakerLabel
  */
 export const getSpeakers = async (meetingId: string, userId: string) => {
-  const meeting = await prisma.meeting.findUnique({
-    where: { id: meetingId },
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, isDeleted: false },
     select: { createdById: true },
   });
 
@@ -30,8 +30,8 @@ export const renameSpeaker = async (
   updates: { displayName?: string; role?: string },
   userId: string,
 ) => {
-  const meeting = await prisma.meeting.findUnique({
-    where: { id: meetingId },
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, isDeleted: false },
     select: { createdById: true },
   });
 

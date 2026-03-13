@@ -11,6 +11,7 @@ import {
 import { logger } from "../../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
 import { getAudioDuration } from "../../utils/audio/getAudioDuration";
+import { AppError } from "../../utils/errors/AppError";
 
 export interface UploadRecordingInput {
   meetingId: string;
@@ -45,13 +46,13 @@ export const uploadRecording = async (
 ): Promise<RecordingResponse> => {
   const { meetingId, file, uploadedBy, clientDuration } = input;
 
-  // Verify meeting exists
-  const meeting = await prisma.meeting.findUnique({
-    where: { id: meetingId },
+  // Verify meeting exists and belongs to the uploader
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: uploadedBy, isDeleted: false },
   });
 
   if (!meeting) {
-    throw new Error(`Meeting not found: ${meetingId}`);
+    throw new AppError(`Meeting not found`, 404);
   }
 
   // Extract audio duration. Try ffprobe/ffmpeg first; fall back to client-reported value.
@@ -74,8 +75,11 @@ export const uploadRecording = async (
   } finally {
     try {
       await fs.unlink(tmpPath);
-    } catch {
-      /* ignore cleanup errors */
+    } catch (err) {
+      logger.warn("Failed to clean up temp audio file", {
+        tmpPath,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -87,23 +91,29 @@ export const uploadRecording = async (
     file.mimetype,
   );
 
-  // Create recording record
-  const recording = await prisma.meetingRecording.create({
-    data: {
-      meetingId,
-      fileName: uploadResult.fileName,
-      gcsPath: uploadResult.filePath,
-      fileSize: file.size,
-      duration,
-      uploadedBy,
-    },
-  });
+  // Create recording record and update meeting transcription status atomically
+  const recording = await prisma.$transaction(
+    async (tx) => {
+      const rec = await tx.meetingRecording.create({
+        data: {
+          meetingId,
+          fileName: uploadResult.fileName,
+          gcsPath: uploadResult.filePath,
+          fileSize: file.size,
+          duration,
+          uploadedBy,
+        },
+      });
 
-  // Update meeting transcription status
-  await prisma.meeting.update({
-    where: { id: meetingId },
-    data: { transcriptionStatus: TranscriptionStatus.UPLOADED },
-  });
+      await tx.meeting.update({
+        where: { id: meetingId },
+        data: { transcriptionStatus: TranscriptionStatus.UPLOADED },
+      });
+
+      return rec;
+    },
+    { timeout: 15000 },
+  );
 
   // Queue transcription job
   try {
@@ -145,11 +155,22 @@ export const uploadRecording = async (
 };
 
 /**
- * Get recordings for a meeting
+ * Get recordings for a meeting (scoped to meeting owner)
  */
 export const getRecordings = async (
   meetingId: string,
+  userId: string,
 ): Promise<RecordingResponse[]> => {
+  // Verify meeting ownership
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+
+  if (!meeting) {
+    throw new AppError("Meeting not found", 404);
+  }
+
   const recordings = await prisma.meetingRecording.findMany({
     where: { meetingId },
     orderBy: { uploadedAt: "desc" },
@@ -161,9 +182,12 @@ export const getRecordings = async (
       let signedUrl: string | undefined;
       try {
         signedUrl = await gcsService.getSignedUrl(recording.gcsPath);
-      } catch {
+      } catch (err) {
         logger.warn(
           `Failed to generate signed URL for recording ${recording.id}`,
+          {
+            error: err instanceof Error ? err.message : String(err),
+          },
         );
       }
 
@@ -185,48 +209,74 @@ export const getRecordings = async (
 };
 
 /**
- * Delete a recording
+ * Delete a recording (scoped to meeting owner)
  */
-export const deleteRecording = async (recordingId: string): Promise<void> => {
-  const recording = await prisma.meetingRecording.findUnique({
+export const deleteRecording = async (
+  recordingId: string,
+  userId: string,
+): Promise<void> => {
+  const recording = await prisma.meetingRecording.findFirst({
     where: { id: recordingId },
+    include: { meeting: { select: { createdById: true, isDeleted: true } } },
   });
 
-  if (!recording) {
-    throw new Error(`Recording not found: ${recordingId}`);
+  if (
+    !recording ||
+    recording.meeting.isDeleted ||
+    recording.meeting.createdById !== userId
+  ) {
+    throw new AppError("Recording not found", 404);
   }
 
   // Delete from GCS
   try {
     await gcsService.deleteFile(recording.gcsPath);
   } catch (err) {
-    logger.warn(`Failed to delete file from GCS: ${recording.gcsPath}`);
+    logger.warn("Failed to delete file from GCS", {
+      gcsPath: recording.gcsPath,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
-  // Delete related transcript
-  await prisma.meetingTranscript.deleteMany({
-    where: { recordingId },
-  });
+  // Delete related transcript and recording record atomically
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.meetingTranscript.deleteMany({
+        where: { recordingId },
+      });
 
-  // Delete recording record
-  await prisma.meetingRecording.delete({
-    where: { id: recordingId },
-  });
+      await tx.meetingRecording.delete({
+        where: { id: recordingId },
+      });
+    },
+    { timeout: 15000 },
+  );
 
   logger.info(`Recording deleted: ${recordingId}`);
 };
 
 /**
- * Trigger AI processing for a meeting
+ * Trigger AI processing for a meeting (scoped to meeting owner)
  */
-export const triggerAIProcessing = async (meetingId: string): Promise<void> => {
-  const [transcript, meeting] = await Promise.all([
-    prisma.meetingTranscript.findFirst({ where: { recording: { meetingId } } }),
-    prisma.meeting.findUnique({ where: { id: meetingId } }),
-  ]);
+export const triggerAIProcessing = async (
+  meetingId: string,
+  userId: string,
+): Promise<void> => {
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true, createdById: true },
+  });
+
+  if (!meeting) {
+    throw new AppError("Meeting not found", 404);
+  }
+
+  const transcript = await prisma.meetingTranscript.findFirst({
+    where: { recording: { meetingId } },
+  });
 
   if (!transcript) {
-    throw new Error(`No transcript found for meeting ${meetingId}`);
+    throw new AppError(`No transcript found for meeting ${meetingId}`, 404);
   }
 
   try {
@@ -236,7 +286,7 @@ export const triggerAIProcessing = async (meetingId: string): Promise<void> => {
       {
         meetingId,
         transcriptId: transcript.id,
-        ownerId: meeting?.createdById ?? "",
+        ownerId: meeting.createdById,
       },
       {
         jobId: `ai-${meetingId}-${Date.now()}`,

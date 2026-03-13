@@ -224,89 +224,98 @@ export const cardService = {
       }
     }
 
-    // If setting as default, unset others
-    if (data.isDefault && !card.isDefault) {
-      await prisma.card.updateMany({
-        where: { userId, isDefault: true },
-        data: { isDefault: false },
-      });
-    }
+    return prisma.$transaction(
+      async (tx) => {
+        // If setting as default, unset others
+        if (data.isDefault && !card.isDefault) {
+          await tx.card.updateMany({
+            where: { userId, isDefault: true },
+            data: { isDefault: false },
+          });
+        }
 
-    const updatedCard = await prisma.card.update({
-      where: { id: cardId },
-      data: {
-        ...(data.slug !== undefined && { slug: data.slug }),
-        ...(data.displayName !== undefined && {
-          displayName: data.displayName,
-        }),
-        ...(data.title !== undefined && { title: data.title }),
-        ...(data.bio !== undefined && { bio: data.bio }),
-        ...(data.avatarUrl !== undefined && { avatarUrl: data.avatarUrl }),
-        ...(data.coverUrl !== undefined && { coverUrl: data.coverUrl }),
-        ...(data.links !== undefined && {
-          links: data.links as unknown as Prisma.InputJsonValue,
-        }),
-        ...(data.contactFields !== undefined && {
-          contactFields: data.contactFields as unknown as Prisma.InputJsonValue,
-        }),
-        ...(data.theme !== undefined && {
-          theme: data.theme as unknown as Prisma.InputJsonValue,
-        }),
-        ...(data.templateId !== undefined && { templateId: data.templateId }),
-        ...(data.showQr !== undefined && { showQr: data.showQr }),
-        ...(data.isDefault !== undefined && { isDefault: data.isDefault }),
-        ...(data.isActive !== undefined && { isActive: data.isActive }),
-      },
-      include: {
-        _count: { select: { contacts: true, views: true } },
-      },
-    });
+        const updatedCard = await tx.card.update({
+          where: { id: cardId },
+          data: {
+            ...(data.slug !== undefined && { slug: data.slug }),
+            ...(data.displayName !== undefined && {
+              displayName: data.displayName,
+            }),
+            ...(data.title !== undefined && { title: data.title }),
+            ...(data.bio !== undefined && { bio: data.bio }),
+            ...(data.avatarUrl !== undefined && { avatarUrl: data.avatarUrl }),
+            ...(data.coverUrl !== undefined && { coverUrl: data.coverUrl }),
+            ...(data.links !== undefined && {
+              links: data.links as unknown as Prisma.InputJsonValue,
+            }),
+            ...(data.contactFields !== undefined && {
+              contactFields:
+                data.contactFields as unknown as Prisma.InputJsonValue,
+            }),
+            ...(data.theme !== undefined && {
+              theme: data.theme as unknown as Prisma.InputJsonValue,
+            }),
+            ...(data.templateId !== undefined && {
+              templateId: data.templateId,
+            }),
+            ...(data.showQr !== undefined && { showQr: data.showQr }),
+            ...(data.isDefault !== undefined && { isDefault: data.isDefault }),
+            ...(data.isActive !== undefined && { isActive: data.isActive }),
+          },
+          include: {
+            _count: { select: { contacts: true, views: true } },
+          },
+        });
 
-    // Regenerate HTML if any content field changed
-    const contentFields = [
-      "displayName",
-      "title",
-      "bio",
-      "avatarUrl",
-      "links",
-      "contactFields",
-      "theme",
-      "templateId",
-      "showQr",
-      "slug",
-    ];
-    const needsRegen = contentFields.some(
-      (f) => (data as Record<string, unknown>)[f] !== undefined,
+        // Regenerate HTML if any content field changed
+        const contentFields = [
+          "displayName",
+          "title",
+          "bio",
+          "avatarUrl",
+          "links",
+          "contactFields",
+          "theme",
+          "templateId",
+          "showQr",
+          "slug",
+        ];
+        const needsRegen = contentFields.some(
+          (f) => (data as Record<string, unknown>)[f] !== undefined,
+        );
+
+        if (needsRegen) {
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { username: true },
+          });
+          const username = user?.username ?? "user";
+          const templateId = (updatedCard.templateId ||
+            "executive") as TemplateId;
+          const publicUrl = buildPublicUrl(
+            username,
+            updatedCard.slug,
+            updatedCard.isDefault,
+          );
+          const templateData = buildTemplateData(updatedCard, publicUrl);
+          const { htmlContent, htmlBackContent } = await renderCardHtml(
+            templateId,
+            templateData,
+          );
+
+          return tx.card.update({
+            where: { id: cardId },
+            data: { htmlContent, htmlBackContent },
+            include: {
+              _count: { select: { contacts: true, views: true } },
+            },
+          });
+        }
+
+        return updatedCard;
+      },
+      { timeout: 15000 },
     );
-
-    if (needsRegen) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { username: true },
-      });
-      const username = user?.username ?? "user";
-      const templateId = (updatedCard.templateId || "executive") as TemplateId;
-      const publicUrl = buildPublicUrl(
-        username,
-        updatedCard.slug,
-        updatedCard.isDefault,
-      );
-      const templateData = buildTemplateData(updatedCard, publicUrl);
-      const { htmlContent, htmlBackContent } = await renderCardHtml(
-        templateId,
-        templateData,
-      );
-
-      return prisma.card.update({
-        where: { id: cardId },
-        data: { htmlContent, htmlBackContent },
-        include: {
-          _count: { select: { contacts: true, views: true } },
-        },
-      });
-    }
-
-    return updatedCard;
   },
 
   /**
@@ -428,7 +437,9 @@ export const cardService = {
       throw ErrorFactory.notFound("Card not found");
     }
 
-    return { user, card };
+    // Omit userId from the public response
+    const { userId: _userId, ...publicCard } = card;
+    return { user, card: publicCard };
   },
 
   /**
@@ -609,6 +620,7 @@ export const cardService = {
       where,
       include: { card: { select: { slug: true } } },
       orderBy: { scannedAt: "desc" },
+      take: 10000,
     });
 
     const header = "Name,Email,Phone,Company,Note,Card,Tags,Date\n";

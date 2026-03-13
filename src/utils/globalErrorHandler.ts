@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { ZodError } from "zod";
+import { logger } from "./logging/logger";
 
 export class BaseError extends Error {
   constructor(
@@ -85,7 +86,7 @@ export const isBaseError = (error: unknown): error is BaseError => {
 };
 
 export const handleError = (error: unknown, res: Response): void => {
-  console.error("Error:", error);
+  logger.error("Error", { error });
 
   const baseError = isBaseError(error) ? error : new InternalServerError(error);
 
@@ -110,7 +111,7 @@ export const globalErrorHandler = (
   req: Request,
   res: Response,
 ): void => {
-  console.error("Error:", {
+  logger.error("Error", {
     name: error.name,
     message: error.message,
     stack: error.stack,

@@ -123,45 +123,50 @@ export const transcribeRecording = async (
       }
     }
 
-    // Create transcript record
-    const transcript = await prisma.meetingTranscript.create({
-      data: {
-        recordingId: recording.id,
-        fullText: alternatives.transcript || "",
-        deepgramJobId: null,
-        processedAt: new Date(),
-        segments: {
-          create: segments.map((seg) => ({
-            startTime: seg.startTime,
-            endTime: seg.endTime,
-            text: seg.text,
-            speaker: seg.speaker,
-          })),
-        },
-      },
-    });
-
-    // Update meeting status
-    await prisma.meeting.update({
-      where: { id: recording.meetingId },
-      data: { transcriptionStatus: TranscriptionStatus.COMPLETED },
-    });
-
-    // Auto-create MeetingSpeaker records for each distinct speaker label
+    // Persist transcript, status update, and speakers atomically
     const distinctSpeakers = [...new Set(segments.map((seg) => seg.speaker))];
-    await Promise.all(
-      distinctSpeakers.map((speakerLabel) =>
-        prisma.meetingSpeaker.upsert({
-          where: {
-            meetingId_speakerLabel: {
-              meetingId: recording.meetingId,
-              speakerLabel,
+    const transcript = await prisma.$transaction(
+      async (tx) => {
+        const created = await tx.meetingTranscript.create({
+          data: {
+            recordingId: recording.id,
+            fullText: alternatives.transcript || "",
+            deepgramJobId: null,
+            processedAt: new Date(),
+            segments: {
+              create: segments.map((seg) => ({
+                startTime: seg.startTime,
+                endTime: seg.endTime,
+                text: seg.text,
+                speaker: seg.speaker,
+              })),
             },
           },
-          create: { meetingId: recording.meetingId, speakerLabel },
-          update: {},
-        }),
-      ),
+        });
+
+        await tx.meeting.update({
+          where: { id: recording.meetingId },
+          data: { transcriptionStatus: TranscriptionStatus.COMPLETED },
+        });
+
+        await Promise.all(
+          distinctSpeakers.map((speakerLabel) =>
+            tx.meetingSpeaker.upsert({
+              where: {
+                meetingId_speakerLabel: {
+                  meetingId: recording.meetingId,
+                  speakerLabel,
+                },
+              },
+              create: { meetingId: recording.meetingId, speakerLabel },
+              update: {},
+            }),
+          ),
+        );
+
+        return created;
+      },
+      { timeout: 15000 },
     );
 
     logger.info(
@@ -276,9 +281,15 @@ export const regenerateTranscript = async (
 };
 
 /**
- * Get transcript for a meeting
+ * Get transcript for a meeting (scoped to meeting owner)
  */
-export const getTranscript = async (meetingId: string) => {
+export const getTranscript = async (meetingId: string, userId: string) => {
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+
   return prisma.meetingTranscript.findFirst({
     where: { recording: { meetingId } },
     include: {

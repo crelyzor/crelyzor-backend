@@ -1,7 +1,30 @@
 import { Router } from "express";
 import { cardController } from "../controllers/cardController";
+import rateLimit from "express-rate-limit";
 
 const publicCardRouter = Router();
+
+const publicWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    status: "error",
+    message: "Too many requests, please try again later.",
+  },
+});
+
+const clickLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    status: "error",
+    message: "Too many requests, please try again later.",
+  },
+});
 
 // All routes here are public (no auth required)
 // Note: vcard routes must be defined before /card/:username/:slug so that
@@ -28,12 +51,12 @@ publicCardRouter.get("/card/:username/:slug", (req, res) =>
 );
 
 /** POST /api/v1/public/card/:cardId/contact — Submit contact info (scanner shares details) */
-publicCardRouter.post("/card/:cardId/contact", (req, res) =>
+publicCardRouter.post("/card/:cardId/contact", publicWriteLimiter, (req, res) =>
   cardController.submitContact(req, res),
 );
 
 /** POST /api/v1/public/card/:cardId/click — Track a link click */
-publicCardRouter.post("/card/:cardId/click", (req, res) =>
+publicCardRouter.post("/card/:cardId/click", clickLimiter, (req, res) =>
   cardController.trackLinkClick(req, res),
 );
 

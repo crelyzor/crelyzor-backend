@@ -4,6 +4,7 @@ import prisma from "../../db/prismaClient";
 import { tokenService } from "./tokenService";
 import { sessionService } from "./sessionService";
 import { ErrorFactory } from "../../utils/globalErrorHandler";
+import { logger } from "../../utils/logging/logger";
 import {
   UserResponse,
   RefreshTokenRequest,
@@ -217,7 +218,9 @@ class AuthService {
         },
       });
     } catch (error) {
-      console.error("[AuthService] Failed to log login history:", error);
+      logger.error("Failed to log login history", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }

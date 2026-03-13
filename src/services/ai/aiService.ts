@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import type { Response } from "express";
 import type { AIContentType } from "@prisma/client";
 import prisma from "../../db/prismaClient";
@@ -6,10 +5,6 @@ import { getOpenAIClient } from "../../config/openai";
 import { logger } from "../../utils/logging/logger";
 import { AppError } from "../../utils/errors/AppError";
 import { redis } from "../../config/redisClient";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 export interface AIProcessingResult {
   summary?: string;
@@ -50,6 +45,7 @@ ${transcriptText}
 
 Provide a summary in 2-3 paragraphs.`;
 
+  const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
@@ -100,6 +96,7 @@ ${transcriptText}
 
 Return ONLY a JSON array, no other text.`;
 
+  const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
@@ -116,30 +113,30 @@ Return ONLY a JSON array, no other text.`;
 
   const content = response.choices[0]?.message?.content || "[]";
 
+  let keyPoints: string[];
   try {
-    const keyPoints = JSON.parse(stripMarkdownJson(content));
-
-    // Update the summary with key points
-    await prisma.meetingAISummary.upsert({
-      where: { meetingId },
-      create: {
-        meetingId,
-        summary: "",
-        keyPoints: keyPoints,
-      },
-      update: {
-        keyPoints: keyPoints,
-        updatedAt: new Date(),
-      },
-    });
-
-    logger.info(`Key points extracted for meeting ${meetingId}`);
-
-    return keyPoints;
+    keyPoints = JSON.parse(stripMarkdownJson(content));
   } catch {
     logger.error("Failed to parse key points JSON");
     return [];
   }
+
+  // Update the summary with key points (separate from parse — let DB errors propagate)
+  await prisma.meetingAISummary.upsert({
+    where: { meetingId },
+    create: {
+      meetingId,
+      summary: "",
+      keyPoints,
+    },
+    update: {
+      keyPoints,
+      updatedAt: new Date(),
+    },
+  });
+
+  logger.info(`Key points extracted for meeting ${meetingId}`);
+  return keyPoints;
 };
 
 /** Strip markdown code fences that GPT sometimes wraps JSON in */
@@ -172,6 +169,7 @@ ${transcriptText}
 
 Return ONLY a JSON array, no other text.`;
 
+  const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
@@ -188,39 +186,44 @@ Return ONLY a JSON array, no other text.`;
 
   const content = response.choices[0]?.message?.content || "[]";
 
+  let rawTasks: Array<{
+    title: string;
+    description?: string;
+    assigneeHint?: string;
+  }>;
   try {
-    const rawTasks = JSON.parse(stripMarkdownJson(content)) as Array<{
-      title: string;
-      description?: string;
-      assigneeHint?: string;
-    }>;
-
-    const tasks: ExtractedTask[] = rawTasks.map((item) => ({
-      title: item.title,
-      description: item.description,
-      assigneeHint: item.assigneeHint,
-    }));
-
-    // Save tasks to database
-    for (const task of tasks) {
-      await prisma.task.create({
-        data: {
-          meetingId,
-          userId,
-          title: task.title,
-          description: task.description,
-          source: "AI_EXTRACTED",
-        },
-      });
-    }
-
-    logger.info(`${tasks.length} tasks extracted for meeting ${meetingId}`);
-
-    return tasks;
+    rawTasks = JSON.parse(stripMarkdownJson(content));
   } catch {
     logger.error("Failed to parse tasks JSON");
     return [];
   }
+
+  const tasks: ExtractedTask[] = rawTasks.map((item) => ({
+    title: item.title,
+    description: item.description,
+    assigneeHint: item.assigneeHint,
+  }));
+
+  // Save tasks to database in a single transaction
+  if (tasks.length > 0) {
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.task.createMany({
+          data: tasks.map((task) => ({
+            meetingId,
+            userId,
+            title: task.title,
+            description: task.description,
+            source: "AI_EXTRACTED" as const,
+          })),
+        });
+      },
+      { timeout: 15000 },
+    );
+  }
+
+  logger.info(`${tasks.length} tasks extracted for meeting ${meetingId}`);
+  return tasks;
 };
 
 /**
@@ -241,6 +244,7 @@ Return ONLY the title text, nothing else.
 Transcript (first 2000 chars):
 ${transcriptText.slice(0, 2000)}`;
 
+    const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -291,7 +295,7 @@ export const processTranscriptWithAI = async (
     generateSummary(meetingId, transcript.fullText),
     extractKeyPoints(meetingId, transcript.fullText),
     extractTasks(meetingId, transcript.fullText, userId),
-    generateMeetingTitle(meetingId, transcript.fullText),
+    generateMeetingTitle(meetingId, transcript.fullText), // result intentionally unused — fires and forgets title rename
   ]);
 
   return {
@@ -383,10 +387,13 @@ export const askAI = async (
     select: { speakerLabel: true, displayName: true },
   });
 
-  const transcriptContext = buildTranscriptContext(
-    transcript.segments,
-    speakers,
-  );
+  const MAX_TRANSCRIPT_CHARS = 20000; // ~5k tokens — stay well within context
+  const rawTranscript = buildTranscriptContext(transcript.segments, speakers);
+  const transcriptContext =
+    rawTranscript.length > MAX_TRANSCRIPT_CHARS
+      ? rawTranscript.slice(0, MAX_TRANSCRIPT_CHARS) +
+        "\n[transcript truncated]"
+      : rawTranscript;
 
   const systemPrompt = `You are an intelligent meeting assistant. You have access to the full transcript of a meeting titled "${meeting.title ?? "Untitled Meeting"}".
 Answer the user's questions based solely on the transcript content.

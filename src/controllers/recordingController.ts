@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { recordingService } from "../services/recording/recordingService";
 import { ErrorFactory } from "../utils/globalErrorHandler";
 import { logger } from "../utils/logging/logger";
+import { globalResponseHandler } from "../utils/globalResponseHandler";
 
 interface MulterRequest extends Request {
   file?: Express.Multer.File;
@@ -39,10 +40,12 @@ export const uploadRecording = async (req: MulterRequest, res: Response) => {
       clientDuration,
     });
 
-    res.status(201).json({
-      success: true,
-      data: recording,
-    });
+    return globalResponseHandler(
+      res,
+      201,
+      "Recording uploaded successfully",
+      recording,
+    );
   } catch (error) {
     logger.error("Error uploading recording:", {
       error: error instanceof Error ? error.message : String(error),
@@ -57,13 +60,15 @@ export const uploadRecording = async (req: MulterRequest, res: Response) => {
 export const getRecordings = async (req: Request, res: Response) => {
   try {
     const meetingId = req.params.meetingId as string;
+    const userId = req.user?.userId;
 
-    const recordings = await recordingService.getRecordings(meetingId);
+    if (!userId) {
+      throw ErrorFactory.unauthorized("User not authenticated");
+    }
 
-    res.status(200).json({
-      success: true,
-      data: recordings,
-    });
+    const recordings = await recordingService.getRecordings(meetingId, userId);
+
+    return globalResponseHandler(res, 200, "Recordings fetched", recordings);
   } catch (error) {
     logger.error("Error getting recordings:", {
       error: error instanceof Error ? error.message : String(error),
@@ -78,13 +83,15 @@ export const getRecordings = async (req: Request, res: Response) => {
 export const deleteRecording = async (req: Request, res: Response) => {
   try {
     const recordingId = req.params.recordingId as string;
+    const userId = req.user?.userId;
 
-    await recordingService.deleteRecording(recordingId);
+    if (!userId) {
+      throw ErrorFactory.unauthorized("User not authenticated");
+    }
 
-    res.status(200).json({
-      success: true,
-      message: "Recording deleted successfully",
-    });
+    await recordingService.deleteRecording(recordingId, userId);
+
+    return globalResponseHandler(res, 200, "Recording deleted successfully");
   } catch (error) {
     logger.error("Error deleting recording:", {
       error: error instanceof Error ? error.message : String(error),
@@ -99,13 +106,19 @@ export const deleteRecording = async (req: Request, res: Response) => {
 export const triggerAIProcessing = async (req: Request, res: Response) => {
   try {
     const meetingId = req.params.meetingId as string;
+    const userId = req.user?.userId;
 
-    await recordingService.triggerAIProcessing(meetingId);
+    if (!userId) {
+      throw ErrorFactory.unauthorized("User not authenticated");
+    }
 
-    res.status(200).json({
-      success: true,
-      message: "AI processing triggered successfully",
-    });
+    await recordingService.triggerAIProcessing(meetingId, userId);
+
+    return globalResponseHandler(
+      res,
+      200,
+      "AI processing triggered successfully",
+    );
   } catch (error) {
     logger.error("Error triggering AI processing:", {
       error: error instanceof Error ? error.message : String(error),

@@ -100,19 +100,29 @@ router.patch(
 router.get("/meetings/:meetingId/summary", aiController.getSummary);
 router.post(
   "/meetings/:meetingId/summary/regenerate",
+  userRateLimit(5, 60 * 60 * 1000),
   aiController.regenerateSummary,
 );
 router.post(
   "/meetings/:meetingId/title/regenerate",
+  userRateLimit(5, 60 * 60 * 1000),
   aiController.regenerateTitle,
 );
 
-// Ask AI — streams response via SSE
-router.post("/meetings/:meetingId/ask", aiController.askAI);
+// Ask AI — streams response via SSE (rate limited per user)
+router.post(
+  "/meetings/:meetingId/ask",
+  userRateLimit(20, 60 * 60 * 1000),
+  aiController.askAI,
+);
 
 // AI Content Generation
 router.get("/meetings/:meetingId/generated", aiController.getGeneratedContents);
-router.post("/meetings/:meetingId/generate", aiController.generateContent);
+router.post(
+  "/meetings/:meetingId/generate",
+  userRateLimit(10, 60 * 60 * 1000),
+  aiController.generateContent,
+);
 
 // Tasks routes
 router.get("/meetings/:meetingId/tasks", taskController.getTasks);

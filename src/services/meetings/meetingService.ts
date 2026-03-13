@@ -183,8 +183,8 @@ export const meetingService = {
       notes?: string;
     },
   ): Promise<Meeting> {
-    const meeting = await prisma.meeting.findUnique({
-      where: { id: meetingId },
+    const meeting = await prisma.meeting.findFirst({
+      where: { id: meetingId, isDeleted: false },
       include: { participants: true },
     });
 
@@ -329,8 +329,8 @@ export const meetingService = {
   async cancelMeeting(data: UpdateMeetingStatusDTO): Promise<Meeting> {
     const { meetingId, requesterUserId, reason } = data;
 
-    const meeting = await prisma.meeting.findUnique({
-      where: { id: meetingId },
+    const meeting = await prisma.meeting.findFirst({
+      where: { id: meetingId, isDeleted: false },
       include: { participants: true },
     });
 
@@ -378,8 +378,8 @@ export const meetingService = {
   async completeMeeting(data: UpdateMeetingStatusDTO): Promise<Meeting> {
     const { meetingId, requesterUserId } = data;
 
-    const meeting = await prisma.meeting.findUnique({
-      where: { id: meetingId },
+    const meeting = await prisma.meeting.findFirst({
+      where: { id: meetingId, isDeleted: false },
       include: { participants: true },
     });
 

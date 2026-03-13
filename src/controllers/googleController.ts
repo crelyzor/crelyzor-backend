@@ -31,7 +31,12 @@ export const googleController = {
       const { code, state } = req.query;
       if (!code) throw ErrorFactory.validation("Missing authorization code");
 
-      const parsedState = state ? JSON.parse(String(state)) : {};
+      let parsedState: { redirectUrl?: string } = {};
+      try {
+        parsedState = state ? JSON.parse(String(state)) : {};
+      } catch {
+        throw ErrorFactory.validation("Invalid OAuth state parameter");
+      }
       const redirectUrl = parsedState.redirectUrl;
 
       if (!redirectUrl) {
@@ -41,43 +46,50 @@ export const googleController = {
       const { email, name, picture, googleId, tokens } =
         await googleService.handleLoginCallback(String(code));
 
-      let user = await prisma.user.findUnique({ where: { email } });
+      const user = await prisma.$transaction(
+        async (tx) => {
+          let u = await tx.user.findUnique({ where: { email } });
 
-      if (!user) {
-        user = await prisma.user.create({
-          data: { email, name, avatarUrl: picture, isActive: true },
-        });
-      }
+          if (!u) {
+            u = await tx.user.create({
+              data: { email, name, avatarUrl: picture, isActive: true },
+            });
+          }
 
-      if (!user.isActive) {
-        throw ErrorFactory.unauthorized("User account is inactive");
-      }
+          if (!u.isActive) {
+            throw ErrorFactory.unauthorized("User account is inactive");
+          }
 
-      await prisma.oAuthAccount.upsert({
-        where: {
-          provider_providerId: { provider: "GOOGLE", providerId: googleId },
+          await tx.oAuthAccount.upsert({
+            where: {
+              provider_providerId: { provider: "GOOGLE", providerId: googleId },
+            },
+            update: {
+              accessToken: tokens.access_token ?? "",
+              refreshToken: tokens.refresh_token ?? "",
+              expiry: tokens.expiry_date
+                ? Math.floor(tokens.expiry_date / 1000)
+                : 0,
+              scopes: tokens.scope?.split(" ") ?? [],
+              userId: u.id,
+            },
+            create: {
+              provider: "GOOGLE",
+              providerId: googleId,
+              accessToken: tokens.access_token ?? "",
+              refreshToken: tokens.refresh_token ?? "",
+              expiry: tokens.expiry_date
+                ? Math.floor(tokens.expiry_date / 1000)
+                : 0,
+              scopes: tokens.scope?.split(" ") ?? [],
+              userId: u.id,
+            },
+          });
+
+          return u;
         },
-        update: {
-          accessToken: tokens.access_token ?? "",
-          refreshToken: tokens.refresh_token ?? "",
-          expiry: tokens.expiry_date
-            ? Math.floor(tokens.expiry_date / 1000)
-            : 0,
-          scopes: tokens.scope?.split(" ") ?? [],
-          userId: user.id,
-        },
-        create: {
-          provider: "GOOGLE",
-          providerId: googleId,
-          accessToken: tokens.access_token ?? "",
-          refreshToken: tokens.refresh_token ?? "",
-          expiry: tokens.expiry_date
-            ? Math.floor(tokens.expiry_date / 1000)
-            : 0,
-          scopes: tokens.scope?.split(" ") ?? [],
-          userId: user.id,
-        },
-      });
+        { timeout: 15000 },
+      );
 
       const jwtTokens = await authService.generateTokens(user);
       const finalRedirectUrl = `${redirectUrl}?accessToken=${jwtTokens.accessToken}&refreshToken=${jwtTokens.refreshToken}`;

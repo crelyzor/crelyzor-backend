@@ -15,6 +15,7 @@ import {
 } from "../validators/usernameSchema";
 import { getClientIP, getDeviceInfo } from "../middleware/authMiddleware";
 import prisma from "../db/prismaClient";
+import { logger } from "../utils/logging/logger";
 
 export const authController = {
   refreshToken: async (req: Request, res: Response): Promise<void> => {
@@ -33,7 +34,9 @@ export const authController = {
         data: result,
       });
     } catch (err) {
-      console.error("Token refresh error:", err);
+      logger.error("Token refresh error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       globalErrorHandler(err as BaseError, req, res);
     }
   },
@@ -64,7 +67,9 @@ export const authController = {
         data: null,
       });
     } catch (err) {
-      console.error("Logout error:", err);
+      logger.error("Logout error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       globalErrorHandler(err as BaseError, req, res);
     }
   },
@@ -84,7 +89,9 @@ export const authController = {
         data: result,
       });
     } catch (err) {
-      console.error("Get profile error:", err);
+      logger.error("Get profile error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       globalErrorHandler(err as BaseError, req, res);
     }
   },
@@ -109,7 +116,9 @@ export const authController = {
         data: { sessions },
       });
     } catch (err) {
-      console.error("Get sessions error:", err);
+      logger.error("Get sessions error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       globalErrorHandler(err as BaseError, req, res);
     }
   },
@@ -135,7 +144,9 @@ export const authController = {
         data: null,
       });
     } catch (err) {
-      console.error("Revoke session error:", err);
+      logger.error("Revoke session error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       globalErrorHandler(err as BaseError, req, res);
     }
   },
@@ -155,7 +166,9 @@ export const authController = {
         data: null,
       });
     } catch (err) {
-      console.error("Deactivate account error:", err);
+      logger.error("Deactivate account error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       globalErrorHandler(err as BaseError, req, res);
     }
   },
@@ -187,7 +200,9 @@ export const authController = {
         },
       });
     } catch (err) {
-      console.error("Get auth status error:", err);
+      logger.error("Get auth status error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       globalErrorHandler(err as BaseError, req, res);
     }
   },
