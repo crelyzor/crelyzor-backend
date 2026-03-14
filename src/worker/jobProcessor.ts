@@ -33,14 +33,21 @@ export const startWorker = async (): Promise<void> => {
       // Get meeting to find owner for AI processing
       const meeting = await prisma.meeting.findUnique({
         where: { id: data.meetingId },
+        select: { createdById: true },
       });
+
+      if (!meeting?.createdById) {
+        throw new Error(
+          `Meeting ${data.meetingId} not found or has no owner — aborting AI queue`,
+        );
+      }
 
       // Automatically queue AI processing after transcription
       const aiQueue = getAIProcessingQueue();
       await aiQueue.add("process-ai", {
         meetingId: data.meetingId,
         transcriptId: data.recordingId,
-        ownerId: meeting?.createdById ?? "",
+        ownerId: meeting.createdById,
       });
 
       return { success: true };
@@ -48,6 +55,7 @@ export const startWorker = async (): Promise<void> => {
       logger.error("Transcription job failed:", {
         recordingId: data.recordingId,
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
       });
       throw error;
     }
@@ -70,6 +78,7 @@ export const startWorker = async (): Promise<void> => {
       logger.error("AI processing job failed:", {
         meetingId: data.meetingId,
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
       });
       throw error;
     }

@@ -6,6 +6,9 @@ import { logger } from "../../utils/logging/logger";
 import { AppError } from "../../utils/errors/AppError";
 import { redis } from "../../config/redisClient";
 
+const OPENAI_MODEL = "gpt-4o-mini";
+const MAX_PIPELINE_CHARS = 40000; // ~10k tokens — keeps pipeline calls within context
+
 export interface AIProcessingResult {
   summary?: string;
   keyPoints?: string[];
@@ -33,7 +36,8 @@ export const generateSummary = async (
     where: { id: meetingId },
   });
 
-  const prompt = `You are an AI assistant that summarizes meeting transcripts. 
+  const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
+  const prompt = `You are an AI assistant that summarizes meeting transcripts.
 Provide a clear, professional summary of the following meeting transcript.
 Focus on key decisions, discussion points, and outcomes.
 
@@ -41,13 +45,13 @@ Meeting Title: ${meeting?.title || "Untitled Meeting"}
 Meeting Description: ${meeting?.description || "No description"}
 
 Transcript:
-${transcriptText}
+${capped}
 
 Provide a summary in 2-3 paragraphs.`;
 
   const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: OPENAI_MODEL,
     messages: [
       { role: "system", content: "You are a professional meeting summarizer." },
       { role: "user", content: prompt },
@@ -87,18 +91,19 @@ export const extractKeyPoints = async (
     throw new Error("OPENAI_API_KEY is required for AI features");
   }
 
+  const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
   const prompt = `Extract the key points from this meeting transcript.
 Return them as a JSON array of strings, with each key point being concise (1-2 sentences).
 Focus on important decisions, agreements, and notable discussion items.
 
 Transcript:
-${transcriptText}
+${capped}
 
 Return ONLY a JSON array, no other text.`;
 
   const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: OPENAI_MODEL,
     messages: [
       {
         role: "system",
@@ -158,6 +163,7 @@ export const extractTasks = async (
     throw new Error("OPENAI_API_KEY is required for AI features");
   }
 
+  const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
   const prompt = `Extract action items and tasks from this meeting transcript.
 Return them as a JSON array of objects with these fields:
 - title: string (short, actionable task title)
@@ -165,13 +171,13 @@ Return them as a JSON array of objects with these fields:
 - assigneeHint: string (optional, name/role of person responsible if mentioned)
 
 Transcript:
-${transcriptText}
+${capped}
 
 Return ONLY a JSON array, no other text.`;
 
   const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: OPENAI_MODEL,
     messages: [
       {
         role: "system",
@@ -246,7 +252,7 @@ ${transcriptText.slice(0, 2000)}`;
 
     const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: OPENAI_MODEL,
       messages: [
         {
           role: "system",
@@ -412,7 +418,7 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
 
   try {
     const stream = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: OPENAI_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage },
@@ -496,10 +502,11 @@ export const generateContent = async (
   }
 
   const openai = getOpenAIClient();
-  const prompt = CONTENT_PROMPTS[type](transcript.fullText);
+  const capped = transcript.fullText.slice(0, MAX_PIPELINE_CHARS);
+  const prompt = CONTENT_PROMPTS[type](capped);
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: OPENAI_MODEL,
     messages: [
       {
         role: "system",

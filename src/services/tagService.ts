@@ -3,6 +3,7 @@ import prisma from "../db/prismaClient";
 import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
 import type { CreateTagInput, UpdateTagInput } from "../validators/tagSchema";
+import { DEFAULT_TAG_COLOR } from "../validators/tagSchema";
 
 const TAG_SELECT = {
   id: true,
@@ -30,7 +31,7 @@ export async function createTag(userId: string, data: CreateTagInput) {
       data: {
         userId,
         name: data.name,
-        color: data.color ?? "#6b7280",
+        color: data.color ?? DEFAULT_TAG_COLOR,
       },
       select: TAG_SELECT,
     });

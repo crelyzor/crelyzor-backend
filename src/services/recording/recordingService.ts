@@ -130,12 +130,17 @@ export const uploadRecording = async (
     );
     logger.info(`Transcription job queued for recording ${recording.id}`);
   } catch (err) {
-    logger.warn(
-      "Failed to queue transcription job (Redis may not be available):",
+    logger.error(
+      "Failed to queue transcription job — reverting transcription status to NONE",
       {
+        recordingId: recording.id,
         error: err instanceof Error ? err.message : String(err),
       },
     );
+    await prisma.meeting.update({
+      where: { id: meetingId },
+      data: { transcriptionStatus: TranscriptionStatus.NONE },
+    });
   }
 
   // Generate signed URL for immediate access

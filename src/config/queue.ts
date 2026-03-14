@@ -136,6 +136,7 @@ const setupQueueEvents = (queue: Bull.Queue, name: string) => {
     logger.error(`${name} job ${job.id} failed:`, {
       jobData: job.data,
       error: err.message,
+      stack: err.stack,
     });
   });
 

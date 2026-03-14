@@ -5,6 +5,7 @@ import { logger } from "../utils/logging/logger";
 import { AppError } from "../utils/errors/AppError";
 import { askAISchema } from "../validators/askAISchema";
 import { generateContentSchema } from "../validators/generateContentSchema";
+import { apiResponse } from "../utils/globalResponseHandler";
 
 /**
  * Get AI summary for a meeting
@@ -27,7 +28,7 @@ export const getSummary = async (req: Request, res: Response) => {
 
   if (!summary) throw new AppError("No AI summary found for this meeting", 404);
 
-  return (await import("../utils/globalResponseHandler")).apiResponse(res, {
+  return apiResponse(res, {
     statusCode: 200,
     message: "Summary fetched",
     data: summary,
@@ -65,7 +66,11 @@ export const regenerateSummary = async (req: Request, res: Response) => {
     aiService.extractKeyPoints(meetingId, transcript.fullText),
   ]);
 
-  res.status(200).json({ success: true, data: { summary, keyPoints } });
+  apiResponse(res, {
+    statusCode: 200,
+    message: "Summary regenerated",
+    data: { summary, keyPoints },
+  });
 };
 
 /**
@@ -101,7 +106,11 @@ export const regenerateTitle = async (req: Request, res: Response) => {
   if (!title) throw new AppError("Failed to generate title", 500);
 
   logger.info("Title regenerated", { meetingId, userId, title });
-  res.status(200).json({ success: true, data: { title } });
+  apiResponse(res, {
+    statusCode: 200,
+    message: "Title regenerated",
+    data: { title },
+  });
 };
 
 /**
@@ -124,7 +133,7 @@ export const getNotes = async (req: Request, res: Response) => {
     orderBy: { createdAt: "desc" },
   });
 
-  return (await import("../utils/globalResponseHandler")).apiResponse(res, {
+  return apiResponse(res, {
     statusCode: 200,
     message: "Notes fetched",
     data: notes,
@@ -164,7 +173,7 @@ export const createNote = async (req: Request, res: Response) => {
     },
   });
 
-  return (await import("../utils/globalResponseHandler")).apiResponse(res, {
+  return apiResponse(res, {
     statusCode: 201,
     message: "Note created",
     data: note,
@@ -215,9 +224,11 @@ export const generateContent = async (req: Request, res: Response) => {
     validated.data.type,
   );
 
-  res
-    .status(200)
-    .json({ success: true, data: { type: validated.data.type, content } });
+  apiResponse(res, {
+    statusCode: 200,
+    message: "Content generated",
+    data: { type: validated.data.type, content },
+  });
 };
 
 /**
@@ -230,7 +241,11 @@ export const getGeneratedContents = async (req: Request, res: Response) => {
   if (!userId) throw new AppError("Unauthorized", 401);
 
   const contents = await aiService.getGeneratedContents(meetingId, userId);
-  res.status(200).json({ success: true, data: { contents } });
+  apiResponse(res, {
+    statusCode: 200,
+    message: "Generated contents fetched",
+    data: { contents },
+  });
 };
 
 /**
@@ -254,7 +269,7 @@ export const deleteNote = async (req: Request, res: Response) => {
 
   await prisma.meetingNote.delete({ where: { id: noteId } });
 
-  return (await import("../utils/globalResponseHandler")).apiResponse(res, {
+  return apiResponse(res, {
     statusCode: 200,
     message: "Note deleted successfully",
   });

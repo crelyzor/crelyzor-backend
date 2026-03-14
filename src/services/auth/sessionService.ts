@@ -1,7 +1,7 @@
 import { v7 as uuidv7 } from "uuid";
 import { tokenService } from "./tokenService";
 import { ErrorFactory } from "../../utils/globalErrorHandler";
-import { ActiveSession, SessionInfo } from "../../types/authTypes";
+import { SessionInfo } from "../../types/authTypes";
 import prisma from "../../db/prismaClient";
 class SessionService {
   async createSession(

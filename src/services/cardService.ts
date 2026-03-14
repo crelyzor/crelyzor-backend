@@ -327,21 +327,26 @@ export const cardService = {
       throw ErrorFactory.notFound("Card not found");
     }
 
-    await prisma.card.delete({ where: { id: cardId } });
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.card.delete({ where: { id: cardId } });
 
-    // If deleted card was default, promote the next one
-    if (card.isDefault) {
-      const nextCard = await prisma.card.findFirst({
-        where: { userId },
-        orderBy: { createdAt: "asc" },
-      });
-      if (nextCard) {
-        await prisma.card.update({
-          where: { id: nextCard.id },
-          data: { isDefault: true },
-        });
-      }
-    }
+        // If deleted card was default, promote the next one
+        if (card.isDefault) {
+          const nextCard = await tx.card.findFirst({
+            where: { userId },
+            orderBy: { createdAt: "asc" },
+          });
+          if (nextCard) {
+            await tx.card.update({
+              where: { id: nextCard.id },
+              data: { isDefault: true },
+            });
+          }
+        }
+      },
+      { timeout: 15000 },
+    );
   },
 
   /**
@@ -360,41 +365,48 @@ export const cardService = {
       throw ErrorFactory.conflict(`Card with slug "${newSlug}" already exists`);
     }
 
-    const newCard = await prisma.card.create({
-      data: {
-        userId,
-        slug: newSlug,
-        displayName: card.displayName,
-        title: card.title,
-        bio: card.bio,
-        avatarUrl: card.avatarUrl,
-        coverUrl: card.coverUrl,
-        links: (card.links ?? []) as Prisma.InputJsonValue,
-        contactFields: (card.contactFields ?? {}) as Prisma.InputJsonValue,
-        theme: (card.theme ?? {}) as Prisma.InputJsonValue,
-        templateId: card.templateId,
-        showQr: card.showQr,
-        isDefault: false,
-      },
-    });
-
-    // Generate HTML for the new card (new slug = new QR URL)
+    // Fetch user for HTML generation (outside transaction — read-only)
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { username: true },
     });
     const username = user?.username ?? "user";
     const publicUrl = buildPublicUrl(username, newSlug, false);
-    const templateData = buildTemplateData(newCard, publicUrl);
-    const { htmlContent, htmlBackContent } = await renderCardHtml(
-      (newCard.templateId || "executive") as TemplateId,
-      templateData,
-    );
 
-    return prisma.card.update({
-      where: { id: newCard.id },
-      data: { htmlContent, htmlBackContent },
-    });
+    return prisma.$transaction(
+      async (tx) => {
+        const newCard = await tx.card.create({
+          data: {
+            userId,
+            slug: newSlug,
+            displayName: card.displayName,
+            title: card.title,
+            bio: card.bio,
+            avatarUrl: card.avatarUrl,
+            coverUrl: card.coverUrl,
+            links: (card.links ?? []) as Prisma.InputJsonValue,
+            contactFields: (card.contactFields ?? {}) as Prisma.InputJsonValue,
+            theme: (card.theme ?? {}) as Prisma.InputJsonValue,
+            templateId: card.templateId,
+            showQr: card.showQr,
+            isDefault: false,
+          },
+        });
+
+        // Generate HTML for the new card (new slug = new QR URL)
+        const templateData = buildTemplateData(newCard, publicUrl);
+        const { htmlContent, htmlBackContent } = await renderCardHtml(
+          (newCard.templateId || "executive") as TemplateId,
+          templateData,
+        );
+
+        return tx.card.update({
+          where: { id: newCard.id },
+          data: { htmlContent, htmlBackContent },
+        });
+      },
+      { timeout: 15000 },
+    );
   },
 
   // ========================================

@@ -1,8 +1,12 @@
 import { Storage } from "@google-cloud/storage";
 
 const GCS_PROJECT_ID = process.env.GCS_PROJECT_ID;
-const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || "sma-dev";
+const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME;
 const GCS_KEY_FILE = process.env.GCS_KEY_FILE;
+
+if (!GCS_BUCKET_NAME) {
+  throw new Error("GCS_BUCKET_NAME environment variable is required");
+}
 
 // Initialize GCS client
 let storage: Storage | null = null;

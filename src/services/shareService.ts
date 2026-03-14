@@ -173,6 +173,7 @@ export async function getPublicMeetingByShortId(shortId: string) {
                 endTime: true,
               },
               orderBy: { startTime: "asc" },
+              take: 2000,
             },
           },
         })
@@ -199,6 +200,7 @@ export async function getPublicMeetingByShortId(shortId: string) {
             isCompleted: true,
           },
           orderBy: { createdAt: "asc" },
+          take: 500,
         })
       : Promise.resolve(null),
   ]);

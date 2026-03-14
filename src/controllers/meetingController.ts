@@ -164,7 +164,14 @@ export class MeetingController {
       const meetingId = req.params.meetingId as string;
 
       const meeting = await prisma.meeting.findFirst({
-        where: { id: meetingId, isDeleted: false },
+        where: {
+          id: meetingId,
+          isDeleted: false,
+          OR: [
+            { createdById: user.userId },
+            { participants: { some: { userId: user.userId } } },
+          ],
+        },
         include: {
           participants: {
             include: {
@@ -178,7 +185,6 @@ export class MeetingController {
               },
             },
           },
-          stateHistory: true,
           createdBy: {
             select: {
               id: true,
@@ -192,16 +198,6 @@ export class MeetingController {
 
       if (!meeting) {
         throw ErrorFactory.notFound("Meeting");
-      }
-
-      const hasAccess =
-        meeting.createdById === user.userId ||
-        meeting.participants.some((p) => p.userId === user.userId);
-
-      if (!hasAccess) {
-        throw ErrorFactory.forbidden(
-          "You are not a participant in this meeting",
-        );
       }
 
       apiResponse(res, {
@@ -219,16 +215,12 @@ export class MeetingController {
       const user = req.user as TokenPayload;
       const meetingId = req.params.meetingId as string;
 
-      const meeting = await prisma.meeting.findUnique({
-        where: { id: meetingId },
+      const meeting = await prisma.meeting.findFirst({
+        where: { id: meetingId, isDeleted: false, createdById: user.userId },
       });
 
-      if (!meeting || meeting.isDeleted) {
+      if (!meeting) {
         throw ErrorFactory.notFound("Meeting");
-      }
-
-      if (meeting.createdById !== user.userId) {
-        throw ErrorFactory.forbidden("Only the meeting creator can delete it");
       }
 
       await prisma.meeting.update({

@@ -21,7 +21,6 @@ const meetingInclude = {
       },
     },
   },
-  stateHistory: true,
   tags: {
     include: {
       tag: {
@@ -221,21 +220,23 @@ export const meetingService = {
         );
       }
 
-      for (const participant of meeting.participants) {
-        if (participant.userId !== meeting.createdById) {
-          const participantConflicts = await this.detectConflicts({
-            userId: participant.userId,
+      const otherParticipants = meeting.participants.filter(
+        (p) => p.userId !== meeting.createdById,
+      );
+      const participantConflictResults = await Promise.all(
+        otherParticipants.map((p) =>
+          this.detectConflicts({
+            userId: p.userId,
             startTime: newStartTime,
             endTime: newEndTime,
             excludeMeetingId: meetingId,
-          });
-
-          if (participantConflicts.length > 0) {
-            throw ErrorFactory.conflict(
-              "One or more participants has conflicts at the new time",
-            );
-          }
-        }
+          }),
+        ),
+      );
+      if (participantConflictResults.some((r) => r.length > 0)) {
+        throw ErrorFactory.conflict(
+          "One or more participants has conflicts at the new time",
+        );
       }
     }
 
@@ -493,11 +494,18 @@ export const meetingService = {
       if (endDate) (where.startTime as any).lte = endDate;
     }
 
+    // Default to last 90 days if no date window is provided
+    if (!startDate && !endDate) {
+      where.startTime = {
+        gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+      };
+    }
+
     return prisma.meeting.findMany({
       where,
       include: meetingInclude,
       orderBy: { createdAt: "desc" },
-      take: 1000,
+      take: 200,
     }) as any;
   },
 

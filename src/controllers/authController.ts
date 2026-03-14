@@ -13,7 +13,7 @@ import {
   usernameSchema,
   checkUsernameSchema,
 } from "../validators/usernameSchema";
-import { getClientIP, getDeviceInfo } from "../middleware/authMiddleware";
+import { getClientIP } from "../middleware/authMiddleware";
 import prisma from "../db/prismaClient";
 import { logger } from "../utils/logging/logger";
 
@@ -274,8 +274,8 @@ export const authController = {
         message: "Username set successfully",
         data: profile,
       });
-    } catch (err: any) {
-      if (err.code === "P2002") {
+    } catch (err) {
+      if ((err as { code?: string }).code === "P2002") {
         globalErrorHandler(
           ErrorFactory.conflict("Username is already taken"),
           req,

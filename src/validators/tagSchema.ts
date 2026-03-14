@@ -24,6 +24,8 @@ export const tagCardParamSchema = z.object({
   tagId: uuidParam,
 });
 
+export const DEFAULT_TAG_COLOR = "#6b7280";
+
 export const createTagSchema = z.object({
   name: z.string().min(1, "Name is required").max(50, "Name too long").trim(),
   color: z
@@ -32,7 +34,7 @@ export const createTagSchema = z.object({
       /^#[0-9A-Fa-f]{6}$/,
       "Color must be a valid hex color (e.g. #FF5733)",
     )
-    .optional(),
+    .default(DEFAULT_TAG_COLOR),
 });
 
 export const updateTagSchema = z.object({

@@ -1,4 +1,5 @@
 import { LoginMethod, ProviderEnum } from "@prisma/client";
+import jwt from "jsonwebtoken";
 import type { User } from "@prisma/client";
 import prisma from "../../db/prismaClient";
 import { tokenService } from "./tokenService";
@@ -41,7 +42,13 @@ class AuthService {
           refreshTokenPayload.sessionId,
         );
       } catch (error) {
-        // refresh token invalid or already expired — logout proceeds silently
+        // Only swallow JWT validation errors — token invalid or expired means logout still succeeds
+        if (
+          !(error instanceof jwt.JsonWebTokenError) &&
+          !(error instanceof jwt.TokenExpiredError)
+        ) {
+          throw error;
+        }
       }
       return { message: "Logged out successfully" };
     } else if (currentSessionId) {

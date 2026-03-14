@@ -3,6 +3,7 @@ import { speakerService } from "../services/speaker/speakerService";
 import { renameSpeakerSchema } from "../validators/speakerSchema";
 import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
+import { apiResponse } from "../utils/globalResponseHandler";
 
 /**
  * GET /sma/meetings/:meetingId/speakers
@@ -14,7 +15,11 @@ export const getSpeakers = async (req: Request, res: Response) => {
 
     const speakers = await speakerService.getSpeakers(meetingId, userId);
 
-    res.status(200).json({ success: true, data: speakers });
+    apiResponse(res, {
+      statusCode: 200,
+      message: "Speakers fetched",
+      data: speakers,
+    });
   } catch (error) {
     logger.error("Error getting speakers:", {
       error: error instanceof Error ? error.message : String(error),
@@ -44,7 +49,11 @@ export const renameSpeaker = async (req: Request, res: Response) => {
       userId,
     );
 
-    res.status(200).json({ success: true, data: updated });
+    apiResponse(res, {
+      statusCode: 200,
+      message: "Speaker renamed",
+      data: updated,
+    });
   } catch (error) {
     logger.error("Error renaming speaker:", {
       error: error instanceof Error ? error.message : String(error),

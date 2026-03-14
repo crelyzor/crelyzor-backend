@@ -9,6 +9,8 @@ import { logger } from "../../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
 import { AppError } from "../../utils/errors/AppError";
 
+const DEEPGRAM_MODEL = "nova-2";
+
 export interface TranscriptionResult {
   transcriptId: string;
   fullText: string;
@@ -59,7 +61,7 @@ export const transcribeRecording = async (
     const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
       audioBuffer,
       {
-        model: "nova-2",
+        model: DEEPGRAM_MODEL,
         smart_format: true,
         diarize: true,
         punctuate: true,
