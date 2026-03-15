@@ -4,7 +4,7 @@ import prisma from "../../db/prismaClient";
 import { getOpenAIClient } from "../../config/openai";
 import { logger } from "../../utils/logging/logger";
 import { AppError } from "../../utils/errors/AppError";
-import { redis } from "../../config/redisClient";
+import { getRedisClient } from "../../config/redisClient";
 
 const OPENAI_MODEL = "gpt-4o-mini";
 const MAX_PIPELINE_CHARS = 40000; // ~10k tokens — keeps pipeline calls within context
@@ -29,7 +29,7 @@ export const generateSummary = async (
   transcriptText: string,
 ): Promise<string> => {
   if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is required for AI features");
+    throw new AppError("OPENAI_API_KEY is required for AI features", 503);
   }
 
   const meeting = await prisma.meeting.findUnique({
@@ -88,7 +88,7 @@ export const extractKeyPoints = async (
   transcriptText: string,
 ): Promise<string[]> => {
   if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is required for AI features");
+    throw new AppError("OPENAI_API_KEY is required for AI features", 503);
   }
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
@@ -160,7 +160,7 @@ export const extractTasks = async (
   userId: string,
 ): Promise<ExtractedTask[]> => {
   if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is required for AI features");
+    throw new AppError("OPENAI_API_KEY is required for AI features", 503);
   }
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
@@ -277,7 +277,9 @@ ${transcriptText.slice(0, 2000)}`;
     logger.info(`Meeting ${meetingId} renamed to: "${title}"`);
     return title;
   } catch (err) {
-    logger.warn(`Failed to generate title for meeting ${meetingId}:`, err);
+    logger.error(`Failed to generate title for meeting ${meetingId}`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 };
@@ -294,7 +296,7 @@ export const processTranscriptWithAI = async (
   });
 
   if (!transcript) {
-    throw new Error(`No transcript found for meeting ${meetingId}`);
+    throw new AppError(`No transcript found for meeting ${meetingId}`, 422);
   }
 
   const [summary, keyPoints, tasks] = await Promise.all([
@@ -320,9 +322,9 @@ const ASK_AI_RATE_LIMIT = 20; // max requests per user per hour
 const checkAskAIRateLimit = async (userId: string): Promise<void> => {
   try {
     const key = `ask_ai:${userId}:${Math.floor(Date.now() / 3_600_000)}`;
-    const count = await redis.incr(key);
+    const count = await getRedisClient().incr(key);
     if (count === 1) {
-      await redis.expire(key, 3600);
+      await getRedisClient().expire(key, 3600);
     }
     if (count > ASK_AI_RATE_LIMIT) {
       throw new AppError(

@@ -4,6 +4,17 @@ import rateLimit from "express-rate-limit";
 
 const publicCardRouter = Router();
 
+const publicReadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    status: "error",
+    message: "Too many requests, please try again later.",
+  },
+});
+
 const publicWriteLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20,
@@ -31,22 +42,22 @@ const clickLimiter = rateLimit({
 // /card/testt/vcard is not matched as username=testt, slug=vcard.
 
 /** GET /api/v1/public/card/:username/vcard — Download vCard for default card */
-publicCardRouter.get("/card/:username/vcard", (req, res) =>
+publicCardRouter.get("/card/:username/vcard", publicReadLimiter, (req, res) =>
   cardController.getVCard(req, res),
 );
 
 /** GET /api/v1/public/card/:username/:slug/vcard — Download vCard for specific card */
-publicCardRouter.get("/card/:username/:slug/vcard", (req, res) =>
+publicCardRouter.get("/card/:username/:slug/vcard", publicReadLimiter, (req, res) =>
   cardController.getVCard(req, res),
 );
 
 /** GET /api/v1/public/card/:username — Get user's default card */
-publicCardRouter.get("/card/:username", (req, res) =>
+publicCardRouter.get("/card/:username", publicReadLimiter, (req, res) =>
   cardController.getPublicCard(req, res),
 );
 
 /** GET /api/v1/public/card/:username/:slug — Get specific card by slug */
-publicCardRouter.get("/card/:username/:slug", (req, res) =>
+publicCardRouter.get("/card/:username/:slug", publicReadLimiter, (req, res) =>
   cardController.getPublicCard(req, res),
 );
 

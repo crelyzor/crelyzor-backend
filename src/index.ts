@@ -4,7 +4,7 @@ dotenv.config();
 import app from "./app";
 import { logger } from "./utils/logging/logger";
 import prisma from "./db/prismaClient";
-import { redis } from "./config/redisClient";
+import { getRedisClient } from "./config/redisClient";
 import { initializeQueues, closeQueues } from "./config/queue";
 
 const PORT = process.env.PORT || 3000;
@@ -25,7 +25,7 @@ const startServer = async () => {
 
   // Test Redis connection (Upstash cache)
   try {
-    await redis.ping();
+    await getRedisClient().ping();
     logger.info("✅ Redis cache connected successfully (Upstash)");
   } catch (error) {
     logger.warn("⚠️ Redis cache connection failed (caching disabled):", {

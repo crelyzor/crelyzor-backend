@@ -23,7 +23,7 @@ model User {
   phoneNumber     String?
   lastLoginAt     DateTime?
   isActive        Boolean   @default(true)
-  activeSessionId String?
+  activeSessionId String?   @db.Uuid
   timezone        String    @default("UTC")
 
   // Soft delete fields
@@ -58,6 +58,8 @@ model User {
   meetingShares         MeetingShare[]
   tags                  Tag[]
   meetingAttachments    MeetingAttachment[]
+
+  @@index([activeSessionId])
 }
 
 model Session {
@@ -69,6 +71,9 @@ model Session {
   expiredAt      DateTime
   lastAccessedAt DateTime
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiredAt])
 }
 
 model LoginHistory {
@@ -96,6 +101,9 @@ model RefreshToken {
   deviceInfo String
   ipAddress  String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
 }
 
 model OAuthAccount {
@@ -111,6 +119,7 @@ model OAuthAccount {
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerId])
+  @@index([userId])
 }
 
 // ================================
@@ -295,6 +304,7 @@ model Task {
   @@index([userId])
   @@index([meetingId])
   @@index([userId, isDeleted])
+  @@index([dueDate])
 }
 
 model MeetingNote {
@@ -361,7 +371,9 @@ model MeetingShare {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  meeting Meeting @relation(fields: [meetingId], references: [id])
+  // Note: onDelete: Cascade only applies to hard deletes. Normal operation
+  // uses soft deletes (isDeleted: true). HARD_DELETE_ENABLED is false by default.
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id])
 
   @@index([shortId])
@@ -413,6 +425,7 @@ model Card {
   tags     CardTag[]
 
   @@unique([userId, slug])
+  @@index([slug])
   @@index([userId, isActive])
   @@index([userId, isDefault])
 }
@@ -489,7 +502,9 @@ model MeetingAttachment {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  meeting Meeting @relation(fields: [meetingId], references: [id])
+  // Note: onDelete: Cascade only applies to hard deletes. Normal operation
+  // uses soft deletes (isDeleted: true). HARD_DELETE_ENABLED is false by default.
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id])
 
   @@index([meetingId, isDeleted])

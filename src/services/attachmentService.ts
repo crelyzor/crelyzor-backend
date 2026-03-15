@@ -80,7 +80,7 @@ async function toResponse(attachment: {
         logger.warn("Failed to generate signed URL", {
           attachmentId: attachment.id,
           gcsPath: attachment.gcsPath,
-          error: err,
+          error: err instanceof Error ? err.message : String(err),
         });
       }
     }

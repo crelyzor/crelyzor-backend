@@ -13,6 +13,16 @@ import {
   updateMeetingSchema,
 } from "../validators/meetingSchema";
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function parseMeetingId(raw: unknown): string {
+  if (typeof raw !== "string" || !UUID_RE.test(raw)) {
+    throw ErrorFactory.notFound("Meeting");
+  }
+  return raw;
+}
+
 export class MeetingController {
   async createMeeting(req: Request, res: Response): Promise<void> {
     try {
@@ -37,7 +47,7 @@ export class MeetingController {
   async updateMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const meetingId = req.params.meetingId as string;
+      const meetingId = parseMeetingId(req.params.meetingId);
       const validatedData = updateMeetingSchema.parse(req.body);
 
       const meeting = await meetingService.updateMeeting(
@@ -59,7 +69,7 @@ export class MeetingController {
   async cancelMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const meetingId = req.params.meetingId as string;
+      const meetingId = parseMeetingId(req.params.meetingId);
       const validatedData = meetingActionSchema.parse(req.body);
 
       const meeting = await meetingService.cancelMeeting({
@@ -82,7 +92,7 @@ export class MeetingController {
   async completeMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const meetingId = req.params.meetingId as string;
+      const meetingId = parseMeetingId(req.params.meetingId);
 
       const meeting = await meetingService.completeMeeting({
         meetingId,
@@ -140,18 +150,21 @@ export class MeetingController {
       const user = req.user as TokenPayload;
       const validatedData = getMeetingsWithoutPaginationSchema.parse(req.query);
 
-      const meetings = await meetingService.getMeetingsWithoutPagination({
-        userId: user.userId,
-        status: validatedData.status as any,
-        type: validatedData.type as any,
-        startDate: validatedData.startDate,
-        endDate: validatedData.endDate,
-      });
+      const { meetings, truncated } =
+        await meetingService.getMeetingsWithoutPagination({
+          userId: user.userId,
+          status: validatedData.status as any,
+          type: validatedData.type as any,
+          startDate: validatedData.startDate,
+          endDate: validatedData.endDate,
+        });
 
       apiResponse(res, {
         statusCode: 200,
-        message: "Meetings retrieved successfully",
-        data: meetings,
+        message: truncated
+          ? "Meetings retrieved (showing first 200 — apply a date range to see all)"
+          : "Meetings retrieved successfully",
+        data: { meetings, truncated },
       });
     } catch (error) {
       globalErrorHandler(error as Error, req, res);
@@ -161,7 +174,7 @@ export class MeetingController {
   async getMeetingById(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const meetingId = req.params.meetingId as string;
+      const meetingId = parseMeetingId(req.params.meetingId);
 
       const meeting = await prisma.meeting.findFirst({
         where: {
@@ -213,7 +226,7 @@ export class MeetingController {
   async deleteMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const meetingId = req.params.meetingId as string;
+      const meetingId = parseMeetingId(req.params.meetingId);
 
       const meeting = await prisma.meeting.findFirst({
         where: { id: meetingId, isDeleted: false, createdById: user.userId },

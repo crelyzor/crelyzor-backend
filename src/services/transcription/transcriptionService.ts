@@ -34,7 +34,7 @@ export const transcribeRecording = async (
   language?: string,
 ): Promise<TranscriptionResult> => {
   if (!isTranscriptionEnabled()) {
-    throw new Error("Transcription is not enabled - DEEPGRAM_API_KEY required");
+    throw new AppError("Transcription is not enabled - DEEPGRAM_API_KEY required", 503);
   }
 
   const recording = await prisma.meetingRecording.findUnique({
@@ -43,7 +43,7 @@ export const transcribeRecording = async (
   });
 
   if (!recording) {
-    throw new Error(`Recording not found: ${recordingId}`);
+    throw new AppError(`Recording not found: ${recordingId}`, 404);
   }
 
   // Update status to processing
@@ -78,7 +78,7 @@ export const transcribeRecording = async (
     const alternatives = channel?.alternatives?.[0];
 
     if (!alternatives) {
-      throw new Error("No transcription results returned");
+      throw new AppError("No transcription results returned from Deepgram", 502);
     }
 
     // Parse segments from utterances or words
@@ -292,11 +292,13 @@ export const getTranscript = async (meetingId: string, userId: string) => {
   });
   if (!meeting) throw new AppError("Meeting not found", 404);
 
+  const MAX_TRANSCRIPT_SEGMENTS = 5000;
   return prisma.meetingTranscript.findFirst({
     where: { recording: { meetingId } },
     include: {
       segments: {
         orderBy: { startTime: "asc" },
+        take: MAX_TRANSCRIPT_SEGMENTS,
       },
     },
   });

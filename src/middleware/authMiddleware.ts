@@ -10,6 +10,7 @@ import {
 import { TokenPayload } from "../types/authTypes";
 import { ZodError } from "zod";
 import { logger } from "../utils/logging/logger";
+import { getRedisClient } from "../config/redisClient";
 
 // Extend Express Request to include authenticated user
 declare module "express" {
@@ -83,9 +84,18 @@ export const autoRefreshToken = async (
 
     next();
   } catch (error) {
-    logger.warn("autoRefreshToken error", {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    // Only swallow JWT-related errors (malformed/expired tokens on unauthenticated requests
+    // are expected). Log unexpected errors as warnings but still fail-open.
+    const isJwtError =
+      error instanceof Error &&
+      (error.name === "JsonWebTokenError" ||
+        error.name === "TokenExpiredError" ||
+        error.name === "NotBeforeError");
+    if (!isJwtError) {
+      logger.warn("autoRefreshToken unexpected error", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     next();
   }
 };
@@ -128,46 +138,49 @@ export const userRateLimit = (
   maxRequests: number = 1000,
   windowMs: number = 60 * 60 * 1000,
 ) => {
-  const requestCounts = new Map<string, { count: number; resetTime: Date }>();
+  const windowSeconds = Math.floor(windowMs / 1000);
 
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const identifier = req.user?.userId || req.ip || "anonymous";
-    const now = new Date();
+    const key = `ratelimit:user:${identifier}`;
 
-    let userLimit = requestCounts.get(identifier);
+    try {
+      const redis = getRedisClient();
+      const count = await redis.incr(key);
 
-    if (!userLimit || now > userLimit.resetTime) {
-      userLimit = {
-        count: 0,
-        resetTime: new Date(now.getTime() + windowMs),
-      };
-    }
+      // Set TTL only on the first increment (avoids overwriting existing TTL)
+      if (count === 1) {
+        await redis.expire(key, windowSeconds);
+      }
 
-    userLimit.count++;
-    requestCounts.set(identifier, userLimit);
+      const ttl = await redis.ttl(key);
+      const resetTime = new Date(Date.now() + Math.max(ttl, 0) * 1000);
 
-    if (userLimit.count > maxRequests) {
       res.setHeader("X-RateLimit-Limit", maxRequests.toString());
-      res.setHeader("X-RateLimit-Remaining", "0");
-      res.setHeader("X-RateLimit-Reset", userLimit.resetTime.toISOString());
-
-      return globalErrorHandler(
-        ErrorFactory.forbidden(
-          `Rate limit exceeded. Try again after ${userLimit.resetTime.toISOString()}`,
-        ),
-        req,
-        res,
+      res.setHeader(
+        "X-RateLimit-Remaining",
+        Math.max(0, maxRequests - count).toString(),
       );
+      res.setHeader("X-RateLimit-Reset", resetTime.toISOString());
+
+      if (count > maxRequests) {
+        return globalErrorHandler(
+          ErrorFactory.forbidden(
+            `Rate limit exceeded. Try again after ${resetTime.toISOString()}`,
+          ),
+          req,
+          res,
+        );
+      }
+
+      next();
+    } catch (error) {
+      // Fail-open: if Redis is unavailable, allow the request through
+      logger.warn("userRateLimit Redis error — allowing request", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      next();
     }
-
-    res.setHeader("X-RateLimit-Limit", maxRequests.toString());
-    res.setHeader(
-      "X-RateLimit-Remaining",
-      (maxRequests - userLimit.count).toString(),
-    );
-    res.setHeader("X-RateLimit-Reset", userLimit.resetTime.toISOString());
-
-    next();
   };
 };
 

@@ -1,6 +1,7 @@
 import { UpdateUserProfileInput } from "../validators/userUpdateSchema";
 import { UserProfileResponse } from "../types/userUpdateServiceTypes";
 import prisma from "../db/prismaClient";
+import { AppError } from "../utils/errors/AppError";
 
 export const userService = {
   updateUserProfile: async (
@@ -13,7 +14,7 @@ export const userService = {
     });
 
     if (!existingUser) {
-      throw new Error("User not found or inactive");
+      throw new AppError("User not found or inactive", 404);
     }
     const updatedUser = await prisma.user.update({
       where: { id: userId, isActive: true },

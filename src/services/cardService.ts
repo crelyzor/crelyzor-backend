@@ -115,14 +115,6 @@ export const cardService = {
       throw ErrorFactory.conflict(`Card with slug "${slug}" already exists`);
     }
 
-    // If this is set as default, unset any existing default
-    if (data.isDefault) {
-      await prisma.card.updateMany({
-        where: { userId, isDefault: true },
-        data: { isDefault: false },
-      });
-    }
-
     // If this is the user's first card, make it default
     const cardCount = await prisma.card.count({ where: { userId } });
     const isDefault = data.isDefault ?? cardCount === 0;
@@ -136,38 +128,70 @@ export const cardService = {
     const templateId = (data.templateId || "executive") as TemplateId;
     const showQr = data.showQr ?? true;
 
-    const card = await prisma.card.create({
-      data: {
-        userId,
-        slug,
-        displayName: data.displayName,
-        title: data.title,
-        bio: data.bio,
-        avatarUrl: data.avatarUrl,
-        coverUrl: data.coverUrl,
-        links: (data.links ?? []) as unknown as Prisma.InputJsonValue,
-        contactFields: (data.contactFields ??
-          {}) as unknown as Prisma.InputJsonValue,
-        theme: (data.theme ?? {}) as unknown as Prisma.InputJsonValue,
-        templateId,
-        showQr,
-        isDefault,
-      },
-    });
-
-    // Generate HTML from template
+    // Step 1 (outside transaction): Render HTML first.
+    // renderCardHtml is async and can be slow (template compilation). Running it
+    // outside the transaction avoids the 15s timeout risk from async I/O.
+    const draftData = {
+      userId,
+      slug,
+      displayName: data.displayName,
+      title: data.title,
+      bio: data.bio,
+      avatarUrl: data.avatarUrl,
+      coverUrl: data.coverUrl,
+      links: data.links ?? [],
+      contactFields: data.contactFields ?? {},
+      theme: data.theme ?? {},
+      templateId,
+      showQr,
+      isDefault,
+    };
     const publicUrl = buildPublicUrl(username, slug, isDefault);
-    const templateData = buildTemplateData(card, publicUrl);
+    const templateData = buildTemplateData(draftData as any, publicUrl);
     const { htmlContent, htmlBackContent } = await renderCardHtml(
       templateId,
       templateData,
     );
 
-    // Update card with generated HTML
-    const updatedCard = await prisma.card.update({
-      where: { id: card.id },
-      data: { htmlContent, htmlBackContent },
-    });
+    // Step 2 (inside transaction): 3 DB writes atomically.
+    // 1. Conditionally unset existing defaults
+    // 2. Create the card record
+    // 3. Write the pre-rendered HTML onto the new card
+    const updatedCard = await prisma.$transaction(
+      async (tx) => {
+        if (data.isDefault) {
+          await tx.card.updateMany({
+            where: { userId, isDefault: true },
+            data: { isDefault: false },
+          });
+        }
+
+        const card = await tx.card.create({
+          data: {
+            userId,
+            slug,
+            displayName: data.displayName,
+            title: data.title,
+            bio: data.bio,
+            avatarUrl: data.avatarUrl,
+            coverUrl: data.coverUrl,
+            links: (data.links ?? []) as unknown as Prisma.InputJsonValue,
+            contactFields: (data.contactFields ??
+              {}) as unknown as Prisma.InputJsonValue,
+            theme: (data.theme ?? {}) as unknown as Prisma.InputJsonValue,
+            templateId,
+            showQr,
+            isDefault,
+          },
+        });
+
+        return tx.card.update({
+          where: { id: card.id },
+          data: { htmlContent, htmlBackContent },
+        });
+      },
+      { timeout: 15000 },
+    );
 
     return updatedCard;
   },
@@ -176,12 +200,14 @@ export const cardService = {
    * Get all cards for a user
    */
   async getUserCards(userId: string) {
+    const MAX_USER_CARDS = 50;
     return prisma.card.findMany({
       where: { userId },
       include: {
         _count: { select: { contacts: true, views: true } },
       },
       orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
+      take: MAX_USER_CARDS,
     });
   },
 
@@ -449,8 +475,15 @@ export const cardService = {
       throw ErrorFactory.notFound("Card not found");
     }
 
-    // Omit userId from the public response
-    const { userId: _userId, ...publicCard } = card;
+    // Omit internal fields from the public response
+    const {
+      userId: _userId,
+      isDefault: _isDefault,
+      isActive: _isActive,
+      createdAt: _createdAt,
+      updatedAt: _updatedAt,
+      ...publicCard
+    } = card;
     return { user, card: publicCard };
   },
 
@@ -666,61 +699,70 @@ export const cardService = {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    const views = await prisma.cardView.findMany({
-      where: { cardId, viewedAt: { gte: since } },
-      select: {
-        ipHash: true,
-        clickedLink: true,
-        viewedAt: true,
-        country: true,
-      },
-    });
+    // Use DB-side aggregation to avoid loading all CardView rows into memory.
+    const [totalViews, uniqueViewRows, totalContacts, linkClickRows, countryRows] =
+      await Promise.all([
+        prisma.cardView.count({
+          where: { cardId, viewedAt: { gte: since } },
+        }),
+        prisma.cardView.findMany({
+          where: { cardId, viewedAt: { gte: since }, ipHash: { not: null } },
+          select: { ipHash: true },
+          distinct: ["ipHash"],
+        }),
+        prisma.cardContact.count({
+          where: { cardId, scannedAt: { gte: since } },
+        }),
+        prisma.cardView.groupBy({
+          by: ["clickedLink"],
+          where: {
+            cardId,
+            viewedAt: { gte: since },
+            clickedLink: { not: null },
+          },
+          _count: { clickedLink: true },
+          orderBy: { _count: { clickedLink: "desc" } },
+        }),
+        prisma.cardView.groupBy({
+          by: ["country"],
+          where: {
+            cardId,
+            viewedAt: { gte: since },
+            country: { not: null },
+          },
+          _count: { country: true },
+          orderBy: { _count: { country: "desc" } },
+          take: 10,
+        }),
+      ]);
 
-    const totalViews = views.length;
-    const uniqueIps = new Set(
-      views.filter((v) => v.ipHash).map((v) => v.ipHash),
-    );
-    const uniqueViews = uniqueIps.size || totalViews;
-
-    const totalContacts = await prisma.cardContact.count({
-      where: { cardId, scannedAt: { gte: since } },
-    });
-
+    const uniqueViews = uniqueViewRows.length || totalViews;
     const conversionRate =
       totalViews > 0 ? (totalContacts / totalViews) * 100 : 0;
 
-    // Link clicks
-    const clickMap = new Map<string, number>();
-    for (const v of views) {
-      if (v.clickedLink) {
-        clickMap.set(v.clickedLink, (clickMap.get(v.clickedLink) || 0) + 1);
-      }
-    }
-    const linkClicks = Array.from(clickMap.entries())
-      .map(([link, count]) => ({ link, count }))
-      .sort((a, b) => b.count - a.count);
+    const linkClicks = linkClickRows
+      .filter((r) => r.clickedLink)
+      .map((r) => ({ link: r.clickedLink as string, count: r._count.clickedLink }));
 
-    // Views by day
+    const topCountries = countryRows
+      .filter((r) => r.country)
+      .map((r) => ({ country: r.country as string, count: r._count.country }));
+
+    // Views by day: use a bounded query for the time window
+    const viewsByDayRows = await prisma.cardView.findMany({
+      where: { cardId, viewedAt: { gte: since } },
+      select: { viewedAt: true },
+      orderBy: { viewedAt: "asc" },
+    });
     const dayMap = new Map<string, number>();
-    for (const v of views) {
+    for (const v of viewsByDayRows) {
       const day = v.viewedAt.toISOString().split("T")[0];
       dayMap.set(day, (dayMap.get(day) || 0) + 1);
     }
-    const viewsByDay = Array.from(dayMap.entries())
-      .map(([date, count]) => ({ date, count }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    // Top countries
-    const countryMap = new Map<string, number>();
-    for (const v of views) {
-      if (v.country) {
-        countryMap.set(v.country, (countryMap.get(v.country) || 0) + 1);
-      }
-    }
-    const topCountries = Array.from(countryMap.entries())
-      .map(([country, count]) => ({ country, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
+    const viewsByDay = Array.from(dayMap.entries()).map(([date, count]) => ({
+      date,
+      count,
+    }));
 
     return {
       totalViews,

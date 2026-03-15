@@ -233,14 +233,15 @@ export const deleteRecording = async (
     throw new AppError("Recording not found", 404);
   }
 
-  // Delete from GCS
+  // Delete from GCS — fail hard so the DB record is not orphaned on GCS failure
   try {
     await gcsService.deleteFile(recording.gcsPath);
   } catch (err) {
-    logger.warn("Failed to delete file from GCS", {
+    logger.error("Failed to delete file from GCS — aborting recording delete", {
       gcsPath: recording.gcsPath,
       error: err instanceof Error ? err.message : String(err),
     });
+    throw new AppError("Failed to delete recording file — please try again", 500);
   }
 
   // Delete related transcript and recording record atomically
@@ -299,7 +300,8 @@ export const triggerAIProcessing = async (
     );
     logger.info(`AI processing job queued for meeting ${meetingId}`);
   } catch (err) {
-    logger.warn("Failed to queue AI processing job:", {
+    logger.error("Failed to queue AI processing job", {
+      meetingId,
       error: err instanceof Error ? err.message : String(err),
     });
     throw err;

@@ -339,12 +339,13 @@ export const meetingService = {
       throw ErrorFactory.notFound("Meeting");
     }
 
-    const isParticipant = meeting.participants.some(
-      (p) => p.userId === requesterUserId,
-    );
-
-    if (!isParticipant) {
-      throw ErrorFactory.forbidden("You are not a participant in this meeting");
+    // BEHAVIOR CHANGE: cancelMeeting is restricted from any-participant to creator-only.
+    // This means non-creator participants can no longer cancel meetings. This is intentional:
+    // cancellation is a destructive action affecting all participants.
+    if (meeting.createdById !== requesterUserId) {
+      throw ErrorFactory.forbidden(
+        "Only the meeting creator can cancel this meeting",
+      );
     }
 
     return prisma.$transaction(
@@ -477,7 +478,10 @@ export const meetingService = {
     type?: MeetingType;
     startDate?: Date;
     endDate?: Date;
-  }): Promise<(Meeting & { participants: MeetingParticipant[] })[]> {
+  }): Promise<{
+    meetings: (Meeting & { participants: MeetingParticipant[] })[];
+    truncated: boolean;
+  }> {
     const { userId, status, type, startDate, endDate } = params;
 
     const where: Prisma.MeetingWhereInput = {
@@ -501,17 +505,25 @@ export const meetingService = {
       };
     }
 
-    return prisma.meeting.findMany({
+    const MAX_CALENDAR_MEETINGS = 200;
+    const rows = (await prisma.meeting.findMany({
       where,
       include: meetingInclude,
       orderBy: { createdAt: "desc" },
-      take: 200,
-    }) as any;
+      take: MAX_CALENDAR_MEETINGS + 1,
+    })) as any[];
+
+    const truncated = rows.length > MAX_CALENDAR_MEETINGS;
+    return {
+      meetings: truncated ? rows.slice(0, MAX_CALENDAR_MEETINGS) : rows,
+      truncated,
+    };
   },
 
   async detectConflicts(params: ConflictDetectionParams): Promise<any[]> {
     const { userId, startTime, endTime, excludeMeetingId } = params;
 
+    const CONFLICT_DETECTION_LIMIT = 20;
     const meetings = await prisma.meeting.findMany({
       where: {
         isDeleted: false,
@@ -521,6 +533,7 @@ export const meetingService = {
         startTime: { lt: endTime },
         endTime: { gt: startTime },
       },
+      take: CONFLICT_DETECTION_LIMIT,
     });
 
     return meetings.map((meeting) => ({

@@ -57,7 +57,7 @@ export const regenerateSummary = async (req: Request, res: Response) => {
   if (!transcript) {
     throw new AppError(
       "No transcript available. Upload a recording first.",
-      400,
+      422,
     );
   }
 
@@ -95,7 +95,7 @@ export const regenerateTitle = async (req: Request, res: Response) => {
   if (!transcript) {
     throw new AppError(
       "No transcript available. Upload a recording first.",
-      400,
+      422,
     );
   }
 
@@ -131,6 +131,7 @@ export const getNotes = async (req: Request, res: Response) => {
   const notes = await prisma.meetingNote.findMany({
     where: { meetingId },
     orderBy: { createdAt: "desc" },
+    take: 500,
   });
 
   return apiResponse(res, {
