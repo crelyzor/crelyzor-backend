@@ -107,16 +107,16 @@ export const cardService = {
   async createCard(userId: string, data: CreateCardDTO) {
     const slug = data.slug || "default";
 
-    // Check if slug already exists for this user
-    const existing = await prisma.card.findUnique({
-      where: { userId_slug: { userId, slug } },
+    // Check if slug already exists for this user (excluding deleted cards)
+    const existing = await prisma.card.findFirst({
+      where: { userId, slug, isDeleted: false },
     });
     if (existing) {
       throw ErrorFactory.conflict(`Card with slug "${slug}" already exists`);
     }
 
     // If this is the user's first card, make it default
-    const cardCount = await prisma.card.count({ where: { userId } });
+    const cardCount = await prisma.card.count({ where: { userId, isDeleted: false } });
     const isDefault = data.isDefault ?? cardCount === 0;
 
     // Get username for public URL
@@ -202,7 +202,7 @@ export const cardService = {
   async getUserCards(userId: string) {
     const MAX_USER_CARDS = 50;
     return prisma.card.findMany({
-      where: { userId },
+      where: { userId, isDeleted: false },
       include: {
         _count: { select: { contacts: true, views: true } },
       },
@@ -215,14 +215,14 @@ export const cardService = {
    * Get a single card by ID (must belong to the user)
    */
   async getCardById(userId: string, cardId: string) {
-    const card = await prisma.card.findUnique({
-      where: { id: cardId },
+    const card = await prisma.card.findFirst({
+      where: { id: cardId, userId, isDeleted: false },
       include: {
         _count: { select: { contacts: true, views: true } },
       },
     });
 
-    if (!card || card.userId !== userId) {
+    if (!card) {
       throw ErrorFactory.notFound("Card not found");
     }
 
@@ -233,15 +233,15 @@ export const cardService = {
    * Update a card
    */
   async updateCard(userId: string, cardId: string, data: UpdateCardDTO) {
-    const card = await prisma.card.findUnique({ where: { id: cardId } });
-    if (!card || card.userId !== userId) {
+    const card = await prisma.card.findFirst({ where: { id: cardId, userId, isDeleted: false } });
+    if (!card) {
       throw ErrorFactory.notFound("Card not found");
     }
 
-    // If changing slug, check for conflicts
+    // If changing slug, check for conflicts (excluding deleted cards)
     if (data.slug && data.slug !== card.slug) {
-      const existing = await prisma.card.findUnique({
-        where: { userId_slug: { userId, slug: data.slug } },
+      const existing = await prisma.card.findFirst({
+        where: { userId, slug: data.slug, isDeleted: false },
       });
       if (existing) {
         throw ErrorFactory.conflict(
@@ -348,19 +348,22 @@ export const cardService = {
    * Delete a card
    */
   async deleteCard(userId: string, cardId: string) {
-    const card = await prisma.card.findUnique({ where: { id: cardId } });
-    if (!card || card.userId !== userId) {
+    const card = await prisma.card.findFirst({ where: { id: cardId, userId, isDeleted: false } });
+    if (!card) {
       throw ErrorFactory.notFound("Card not found");
     }
 
     await prisma.$transaction(
       async (tx) => {
-        await tx.card.delete({ where: { id: cardId } });
+        await tx.card.update({
+          where: { id: cardId },
+          data: { isDeleted: true, deletedAt: new Date() },
+        });
 
         // If deleted card was default, promote the next one
         if (card.isDefault) {
           const nextCard = await tx.card.findFirst({
-            where: { userId },
+            where: { userId, isDeleted: false },
             orderBy: { createdAt: "asc" },
           });
           if (nextCard) {
