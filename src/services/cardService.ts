@@ -382,13 +382,13 @@ export const cardService = {
    * Duplicate a card with a new slug
    */
   async duplicateCard(userId: string, cardId: string, newSlug: string) {
-    const card = await prisma.card.findUnique({ where: { id: cardId } });
-    if (!card || card.userId !== userId) {
+    const card = await prisma.card.findFirst({ where: { id: cardId, userId, isDeleted: false } });
+    if (!card) {
       throw ErrorFactory.notFound("Card not found");
     }
 
-    const existing = await prisma.card.findUnique({
-      where: { userId_slug: { userId, slug: newSlug } },
+    const existing = await prisma.card.findFirst({
+      where: { userId, slug: newSlug, isDeleted: false },
     });
     if (existing) {
       throw ErrorFactory.conflict(`Card with slug "${newSlug}" already exists`);
@@ -457,18 +457,18 @@ export const cardService = {
 
     let card;
     if (slug) {
-      card = await prisma.card.findUnique({
-        where: { userId_slug: { userId: user.id, slug } },
+      card = await prisma.card.findFirst({
+        where: { userId: user.id, slug, isDeleted: false },
       });
     } else {
       // Get default card
       card = await prisma.card.findFirst({
-        where: { userId: user.id, isDefault: true, isActive: true },
+        where: { userId: user.id, isDefault: true, isActive: true, isDeleted: false },
       });
       // Fallback to any active card
       if (!card) {
         card = await prisma.card.findFirst({
-          where: { userId: user.id, isActive: true },
+          where: { userId: user.id, isActive: true, isDeleted: false },
           orderBy: { createdAt: "asc" },
         });
       }
@@ -494,8 +494,8 @@ export const cardService = {
    * Submit contact info (scanner shares their details)
    */
   async submitContact(cardId: string, data: SubmitContactDTO) {
-    const card = await prisma.card.findUnique({
-      where: { id: cardId },
+    const card = await prisma.card.findFirst({
+      where: { id: cardId, isDeleted: false },
       select: { id: true, userId: true, isActive: true },
     });
 
@@ -694,8 +694,8 @@ export const cardService = {
     cardId: string,
     days: number = 30,
   ): Promise<CardAnalytics> {
-    const card = await prisma.card.findUnique({ where: { id: cardId } });
-    if (!card || card.userId !== userId) {
+    const card = await prisma.card.findFirst({ where: { id: cardId, userId, isDeleted: false } });
+    if (!card) {
       throw ErrorFactory.notFound("Card not found");
     }
 

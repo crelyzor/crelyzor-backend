@@ -32,8 +32,8 @@ export const generateSummary = async (
     throw new AppError("OPENAI_API_KEY is required for AI features", 503);
   }
 
-  const meeting = await prisma.meeting.findUnique({
-    where: { id: meetingId },
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, isDeleted: false },
   });
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
