@@ -242,6 +242,8 @@ export const generateMeetingTitle = async (
 ): Promise<string | null> => {
   if (!process.env.OPENAI_API_KEY) return null;
 
+  let title: string | null = null;
+
   try {
     const prompt = `Based on this meeting transcript, generate a short, descriptive meeting title (4-7 words max).
 The title should capture the main topic or purpose of the meeting.
@@ -265,23 +267,31 @@ ${transcriptText.slice(0, 2000)}`;
       temperature: 0.4,
     });
 
-    const title = response.choices[0]?.message?.content?.trim();
-    if (!title) return null;
+    title = response.choices[0]?.message?.content?.trim() ?? null;
+  } catch (err) {
+    logger.error(`OpenAI title generation failed for meeting ${meetingId}`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 
+  if (!title) return null;
+
+  try {
     // Update meeting title in DB
     await prisma.meeting.update({
       where: { id: meetingId },
       data: { title },
     });
-
     logger.info(`Meeting ${meetingId} renamed to: "${title}"`);
-    return title;
   } catch (err) {
-    logger.error(`Failed to generate title for meeting ${meetingId}`, {
+    logger.error(`DB write failed when saving generated title for meeting ${meetingId}`, {
       error: err instanceof Error ? err.message : String(err),
+      title,
     });
-    return null;
   }
+
+  return title;
 };
 
 /**
@@ -377,11 +387,11 @@ export const askAI = async (
     throw new AppError("Meeting not found", 404);
   }
 
-  // Fetch transcript with segments
+  // Fetch transcript with segments (capped to avoid loading megabytes for long meetings)
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { recording: { meetingId } },
     include: {
-      segments: { orderBy: { startTime: "asc" } },
+      segments: { orderBy: { startTime: "asc" }, take: 500 },
     },
   });
 
@@ -549,6 +559,7 @@ export const getGeneratedContents = async (
   return prisma.meetingAIContent.findMany({
     where: { meetingId },
     select: { type: true, content: true },
+    take: 50,
   });
 };
 

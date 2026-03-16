@@ -178,7 +178,7 @@ class StorageController {
       if (!path) {
         throw new AppError("Invalid file URL", 400);
       }
-      if (!path.includes(userId)) {
+      if (!path.split('/').includes(userId)) {
         throw ErrorFactory.forbidden("You do not have permission to delete this file");
       }
 

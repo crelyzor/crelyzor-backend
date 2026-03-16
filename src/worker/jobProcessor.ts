@@ -30,9 +30,9 @@ export const startWorker = async (): Promise<void> => {
         data.language,
       );
 
-      // Get meeting to find owner for AI processing
-      const meeting = await prisma.meeting.findUnique({
-        where: { id: data.meetingId },
+      // Get meeting to find owner for AI processing (skip if soft-deleted)
+      const meeting = await prisma.meeting.findFirst({
+        where: { id: data.meetingId, isDeleted: false },
         select: { createdById: true },
       });
 

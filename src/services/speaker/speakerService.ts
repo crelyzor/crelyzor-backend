@@ -39,11 +39,11 @@ export const renameSpeaker = async (
     throw new AppError("Meeting not found", 404);
   }
 
-  const speaker = await prisma.meetingSpeaker.findUnique({
-    where: { id: speakerId },
+  const speaker = await prisma.meetingSpeaker.findFirst({
+    where: { id: speakerId, meetingId },
   });
 
-  if (!speaker || speaker.meetingId !== meetingId) {
+  if (!speaker) {
     throw new AppError("Speaker not found", 404);
   }
 

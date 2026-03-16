@@ -173,40 +173,6 @@ export const authController = {
     }
   },
 
-  getAuthStatus: async (req: Request, res: Response): Promise<void> => {
-    try {
-      const user = req.user;
-      const sessionId = req.sessionId;
-
-      if (!user) {
-        apiResponse(res, {
-          statusCode: 200,
-          message: "Not authenticated",
-          data: { authenticated: false },
-        });
-        return;
-      }
-
-      apiResponse(res, {
-        statusCode: 200,
-        message: "Authentication status retrieved",
-        data: {
-          authenticated: true,
-          user: {
-            id: user.userId,
-            email: user.email,
-          },
-          sessionId,
-        },
-      });
-    } catch (err) {
-      logger.error("Get auth status error", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      globalErrorHandler(err as BaseError, req, res);
-    }
-  },
-
   checkUsernameAvailability: async (
     req: Request,
     res: Response,

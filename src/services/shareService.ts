@@ -157,6 +157,7 @@ export async function getPublicMeetingByShortId(shortId: string) {
       speakerLabel: true,
       displayName: true,
     },
+    take: 100,
   });
 
   // Conditional fetches based on owner's field settings

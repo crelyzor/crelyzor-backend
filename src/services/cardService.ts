@@ -630,10 +630,10 @@ export const cardService = {
    * Update contact tags
    */
   async updateContactTags(userId: string, contactId: string, tags: string[]) {
-    const contact = await prisma.cardContact.findUnique({
-      where: { id: contactId },
+    const contact = await prisma.cardContact.findFirst({
+      where: { id: contactId, userId },
     });
-    if (!contact || contact.userId !== userId) {
+    if (!contact) {
       throw ErrorFactory.notFound("Contact not found");
     }
 
@@ -647,13 +647,15 @@ export const cardService = {
    * Delete a contact
    */
   async deleteContact(userId: string, contactId: string) {
-    const contact = await prisma.cardContact.findUnique({
-      where: { id: contactId },
+    const contact = await prisma.cardContact.findFirst({
+      where: { id: contactId, userId },
     });
-    if (!contact || contact.userId !== userId) {
+    if (!contact) {
       throw ErrorFactory.notFound("Contact not found");
     }
 
+    // TODO: Soft delete blocked — CardContact has no isDeleted field in schema.
+    // Add CardContact.isDeleted + CardContact.deletedAt migration before switching.
     await prisma.cardContact.delete({ where: { id: contactId } });
   },
 

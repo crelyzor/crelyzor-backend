@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 import { logger } from "./logging/logger";
 
@@ -71,7 +71,7 @@ export class DbOperationError extends BaseError {
   }
 }
 export class InternalServerError extends BaseError {
-  constructor(error?: any) {
+  constructor(error?: unknown) {
     super(
       500,
       "INTERNAL_SERVER_ERROR",
@@ -110,6 +110,7 @@ export const globalErrorHandler = (
   error: Error | BaseError,
   req: Request,
   res: Response,
+  _next?: NextFunction,
 ): void => {
   logger.error("Error", {
     name: error.name,

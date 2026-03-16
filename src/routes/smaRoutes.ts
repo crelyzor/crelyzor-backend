@@ -34,9 +34,10 @@ router.get(
 // Delete a recording
 router.delete("/recordings/:recordingId", recordingController.deleteRecording);
 
-// Trigger AI processing for a meeting
+// Trigger AI processing for a meeting — 10/hour to prevent queue/credit abuse
 router.post(
   "/meetings/:meetingId/process-ai",
+  userRateLimit(10, 60 * 60 * 1000),
   recordingController.triggerAIProcessing,
 );
 
