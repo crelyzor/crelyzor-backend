@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { MeetingStatus, MeetingType } from "@prisma/client";
 import { TokenPayload } from "../types/authTypes";
 import { ErrorFactory } from "../utils/globalErrorHandler";
 import { apiResponse } from "../utils/globalResponseHandler";
@@ -74,7 +75,7 @@ export class MeetingController {
 
       const meeting = await meetingService.cancelMeeting({
         meetingId,
-        newStatus: "CANCELLED" as any,
+        newStatus: MeetingStatus.CANCELLED,
         requesterUserId: user.userId,
         reason: validatedData.reason,
       });
@@ -96,7 +97,7 @@ export class MeetingController {
 
       const meeting = await meetingService.completeMeeting({
         meetingId,
-        newStatus: "COMPLETED" as any,
+        newStatus: MeetingStatus.COMPLETED,
         requesterUserId: user.userId,
       });
 
@@ -117,8 +118,8 @@ export class MeetingController {
 
       const meetings = await meetingService.getMeetings({
         userId: user.userId,
-        status: validatedData.status as any,
-        type: validatedData.type as any,
+        status: validatedData.status as MeetingStatus | undefined,
+        type: validatedData.type as MeetingType | undefined,
         startDate: validatedData.startDate,
         endDate: validatedData.endDate,
         limit: validatedData.limit,
@@ -153,8 +154,8 @@ export class MeetingController {
       const { meetings, truncated } =
         await meetingService.getMeetingsWithoutPagination({
           userId: user.userId,
-          status: validatedData.status as any,
-          type: validatedData.type as any,
+          status: validatedData.status as MeetingStatus | undefined,
+          type: validatedData.type as MeetingType | undefined,
           startDate: validatedData.startDate,
           endDate: validatedData.endDate,
         });

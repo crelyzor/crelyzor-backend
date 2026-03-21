@@ -183,18 +183,12 @@ export const meetingService = {
     },
   ): Promise<Meeting> {
     const meeting = await prisma.meeting.findFirst({
-      where: { id: meetingId, isDeleted: false },
+      where: { id: meetingId, createdById: updatedByUserId, isDeleted: false },
       include: { participants: true },
     });
 
     if (!meeting) {
       throw ErrorFactory.notFound("Meeting");
-    }
-
-    if (meeting.createdById !== updatedByUserId) {
-      throw ErrorFactory.forbidden(
-        "Only meeting creator can update this meeting",
-      );
     }
 
     if (["COMPLETED", "CANCELLED"].includes(meeting.status)) {
@@ -331,21 +325,12 @@ export const meetingService = {
     const { meetingId, requesterUserId, reason } = data;
 
     const meeting = await prisma.meeting.findFirst({
-      where: { id: meetingId, isDeleted: false },
+      where: { id: meetingId, createdById: requesterUserId, isDeleted: false },
       include: { participants: true },
     });
 
     if (!meeting) {
       throw ErrorFactory.notFound("Meeting");
-    }
-
-    // BEHAVIOR CHANGE: cancelMeeting is restricted from any-participant to creator-only.
-    // This means non-creator participants can no longer cancel meetings. This is intentional:
-    // cancellation is a destructive action affecting all participants.
-    if (meeting.createdById !== requesterUserId) {
-      throw ErrorFactory.forbidden(
-        "Only the meeting creator can cancel this meeting",
-      );
     }
 
     return prisma.$transaction(

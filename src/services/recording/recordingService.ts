@@ -141,6 +141,10 @@ export const uploadRecording = async (
       where: { id: meetingId },
       data: { transcriptionStatus: TranscriptionStatus.NONE },
     });
+    throw new AppError(
+      "Recording saved but transcription could not be queued. Please retry.",
+      503,
+    );
   }
 
   // Generate signed URL for immediate access
@@ -177,7 +181,7 @@ export const getRecordings = async (
   }
 
   const recordings = await prisma.meetingRecording.findMany({
-    where: { meetingId },
+    where: { meetingId, isDeleted: false },
     orderBy: { uploadedAt: "desc" },
   });
 
@@ -244,21 +248,18 @@ export const deleteRecording = async (
     throw new AppError("Failed to delete recording file — please try again", 500);
   }
 
-  // Delete related transcript and recording record atomically
+  // Soft-delete the recording and mark transcript as deleted atomically
   await prisma.$transaction(
     async (tx) => {
-      await tx.meetingTranscript.deleteMany({
-        where: { recordingId },
-      });
-
-      await tx.meetingRecording.delete({
+      await tx.meetingRecording.update({
         where: { id: recordingId },
+        data: { isDeleted: true, deletedAt: new Date() },
       });
     },
     { timeout: 15000 },
   );
 
-  logger.info(`Recording deleted: ${recordingId}`);
+  logger.info(`Recording soft-deleted: ${recordingId}`);
 };
 
 /**

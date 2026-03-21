@@ -15,6 +15,6 @@ export const apiResponse = <T>(
     status: "success",
     statusCode,
     message,
-    ...(data && { data }),
+    ...(data !== undefined && { data }),
   });
 };

@@ -32,9 +32,11 @@ app.use((req: Request, res: Response) => {
 app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
   const err = error instanceof Error ? error : new Error(String(error));
   const status =
-    typeof (error as { status?: unknown }).status === "number"
-      ? (error as { status: number }).status
-      : 500;
+    typeof (error as { statusCode?: unknown }).statusCode === "number"
+      ? (error as { statusCode: number }).statusCode
+      : typeof (error as { status?: unknown }).status === "number"
+        ? (error as { status: number }).status
+        : 500;
   logger.error("Unhandled error", {
     message: err.message,
     status,

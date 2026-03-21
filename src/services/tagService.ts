@@ -171,7 +171,7 @@ export async function detachTagFromMeeting(
 
 async function verifyCardOwnership(cardId: string, userId: string) {
   const card = await prisma.card.findFirst({
-    where: { id: cardId, userId, isActive: true },
+    where: { id: cardId, userId, isActive: true, isDeleted: false },
     select: { id: true },
   });
   if (!card) throw new AppError("Card not found", 404);

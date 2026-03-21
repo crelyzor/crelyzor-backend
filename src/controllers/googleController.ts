@@ -113,7 +113,8 @@ export const googleController = {
       );
 
       const jwtTokens = await authService.generateTokens(user);
-      const finalRedirectUrl = `${redirectUrl}?accessToken=${jwtTokens.accessToken}&refreshToken=${jwtTokens.refreshToken}`;
+      // Use hash fragment to keep tokens out of server logs and referrer headers
+      const finalRedirectUrl = `${redirectUrl}#accessToken=${jwtTokens.accessToken}&refreshToken=${jwtTokens.refreshToken}`;
 
       res.redirect(finalRedirectUrl);
     } catch (error) {

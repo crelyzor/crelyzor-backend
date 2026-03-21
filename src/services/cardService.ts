@@ -458,7 +458,7 @@ export const cardService = {
     let card;
     if (slug) {
       card = await prisma.card.findFirst({
-        where: { userId: user.id, slug, isDeleted: false },
+        where: { userId: user.id, slug, isActive: true, isDeleted: false },
       });
     } else {
       // Get default card
@@ -483,6 +483,8 @@ export const cardService = {
       userId: _userId,
       isDefault: _isDefault,
       isActive: _isActive,
+      isDeleted: _isDeleted,
+      deletedAt: _deletedAt,
       createdAt: _createdAt,
       updatedAt: _updatedAt,
       ...publicCard

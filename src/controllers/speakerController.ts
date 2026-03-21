@@ -2,7 +2,6 @@ import type { Request, Response } from "express";
 import { speakerService } from "../services/speaker/speakerService";
 import { renameSpeakerSchema } from "../validators/speakerSchema";
 import { AppError } from "../utils/errors/AppError";
-import { logger } from "../utils/logging/logger";
 import { apiResponse } from "../utils/globalResponseHandler";
 
 /**
@@ -21,9 +20,6 @@ export const getSpeakers = async (req: Request, res: Response) => {
       data: speakers,
     });
   } catch (error) {
-    logger.error("Error getting speakers:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
     throw error;
   }
 };
@@ -55,9 +51,6 @@ export const renameSpeaker = async (req: Request, res: Response) => {
       data: updated,
     });
   } catch (error) {
-    logger.error("Error renaming speaker:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
     throw error;
   }
 };

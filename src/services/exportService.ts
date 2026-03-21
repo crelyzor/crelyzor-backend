@@ -14,7 +14,7 @@ async function buildTranscriptText(meetingId: string): Promise<string> {
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { recording: { meetingId } },
     include: {
-      segments: { orderBy: { startTime: "asc" } },
+      segments: { orderBy: { startTime: "asc" }, take: 5000 },
     },
   });
 

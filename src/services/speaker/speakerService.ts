@@ -7,11 +7,11 @@ import { logger } from "../../utils/logging/logger";
  */
 export const getSpeakers = async (meetingId: string, userId: string) => {
   const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, isDeleted: false },
-    select: { createdById: true },
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
   });
 
-  if (!meeting || meeting.createdById !== userId) {
+  if (!meeting) {
     throw new AppError("Meeting not found", 404);
   }
 
@@ -31,11 +31,11 @@ export const renameSpeaker = async (
   userId: string,
 ) => {
   const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, isDeleted: false },
-    select: { createdById: true },
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
   });
 
-  if (!meeting || meeting.createdById !== userId) {
+  if (!meeting) {
     throw new AppError("Meeting not found", 404);
   }
 

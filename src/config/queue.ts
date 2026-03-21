@@ -107,7 +107,9 @@ export const initializeQueues = async () => {
       const pong = await transcriptionQueue.client.ping();
       logger.info(`📡 Redis ping: ${pong}`);
     } catch (pingError) {
-      logger.warn("Redis ping test failed (non-critical):", pingError);
+      logger.warn("Redis ping test failed (non-critical)", {
+        error: pingError instanceof Error ? pingError.message : String(pingError),
+      });
     }
 
     // Setup event handlers

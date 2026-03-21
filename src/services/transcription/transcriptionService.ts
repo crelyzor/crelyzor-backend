@@ -37,12 +37,12 @@ export const transcribeRecording = async (
     throw new AppError("Transcription is not enabled - DEEPGRAM_API_KEY required", 503);
   }
 
-  const recording = await prisma.meetingRecording.findUnique({
-    where: { id: recordingId },
+  const recording = await prisma.meetingRecording.findFirst({
+    where: { id: recordingId, isDeleted: false },
     include: { meeting: true },
   });
 
-  if (!recording) {
+  if (!recording || recording.meeting.isDeleted) {
     throw new AppError(`Recording not found: ${recordingId}`, 404);
   }
 

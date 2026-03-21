@@ -27,6 +27,7 @@ model User {
   timezone        String    @default("UTC")
 
   // Soft delete fields
+  isDeleted   Boolean   @default(false)
   deletedAt   DateTime?
   deletedById String?   @db.Uuid
 
@@ -60,6 +61,7 @@ model User {
   meetingAttachments    MeetingAttachment[]
 
   @@index([activeSessionId])
+  @@index([createdAt])
 }
 
 model Session {
@@ -168,6 +170,7 @@ model Meeting {
   attachments  MeetingAttachment[]
 
   @@index([createdById])
+  @@index([createdAt])
   @@index([startTime])
   @@index([status, isDeleted])
   @@index([transcriptionStatus])
@@ -203,6 +206,7 @@ model MeetingStateHistory {
 
   @@index([meetingId])
   @@index([toStatus])
+  @@index([changedById])
 }
 
 // ================================
@@ -220,6 +224,10 @@ model MeetingRecording {
 
   uploadedBy String   @db.Uuid
   uploadedAt DateTime @default(now())
+
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
 
   meeting    Meeting           @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   transcript MeetingTranscript?
@@ -257,6 +265,7 @@ model TranscriptSegment {
 
   @@index([transcriptId])
   @@index([speaker])
+  @@index([startTime])
 }
 
 model MeetingSpeaker {
@@ -305,6 +314,8 @@ model Task {
   @@index([meetingId])
   @@index([userId, isDeleted])
   @@index([dueDate])
+  @@index([isCompleted])
+  @@index([source])
 }
 
 model MeetingNote {
@@ -315,6 +326,10 @@ model MeetingNote {
   author    String @db.Uuid // userId
   timestamp Float? // seconds into the meeting
 
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -322,6 +337,7 @@ model MeetingNote {
 
   @@index([meetingId])
   @@index([author])
+  @@index([meetingId, isDeleted])
 }
 
 model MeetingAISummary {
@@ -379,6 +395,7 @@ model MeetingShare {
   @@index([shortId])
   @@index([meetingId])
   @@index([userId])
+  @@index([isPublic])
 }
 
 // ================================
@@ -414,6 +431,10 @@ model Card {
   isDefault Boolean @default(false) // shown at /username
   isActive  Boolean @default(true)  // can be paused
 
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -426,6 +447,7 @@ model Card {
 
   @@unique([userId, slug])
   @@index([slug])
+  @@index([userId])
   @@index([userId, isActive])
   @@index([userId, isDefault])
 }
@@ -532,6 +554,7 @@ model Tag {
   cardTags    CardTag[]
 
   @@unique([userId, name])
+  @@index([userId])
   @@index([userId, isDeleted])
 }
 

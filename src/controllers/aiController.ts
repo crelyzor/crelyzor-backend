@@ -61,15 +61,19 @@ export const regenerateSummary = async (req: Request, res: Response) => {
     );
   }
 
-  const [summary, keyPoints] = await Promise.all([
+  await Promise.all([
     aiService.generateSummary(meetingId, transcript.fullText),
     aiService.extractKeyPoints(meetingId, transcript.fullText),
   ]);
 
+  const updatedSummary = await prisma.meetingAISummary.findUnique({
+    where: { meetingId },
+  });
+
   apiResponse(res, {
     statusCode: 200,
     message: "Summary regenerated",
-    data: { summary, keyPoints },
+    data: updatedSummary,
   });
 };
 
@@ -129,7 +133,7 @@ export const getNotes = async (req: Request, res: Response) => {
   if (!meeting) throw new AppError("Meeting not found", 404);
 
   const notes = await prisma.meetingNote.findMany({
-    where: { meetingId },
+    where: { meetingId, isDeleted: false },
     orderBy: { createdAt: "desc" },
     take: 500,
   });
@@ -268,7 +272,10 @@ export const deleteNote = async (req: Request, res: Response) => {
   });
   if (!note) throw new AppError("Note not found", 404);
 
-  await prisma.meetingNote.delete({ where: { id: noteId } });
+  await prisma.meetingNote.update({
+    where: { id: noteId },
+    data: { isDeleted: true, deletedAt: new Date() },
+  });
 
   return apiResponse(res, {
     statusCode: 200,
