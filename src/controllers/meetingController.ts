@@ -208,6 +208,11 @@ export class MeetingController {
               avatarUrl: true,
             },
           },
+          tags: {
+            include: {
+              tag: { select: { id: true, name: true, color: true } },
+            },
+          },
         },
       });
 

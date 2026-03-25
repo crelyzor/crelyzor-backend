@@ -15,10 +15,10 @@ const ALLOWED_MIME_TYPES = [
 // 50MB
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
-const fileFilter = (
-  _req: Express.Request,
-  file: Express.Multer.File,
-  cb: multer.FileFilterCallback,
+const fileFilter: NonNullable<multer.Options["fileFilter"]> = (
+  _req,
+  file,
+  cb,
 ) => {
   if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
     cb(null, true);
