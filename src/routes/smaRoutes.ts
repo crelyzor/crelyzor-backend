@@ -126,6 +126,7 @@ router.post(
 );
 
 // Tasks routes
+router.get("/tasks", taskController.getAllTasks);
 router.get("/meetings/:meetingId/tasks", taskController.getTasks);
 router.post("/meetings/:meetingId/tasks", taskController.createTask);
 router.patch("/tasks/:taskId", taskController.updateTask);

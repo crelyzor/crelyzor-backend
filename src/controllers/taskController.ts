@@ -9,6 +9,28 @@ import { createTaskSchema, updateTaskSchema } from "../validators/taskSchema";
 const uuidSchema = z.string().uuid();
 
 /**
+ * GET /sma/tasks — all pending tasks for the authenticated user across all meetings
+ */
+export const getAllTasks = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+
+  const tasks = await prisma.task.findMany({
+    where: { userId, isDeleted: false, isCompleted: false },
+    orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+    take: 50,
+    include: {
+      meeting: { select: { id: true, title: true } },
+    },
+  });
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Tasks fetched",
+    data: { tasks },
+  });
+};
+
+/**
  * GET /sma/meetings/:meetingId/tasks
  */
 export const getTasks = async (req: Request, res: Response) => {
