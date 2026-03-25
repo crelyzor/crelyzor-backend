@@ -395,9 +395,10 @@ export const cardService = {
     const username = user?.username ?? "user";
     const publicUrl = buildPublicUrl(username, newSlug, false);
 
-    return prisma.$transaction(
+    // Step 1 — create the card record (no HTML yet)
+    const newCard = await prisma.$transaction(
       async (tx) => {
-        const newCard = await tx.card.create({
+        return tx.card.create({
           data: {
             userId,
             slug: newSlug,
@@ -414,21 +415,22 @@ export const cardService = {
             isDefault: false,
           },
         });
-
-        // Generate HTML for the new card (new slug = new QR URL)
-        const templateData = buildTemplateData(newCard, publicUrl);
-        const { htmlContent, htmlBackContent } = await renderCardHtml(
-          (newCard.templateId || "executive") as TemplateId,
-          templateData,
-        );
-
-        return tx.card.update({
-          where: { id: newCard.id },
-          data: { htmlContent, htmlBackContent },
-        });
       },
       { timeout: 15000 },
     );
+
+    // Step 2 — render HTML outside the transaction (async I/O must not hold a DB connection)
+    const templateData = buildTemplateData(newCard, publicUrl);
+    const { htmlContent, htmlBackContent } = await renderCardHtml(
+      (newCard.templateId || "executive") as TemplateId,
+      templateData,
+    );
+
+    // Step 3 — write HTML back (single update, no transaction needed)
+    return prisma.card.update({
+      where: { id: newCard.id },
+      data: { htmlContent, htmlBackContent },
+    });
   },
 
   // ========================================
@@ -479,7 +481,7 @@ export const cardService = {
       ...publicCard
     } = card;
     return {
-      user: { id: user.id, name: user.name, username: user.username, avatarUrl: user.avatarUrl },
+      user: { name: user.name, username: user.username, avatarUrl: user.avatarUrl },
       card: publicCard,
     };
   },

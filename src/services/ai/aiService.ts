@@ -313,18 +313,26 @@ export const processTranscriptWithAI = async (
   userId: string,
 ): Promise<AIProcessingResult> => {
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId, isDeleted: false } },
+    where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
   });
 
   if (!transcript) {
     throw new AppError(`No transcript found for meeting ${meetingId}`, 422);
   }
 
+  // Title generation is genuinely fire-and-forget — run outside Promise.all so a
+  // title failure cannot reject the entire pipeline.
+  void generateMeetingTitle(meetingId, transcript.fullText).catch((err) =>
+    logger.error("generateMeetingTitle failed (non-fatal)", {
+      meetingId,
+      error: err instanceof Error ? err.message : String(err),
+    }),
+  );
+
   const [summary, keyPoints, tasks] = await Promise.all([
     generateSummary(meetingId, transcript.fullText),
     extractKeyPoints(meetingId, transcript.fullText),
     extractTasks(meetingId, transcript.fullText, userId),
-    generateMeetingTitle(meetingId, transcript.fullText), // result intentionally unused — fires and forgets title rename
   ]);
 
   return {
@@ -400,7 +408,7 @@ export const askAI = async (
 
   // Fetch transcript with segments (capped to avoid loading megabytes for long meetings)
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId, isDeleted: false } },
+    where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
     include: {
       segments: { orderBy: { startTime: "asc" }, take: 500 },
     },
@@ -515,7 +523,7 @@ export const generateContent = async (
   if (cached) return cached.content;
 
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
+    where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
   });
   if (!transcript) {
     throw new AppError(
@@ -543,6 +551,9 @@ export const generateContent = async (
   });
 
   const content = response.choices[0]?.message?.content?.trim() ?? "";
+  if (!content) {
+    throw new AppError("OpenAI returned empty content", 502);
+  }
 
   await prisma.meetingAIContent.upsert({
     where: { meetingId_type: { meetingId, type } },

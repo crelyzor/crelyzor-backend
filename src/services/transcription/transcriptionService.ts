@@ -39,7 +39,12 @@ export const transcribeRecording = async (
 
   const recording = await prisma.meetingRecording.findFirst({
     where: { id: recordingId, isDeleted: false },
-    include: { meeting: true },
+    select: {
+      id: true,
+      meetingId: true,
+      gcsPath: true,
+      meeting: { select: { isDeleted: true, createdById: true } },
+    },
   });
 
   if (!recording || recording.meeting.isDeleted) {
@@ -294,7 +299,7 @@ export const getTranscript = async (meetingId: string, userId: string) => {
 
   const MAX_TRANSCRIPT_SEGMENTS = 5000;
   return prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
+    where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
     include: {
       segments: {
         orderBy: { startTime: "asc" },

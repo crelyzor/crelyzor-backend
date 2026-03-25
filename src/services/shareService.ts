@@ -150,9 +150,15 @@ export async function getPublicMeetingByShortId(shortId: string) {
     shortId: sid,
   } = share;
 
+  // Re-resolve meetingId from the already-validated share so all subsequent
+  // queries use the scalar FK directly instead of re-traversing junction chains.
+  const meetingId = await prisma.meetingShare
+    .findUnique({ where: { shortId }, select: { meetingId: true } })
+    .then((s) => s!.meetingId);
+
   // Fetch speakers always (needed to resolve speakerLabel → displayName in transcript)
   const speakers = await prisma.meetingSpeaker.findMany({
-    where: { meeting: { share: { shortId } } },
+    where: { meetingId },
     select: {
       speakerLabel: true,
       displayName: true,
@@ -164,7 +170,7 @@ export async function getPublicMeetingByShortId(shortId: string) {
   const [transcriptData, summaryData, tasksData] = await Promise.all([
     showTranscript
       ? prisma.meetingTranscript.findFirst({
-          where: { recording: { meeting: { share: { shortId } } } },
+          where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
           select: {
             segments: {
               select: {
@@ -182,7 +188,7 @@ export async function getPublicMeetingByShortId(shortId: string) {
 
     showSummary
       ? prisma.meetingAISummary.findFirst({
-          where: { meeting: { share: { shortId } } },
+          where: { meetingId, isDeleted: false },
           select: {
             summary: true,
             keyPoints: true,
@@ -194,7 +200,7 @@ export async function getPublicMeetingByShortId(shortId: string) {
       ? prisma.task.findMany({
           where: {
             isDeleted: false,
-            meeting: { share: { shortId } },
+            meetingId,
           },
           select: {
             title: true,

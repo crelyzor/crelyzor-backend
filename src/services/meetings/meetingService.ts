@@ -373,28 +373,23 @@ export const meetingService = {
     const { meetingId, requesterUserId } = data;
 
     const meeting = await prisma.meeting.findFirst({
-      where: { id: meetingId, isDeleted: false },
-      select: {
-        id: true,
-        status: true,
-        createdById: true,
-        participants: { select: { userId: true, participantType: true } },
+      where: {
+        id: meetingId,
+        isDeleted: false,
+        OR: [
+          { createdById: requesterUserId },
+          {
+            participants: {
+              some: { userId: requesterUserId, participantType: "ORGANIZER" },
+            },
+          },
+        ],
       },
+      select: { id: true, status: true },
     });
 
     if (!meeting) {
       throw ErrorFactory.notFound("Meeting");
-    }
-
-    const isCreator = meeting.createdById === requesterUserId;
-    const isOrganizer = meeting.participants.some(
-      (p) => p.userId === requesterUserId && p.participantType === "ORGANIZER",
-    );
-
-    if (!isCreator && !isOrganizer) {
-      throw ErrorFactory.forbidden(
-        "Only the meeting creator can mark it as completed",
-      );
     }
 
     if (meeting.status !== MeetingStatus.CREATED) {
@@ -435,7 +430,7 @@ export const meetingService = {
     endDate?: Date;
     limit?: number;
     offset?: number;
-  }): Promise<(Meeting & { participants: MeetingParticipant[] })[]> {
+  }): Promise<{ meetings: (Meeting & { participants: MeetingParticipant[] })[]; total: number }> {
     const {
       userId,
       status,
@@ -461,13 +456,18 @@ export const meetingService = {
       };
     }
 
-    return prisma.meeting.findMany({
-      where,
-      include: meetingInclude,
-      orderBy: { createdAt: "desc" },
-      take: limit,
-      skip: offset,
-    }) as any;
+    const [meetings, total] = await Promise.all([
+      prisma.meeting.findMany({
+        where,
+        include: meetingInclude,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        skip: offset,
+      }) as any,
+      prisma.meeting.count({ where }),
+    ]);
+
+    return { meetings, total };
   },
 
   async getMeetingsWithoutPagination(params: {

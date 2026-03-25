@@ -116,7 +116,7 @@ export class MeetingController {
       const user = req.user as TokenPayload;
       const validatedData = getMeetingsSchema.parse(req.query);
 
-      const meetings = await meetingService.getMeetings({
+      const { meetings, total } = await meetingService.getMeetings({
         userId: user.userId,
         status: validatedData.status as MeetingStatus | undefined,
         type: validatedData.type as MeetingType | undefined,
@@ -133,6 +133,7 @@ export class MeetingController {
           meetings,
           pagination: {
             count: meetings.length,
+            total,
             limit: validatedData.limit,
             offset: validatedData.offset,
           },

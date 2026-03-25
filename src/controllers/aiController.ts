@@ -59,7 +59,7 @@ export const regenerateSummary = async (req: Request, res: Response) => {
   if (!meeting) throw new AppError("Meeting not found", 404);
 
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId, isDeleted: false } },
+    where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
   });
   if (!transcript) {
     throw new AppError(
@@ -68,10 +68,9 @@ export const regenerateSummary = async (req: Request, res: Response) => {
     );
   }
 
-  await Promise.all([
-    aiService.generateSummary(meetingId, transcript.fullText),
-    aiService.extractKeyPoints(meetingId, transcript.fullText),
-  ]);
+  // Run sequentially to avoid concurrent upsert race on meetingAISummary row
+  await aiService.generateSummary(meetingId, transcript.fullText);
+  await aiService.extractKeyPoints(meetingId, transcript.fullText);
 
   const updatedSummary = await prisma.meetingAISummary.findUnique({
     where: { meetingId },
@@ -101,7 +100,7 @@ export const regenerateTitle = async (req: Request, res: Response) => {
   if (!meeting) throw new AppError("Meeting not found", 404);
 
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId, isDeleted: false } },
+    where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
   });
   if (!transcript) {
     throw new AppError(

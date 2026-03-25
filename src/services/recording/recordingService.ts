@@ -250,11 +250,17 @@ export const deleteRecording = async (
     throw new AppError("Failed to delete recording file — please try again", 500);
   }
 
-  // Soft-delete the recording and mark transcript as deleted atomically
+  // Soft-delete the recording and its linked transcript atomically
   await prisma.$transaction(
     async (tx) => {
       await tx.meetingRecording.update({
         where: { id: recordingId },
+        data: { isDeleted: true, deletedAt: new Date() },
+      });
+
+      // Soft-delete the linked transcript so it is no longer returned by any query
+      await tx.meetingTranscript.updateMany({
+        where: { recordingId, isDeleted: false },
         data: { isDeleted: true, deletedAt: new Date() },
       });
     },
@@ -281,7 +287,7 @@ export const triggerAIProcessing = async (
   }
 
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
+    where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
   });
 
   if (!transcript) {
@@ -307,7 +313,7 @@ export const triggerAIProcessing = async (
       meetingId,
       error: err instanceof Error ? err.message : String(err),
     });
-    throw err;
+    throw new AppError("AI processing could not be queued — please try again", 503);
   }
 };
 

@@ -246,10 +246,15 @@ model MeetingTranscript {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
   recording MeetingRecording    @relation(fields: [recordingId], references: [id], onDelete: Cascade)
   segments  TranscriptSegment[]
 
   @@index([recordingId])
+  @@index([recordingId, isDeleted])
 }
 
 model TranscriptSegment {
@@ -350,9 +355,14 @@ model MeetingAISummary {
   generatedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
   meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
 
   @@index([meetingId])
+  @@index([meetingId, isDeleted])
 }
 
 model MeetingAIContent {
