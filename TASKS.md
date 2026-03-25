@@ -146,12 +146,44 @@ Meeting-linked tasks have `meetingId` set. Standalone tasks (Phase 3) will have 
 
 ---
 
-## Phase 2 — Online Meetings (next)
+## Phase 1.2 — Scheduling & Online Meetings ← current
 
-- [ ] Recall.ai webhook + bot deployment
-- [ ] Availability slots API
-- [ ] Public booking endpoint
-- [ ] Google Calendar sync
+Design doc: `docs/dev-notes/phase-1.2-scheduling.md`
+
+### P0 — Schema + Foundation (do first — everything else depends on it)
+
+- [ ] **Schema:** Add `UserSettings`, `EventType`, `Availability`, `AvailabilityOverride`, `Booking` models + `LocationType`/`BookingStatus` enums + `recallBotId` on `Meeting` (see design doc for full Prisma models)
+- [ ] **Migration:** Run `pnpm db:migrate --name scheduling-foundation` to create migration file + apply
+- [ ] **UserSettings on sign-up:** In auth controller, after `user.create`, auto-create `UserSettings` with defaults + auto-seed `Availability` Mon–Fri 09:00–17:00 (5 rows)
+- [ ] **UserSettings API:** `GET /settings/user` + `PATCH /settings/user` — get/update all scheduling + AI + integration settings. Zod-validated. `verifyJWT`.
+
+### P1 — Event Types + Availability
+
+- [ ] **Event types CRUD:** `GET /scheduling/event-types`, `POST /scheduling/event-types`, `PATCH /scheduling/event-types/:id`, `DELETE /scheduling/event-types/:id` (soft delete). Zod: title, slug (unique per user), duration, locationType, meetingLink (required when ONLINE), bufferBefore, bufferAfter, maxPerDay, isActive.
+- [ ] **Availability API:** `GET /scheduling/availability` — list user's weekly availability rows. `PATCH /scheduling/availability` — bulk upsert all days (array of `{ dayOfWeek, startTime, endTime }` or `{ dayOfWeek, isOff: true }`).
+- [ ] **Availability overrides API:** `POST /scheduling/availability/overrides` — mark a specific date blocked. `DELETE /scheduling/availability/overrides/:id` — unblock.
+- [ ] **Slot calculation engine:** `src/services/scheduling/slotService.ts` — given `userId`, `eventTypeId`, `date`; generates candidate slots within availability window; subtracts existing Bookings + Crelyzor Meetings + buffers + minNoticeHours; returns `{ startTime, endTime }[]` in UTC. Timezone-aware (uses `User.timezone`).
+- [ ] **Slots API:** `GET /public/scheduling/slots?userId=&eventTypeId=&date=YYYY-MM-DD` — calls slot engine. No auth. Validate userId exists + schedulingEnabled.
+- [ ] **Public scheduling profile:** `GET /public/scheduling/profile/:username` — returns user's active event types + display name. No auth. Used by booking page SSR.
+
+### P2 — Booking Creation
+
+- [ ] **Booking creation:** `POST /public/bookings` (no auth) — validate slot still available (re-run slot check), create `Booking` + `Meeting` (type: SCHEDULED) in a `prisma.$transaction`, link `Booking.meetingId`. Fire-and-forget: Google Calendar event creation (if enabled), Recall bot queuing (if ONLINE + enabled). Return booking confirmation.
+- [ ] **Booking management (host):** `GET /scheduling/bookings` — list host's bookings (filter by status, date range, pagination). `PATCH /scheduling/bookings/:id/cancel` — cancel with reason, update Meeting status. `verifyJWT`.
+- [ ] **Booking cancellation (guest):** `PATCH /public/bookings/:id/cancel` — no auth. Cancel booking + meeting. Rate-limited.
+
+### P3 — Google Calendar Integration
+
+- [ ] **Google Calendar re-auth:** Update OAuth flow to conditionally request `https://www.googleapis.com/auth/calendar` write scope (when `googleCalendarSyncEnabled` is being turned on). Store updated tokens on `OAuthAccount`.
+- [ ] **Google Calendar read sync:** In slot engine, when `UserSettings.googleCalendarSyncEnabled === true`, call `calendar.freebusy.query` for the requested date. Cache result 5 minutes (Redis). Merge returned busy intervals with Crelyzor meetings before filtering.
+- [ ] **Google Calendar write sync:** On booking confirmed, call `calendar.events.insert` (attendees, location/link, description from guest note). Store `event.id` as `Booking.googleEventId`. On booking cancelled, call `calendar.events.delete(googleEventId)`.
+
+### P4 — Recall.ai Integration
+
+- [ ] **Recall.ai settings storage:** `recallApiKey` encrypted at rest on `UserSettings`. `PATCH /settings/user` accepts/updates it.
+- [ ] **Recall.ai service:** `src/services/recall/recallService.ts` — `deployBot(meetingLink, recallApiKey)` → `POST https://api.recall.ai/v1/bots` → returns `botId`. Store `botId` on `Meeting.recallBotId`.
+- [ ] **Recall bot job:** On booking confirmed + `locationType === ONLINE` + `recallEnabled === true` → queue Bull job: `{ type: 'recall-deploy', bookingId, meetingLink, startTime }`. Worker picks it up ~5 mins before `startTime` and calls `recallService.deployBot`.
+- [ ] **Recall webhook:** `POST /webhooks/recall` — verify Recall.ai signature. On `bot.status_change` → update `Meeting` status. On audio data → stream to Deepgram (reuse `transcribeRecording`). Same AI pipeline fires after.
 
 ---
 
