@@ -12,6 +12,7 @@ const authRouter = Router();
 // Token refresh (still needed for Google OAuth sessions)
 authRouter.post(
   "/refresh-token",
+  userRateLimit(10, 15 * 60 * 1000, "auth:refresh"),
   validateRefreshToken,
   authController.refreshToken,
 );

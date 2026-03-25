@@ -184,7 +184,14 @@ export const meetingService = {
   ): Promise<Meeting> {
     const meeting = await prisma.meeting.findFirst({
       where: { id: meetingId, createdById: updatedByUserId, isDeleted: false },
-      include: { participants: true },
+      select: {
+        id: true,
+        status: true,
+        startTime: true,
+        endTime: true,
+        createdById: true,
+        participants: { select: { userId: true, participantType: true } },
+      },
     });
 
     if (!meeting) {
@@ -326,7 +333,7 @@ export const meetingService = {
 
     const meeting = await prisma.meeting.findFirst({
       where: { id: meetingId, createdById: requesterUserId, isDeleted: false },
-      include: { participants: true },
+      select: { id: true, status: true },
     });
 
     if (!meeting) {
@@ -367,7 +374,12 @@ export const meetingService = {
 
     const meeting = await prisma.meeting.findFirst({
       where: { id: meetingId, isDeleted: false },
-      include: { participants: true },
+      select: {
+        id: true,
+        status: true,
+        createdById: true,
+        participants: { select: { userId: true, participantType: true } },
+      },
     });
 
     if (!meeting) {
@@ -443,9 +455,10 @@ export const meetingService = {
     if (type) where.type = type;
 
     if (startDate || endDate) {
-      where.startTime = {};
-      if (startDate) (where.startTime as any).gte = startDate;
-      if (endDate) (where.startTime as any).lte = endDate;
+      where.startTime = {
+        ...(startDate && { gte: startDate }),
+        ...(endDate && { lte: endDate }),
+      };
     }
 
     return prisma.meeting.findMany({
@@ -478,9 +491,10 @@ export const meetingService = {
     if (type) where.type = type;
 
     if (startDate || endDate) {
-      where.startTime = {};
-      if (startDate) (where.startTime as any).gte = startDate;
-      if (endDate) (where.startTime as any).lte = endDate;
+      where.startTime = {
+        ...(startDate && { gte: startDate }),
+        ...(endDate && { lte: endDate }),
+      };
     }
 
     // Default to last 90 days if no date window is provided

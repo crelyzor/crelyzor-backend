@@ -2,6 +2,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import fs from "fs";
 import { logger } from "../logging/logger";
+import { AppError } from "../errors/AppError";
 
 const execAsync = promisify(exec);
 
@@ -19,7 +20,7 @@ export const compressAudio = async (
 ): Promise<string> => {
   try {
     if (!fs.existsSync(inputPath)) {
-      throw new Error(`Input file not found: ${inputPath}`);
+      throw new AppError(`Input file not found: ${inputPath}`, 400);
     }
 
     logger.info(`Starting audio compression`, {
@@ -35,7 +36,7 @@ export const compressAudio = async (
     await execAsync(command, { timeout: 300000 }); // 5 minute timeout
 
     if (!fs.existsSync(outputPath)) {
-      throw new Error("Compression failed: output file not created");
+      throw new AppError("Compression failed: output file not created", 500);
     }
 
     const outputSize = fs.statSync(outputPath).size;
@@ -51,9 +52,11 @@ export const compressAudio = async (
 
     return outputPath;
   } catch (error) {
-    logger.error(`Audio compression failed:`, error);
-    // If compression fails, return original file
-    logger.warn(`Falling back to original file due to compression failure`);
-    return inputPath;
+    logger.error(`Audio compression failed`, {
+      inputPath,
+      outputPath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
 };

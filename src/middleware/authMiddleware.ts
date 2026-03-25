@@ -52,9 +52,19 @@ export const verifyJWT = async (
 
     next();
   } catch (error) {
-    logger.error("JWT verification error", {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    const isExpectedJwtError =
+      error instanceof Error &&
+      (error.name === "TokenExpiredError" ||
+        error.name === "JsonWebTokenError");
+    if (isExpectedJwtError) {
+      logger.warn("JWT verification failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } else {
+      logger.error("JWT verification error", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     globalErrorHandler(error as BaseError, req, res);
   }
 };
@@ -137,12 +147,13 @@ export const validateRefreshToken = async (
 export const userRateLimit = (
   maxRequests: number = 1000,
   windowMs: number = 60 * 60 * 1000,
+  endpointKey: string = "default",
 ) => {
   const windowSeconds = Math.floor(windowMs / 1000);
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const identifier = req.user?.userId || req.ip || "anonymous";
-    const key = `ratelimit:user:${identifier}`;
+    const key = `ratelimit:${endpointKey}:${identifier}`;
 
     try {
       const redis = getRedisClient();
@@ -164,8 +175,9 @@ export const userRateLimit = (
       res.setHeader("X-RateLimit-Reset", resetTime.toISOString());
 
       if (count > maxRequests) {
+        res.setHeader("Retry-After", Math.max(ttl, 0).toString());
         return globalErrorHandler(
-          ErrorFactory.forbidden(
+          ErrorFactory.tooManyRequests(
             `Rate limit exceeded. Try again after ${resetTime.toISOString()}`,
           ),
           req,

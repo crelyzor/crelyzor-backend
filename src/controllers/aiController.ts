@@ -1,11 +1,18 @@
 import type { Request, Response } from "express";
+import { z } from "zod";
 import prisma from "../db/prismaClient";
 import { aiService } from "../services/ai/aiService";
 import { logger } from "../utils/logging/logger";
 import { AppError } from "../utils/errors/AppError";
 import { askAISchema } from "../validators/askAISchema";
 import { generateContentSchema } from "../validators/generateContentSchema";
+import { noteSchema } from "../validators/noteSchema";
 import { apiResponse } from "../utils/globalResponseHandler";
+
+const notesQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
 
 /**
  * Get AI summary for a meeting
@@ -52,7 +59,7 @@ export const regenerateSummary = async (req: Request, res: Response) => {
   if (!meeting) throw new AppError("Meeting not found", 404);
 
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
+    where: { recording: { meetingId, isDeleted: false } },
   });
   if (!transcript) {
     throw new AppError(
@@ -94,7 +101,7 @@ export const regenerateTitle = async (req: Request, res: Response) => {
   if (!meeting) throw new AppError("Meeting not found", 404);
 
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
+    where: { recording: { meetingId, isDeleted: false } },
   });
   if (!transcript) {
     throw new AppError(
@@ -132,16 +139,23 @@ export const getNotes = async (req: Request, res: Response) => {
   });
   if (!meeting) throw new AppError("Meeting not found", 404);
 
-  const notes = await prisma.meetingNote.findMany({
-    where: { meetingId, isDeleted: false },
-    orderBy: { createdAt: "desc" },
-    take: 500,
-  });
+  const parsedQuery = notesQuerySchema.safeParse(req.query);
+  const { limit, offset } = parsedQuery.success ? parsedQuery.data : { limit: 50, offset: 0 };
+
+  const [notes, total] = await Promise.all([
+    prisma.meetingNote.findMany({
+      where: { meetingId, isDeleted: false },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.meetingNote.count({ where: { meetingId, isDeleted: false } }),
+  ]);
 
   return apiResponse(res, {
     statusCode: 200,
     message: "Notes fetched",
-    data: notes,
+    data: { notes, pagination: { total, limit, offset } },
   });
 };
 
@@ -154,11 +168,6 @@ export const createNote = async (req: Request, res: Response) => {
 
   if (!userId) throw new AppError("Unauthorized", 401);
 
-  const { z } = await import("zod");
-  const noteSchema = z.object({
-    content: z.string().min(1).max(10000),
-    timestamp: z.number().optional(),
-  });
   const parsed = noteSchema.safeParse(req.body);
   if (!parsed.success)
     throw new AppError("content is required (max 10000 chars)", 400);

@@ -30,12 +30,12 @@ export interface RecordingResponse {
   id: string;
   meetingId: string;
   fileName: string;
-  gcsPath: string;
   fileSize: number;
   duration: number;
   uploadedAt: Date;
   uploadedBy: string;
   signedUrl?: string;
+  signedUrlError?: boolean;
 }
 
 /**
@@ -154,7 +154,6 @@ export const uploadRecording = async (
     id: recording.id,
     meetingId: recording.meetingId,
     fileName: recording.fileName,
-    gcsPath: recording.gcsPath,
     fileSize: recording.fileSize,
     duration: recording.duration,
     uploadedAt: recording.uploadedAt,
@@ -183,15 +182,18 @@ export const getRecordings = async (
   const recordings = await prisma.meetingRecording.findMany({
     where: { meetingId, isDeleted: false },
     orderBy: { uploadedAt: "desc" },
+    take: 20,
   });
 
   // Generate signed URLs for each recording
   const recordingsWithUrls = await Promise.all(
     recordings.map(async (recording: MeetingRecording) => {
       let signedUrl: string | undefined;
+      let signedUrlError: boolean | undefined;
       try {
         signedUrl = await gcsService.getSignedUrl(recording.gcsPath);
       } catch (err) {
+        signedUrlError = true;
         logger.warn(
           `Failed to generate signed URL for recording ${recording.id}`,
           {
@@ -204,12 +206,12 @@ export const getRecordings = async (
         id: recording.id,
         meetingId: recording.meetingId,
         fileName: recording.fileName,
-        gcsPath: recording.gcsPath,
         fileSize: recording.fileSize,
         duration: recording.duration,
         uploadedAt: recording.uploadedAt,
         uploadedBy: recording.uploadedBy,
         signedUrl,
+        signedUrlError,
       };
     }),
   );
@@ -225,7 +227,7 @@ export const deleteRecording = async (
   userId: string,
 ): Promise<void> => {
   const recording = await prisma.meetingRecording.findFirst({
-    where: { id: recordingId },
+    where: { id: recordingId, isDeleted: false },
     include: { meeting: { select: { createdById: true, isDeleted: true } } },
   });
 

@@ -139,7 +139,7 @@ class AuthService {
       await tx.session.deleteMany({
         where: { userId },
       });
-    });
+    }, { timeout: 15000 });
 
     return { message: "Account deactivated successfully" };
   }

@@ -81,6 +81,12 @@ export class InternalServerError extends BaseError {
   }
 }
 
+export class TooManyRequestsError extends BaseError {
+  constructor(message = "Too many requests — please try again later") {
+    super(429, "TOO_MANY_REQUESTS", message);
+  }
+}
+
 export const isBaseError = (error: unknown): error is BaseError => {
   return error instanceof BaseError;
 };
@@ -96,6 +102,7 @@ export const handleError = (error: unknown, res: Response): void => {
 export const ErrorFactory = {
   unauthorized: (message?: string) => new UnauthorizedError(message),
   forbidden: (message?: string) => new ForbiddenError(message),
+  tooManyRequests: (message?: string) => new TooManyRequestsError(message),
   validation: (errOrMsg: ZodError | string, msg?: string) =>
     typeof errOrMsg === "string"
       ? new ValidationError(errOrMsg)

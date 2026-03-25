@@ -60,7 +60,10 @@ Provide a summary in 2-3 paragraphs.`;
     temperature: 0.3,
   });
 
-  const summary = response.choices[0]?.message?.content || "";
+  const summary = response.choices[0]?.message?.content?.trim() ?? "";
+  if (!summary) {
+    throw new AppError("OpenAI returned empty summary content", 502);
+  }
 
   // Save summary to database
   await prisma.meetingAISummary.upsert({
@@ -116,13 +119,17 @@ Return ONLY a JSON array, no other text.`;
     temperature: 0.3,
   });
 
-  const content = response.choices[0]?.message?.content || "[]";
+  const rawKeyPointsContent = response.choices[0]?.message?.content?.trim();
+  if (!rawKeyPointsContent) {
+    throw new AppError("OpenAI returned empty key points content", 502);
+  }
+  const content = rawKeyPointsContent;
 
   let keyPoints: string[];
   try {
     keyPoints = JSON.parse(stripMarkdownJson(content));
   } catch {
-    logger.error("Failed to parse key points JSON");
+    logger.error("Failed to parse key points JSON", { rawContent: content.slice(0, 200) });
     return [];
   }
 
@@ -190,7 +197,11 @@ Return ONLY a JSON array, no other text.`;
     temperature: 0.3,
   });
 
-  const content = response.choices[0]?.message?.content || "[]";
+  const rawTasksContent = response.choices[0]?.message?.content?.trim();
+  if (!rawTasksContent) {
+    throw new AppError("OpenAI returned empty tasks content", 502);
+  }
+  const content = rawTasksContent;
 
   let rawTasks: Array<{
     title: string;
@@ -200,7 +211,7 @@ Return ONLY a JSON array, no other text.`;
   try {
     rawTasks = JSON.parse(stripMarkdownJson(content));
   } catch {
-    logger.error("Failed to parse tasks JSON");
+    logger.error("Failed to parse tasks JSON", { rawContent: content.slice(0, 200) });
     return [];
   }
 
@@ -302,7 +313,7 @@ export const processTranscriptWithAI = async (
   userId: string,
 ): Promise<AIProcessingResult> => {
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
+    where: { recording: { meetingId, isDeleted: false } },
   });
 
   if (!transcript) {
@@ -389,7 +400,7 @@ export const askAI = async (
 
   // Fetch transcript with segments (capped to avoid loading megabytes for long meetings)
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
+    where: { recording: { meetingId, isDeleted: false } },
     include: {
       segments: { orderBy: { startTime: "asc" }, take: 500 },
     },

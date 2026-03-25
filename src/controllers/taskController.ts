@@ -1,15 +1,19 @@
 import type { Request, Response } from "express";
+import { z } from "zod";
 import prisma from "../db/prismaClient";
 import { logger } from "../utils/logging/logger";
 import { apiResponse } from "../utils/globalResponseHandler";
 import { AppError } from "../utils/errors/AppError";
 import { createTaskSchema, updateTaskSchema } from "../validators/taskSchema";
 
+const uuidSchema = z.string().uuid();
+
 /**
  * GET /sma/meetings/:meetingId/tasks
  */
 export const getTasks = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user!.userId;
 
   const meeting = await prisma.meeting.findFirst({
@@ -38,6 +42,7 @@ export const getTasks = async (req: Request, res: Response) => {
  */
 export const createTask = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user!.userId;
 
   const validated = createTaskSchema.safeParse(req.body);
@@ -82,6 +87,7 @@ export const createTask = async (req: Request, res: Response) => {
  */
 export const updateTask = async (req: Request, res: Response) => {
   const taskId = req.params.taskId as string;
+  if (!uuidSchema.safeParse(taskId).success) throw new AppError("Invalid taskId", 400);
   const userId = req.user!.userId;
 
   const validated = updateTaskSchema.safeParse(req.body);
@@ -133,6 +139,7 @@ export const updateTask = async (req: Request, res: Response) => {
  */
 export const deleteTask = async (req: Request, res: Response) => {
   const taskId = req.params.taskId as string;
+  if (!uuidSchema.safeParse(taskId).success) throw new AppError("Invalid taskId", 400);
   const userId = req.user!.userId;
 
   const existing = await prisma.task.findFirst({

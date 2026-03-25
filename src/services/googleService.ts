@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { AppError } from "../utils/errors/AppError";
 
 const LOGIN_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
@@ -28,14 +29,28 @@ export const googleService = {
   async handleLoginCallback(code: string) {
     const redirectUri = `${process.env.BASE_URL}/auth/google/login/callback`;
     const client = getOAuthClient(redirectUri);
-    const { tokens } = await client.getToken(code);
+
+    let tokens: import("googleapis").Auth.Credentials;
+    try {
+      const result = await client.getToken(code);
+      tokens = result.tokens;
+    } catch (err) {
+      throw new AppError("Failed to exchange Google OAuth code", 502);
+    }
+
     client.setCredentials(tokens);
 
     const oauth2 = google.oauth2({ auth: client, version: "v2" });
-    const { data } = await oauth2.userinfo.get();
+    let data: Record<string, string | null | undefined>;
+    try {
+      const result = await oauth2.userinfo.get();
+      data = result.data as Record<string, string | null | undefined>;
+    } catch (err) {
+      throw new AppError("Failed to fetch Google user info", 502);
+    }
 
     if (!data.email || !data.id)
-      throw new Error("Failed to fetch Google user info");
+      throw new AppError("Google user info missing required fields", 502);
 
     return {
       email: data.email,

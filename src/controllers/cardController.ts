@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { z } from "zod";
 import { cardService } from "../services/cardService";
 import { apiResponse } from "../utils/globalResponseHandler";
 import {
@@ -258,7 +259,10 @@ export const cardController = {
       if (!userId) throw ErrorFactory.unauthorized();
 
       const { cardId } = req.query;
-      const csv = await cardService.exportContacts(userId, cardId as string);
+      if (cardId !== undefined && !z.string().uuid().safeParse(cardId).success) {
+        throw ErrorFactory.validation("Invalid cardId");
+      }
+      const csv = await cardService.exportContacts(userId, cardId as string | undefined);
 
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", "attachment; filename=contacts.csv");

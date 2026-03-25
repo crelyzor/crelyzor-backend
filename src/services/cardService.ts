@@ -250,6 +250,50 @@ export const cardService = {
       }
     }
 
+    // Regenerate HTML before transaction to avoid async I/O inside tx
+    const contentFields = [
+      "displayName",
+      "title",
+      "bio",
+      "avatarUrl",
+      "links",
+      "contactFields",
+      "theme",
+      "templateId",
+      "showQr",
+      "slug",
+    ];
+    const needsRegen = contentFields.some(
+      (f) => (data as Record<string, unknown>)[f] !== undefined,
+    );
+
+    let htmlContent: string | undefined;
+    let htmlBackContent: string | undefined;
+
+    if (needsRegen) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { username: true },
+      });
+      const username = user?.username ?? "user";
+      const effectiveSlug = data.slug ?? card.slug;
+      const effectiveIsDefault = data.isDefault ?? card.isDefault;
+      const templateId = ((data.templateId ?? card.templateId) || "executive") as TemplateId;
+      const publicUrl = buildPublicUrl(username, effectiveSlug, effectiveIsDefault);
+      const mergedCard = {
+        displayName: data.displayName ?? card.displayName,
+        title: data.title ?? card.title,
+        bio: data.bio ?? card.bio,
+        avatarUrl: data.avatarUrl ?? card.avatarUrl,
+        links: data.links ?? card.links,
+        contactFields: data.contactFields ?? card.contactFields,
+        theme: data.theme ?? card.theme,
+        showQr: data.showQr ?? card.showQr,
+      };
+      const templateData = buildTemplateData(mergedCard as Parameters<typeof buildTemplateData>[0], publicUrl);
+      ({ htmlContent, htmlBackContent } = await renderCardHtml(templateId, templateData));
+    }
+
     return prisma.$transaction(
       async (tx) => {
         // If setting as default, unset others
@@ -260,13 +304,11 @@ export const cardService = {
           });
         }
 
-        const updatedCard = await tx.card.update({
+        return tx.card.update({
           where: { id: cardId },
           data: {
             ...(data.slug !== undefined && { slug: data.slug }),
-            ...(data.displayName !== undefined && {
-              displayName: data.displayName,
-            }),
+            ...(data.displayName !== undefined && { displayName: data.displayName }),
             ...(data.title !== undefined && { title: data.title }),
             ...(data.bio !== undefined && { bio: data.bio }),
             ...(data.avatarUrl !== undefined && { avatarUrl: data.avatarUrl }),
@@ -275,70 +317,21 @@ export const cardService = {
               links: data.links as unknown as Prisma.InputJsonValue,
             }),
             ...(data.contactFields !== undefined && {
-              contactFields:
-                data.contactFields as unknown as Prisma.InputJsonValue,
+              contactFields: data.contactFields as unknown as Prisma.InputJsonValue,
             }),
             ...(data.theme !== undefined && {
               theme: data.theme as unknown as Prisma.InputJsonValue,
             }),
-            ...(data.templateId !== undefined && {
-              templateId: data.templateId,
-            }),
+            ...(data.templateId !== undefined && { templateId: data.templateId }),
             ...(data.showQr !== undefined && { showQr: data.showQr }),
             ...(data.isDefault !== undefined && { isDefault: data.isDefault }),
             ...(data.isActive !== undefined && { isActive: data.isActive }),
+            ...(htmlContent !== undefined && { htmlContent, htmlBackContent }),
           },
           include: {
             _count: { select: { contacts: true, views: true } },
           },
         });
-
-        // Regenerate HTML if any content field changed
-        const contentFields = [
-          "displayName",
-          "title",
-          "bio",
-          "avatarUrl",
-          "links",
-          "contactFields",
-          "theme",
-          "templateId",
-          "showQr",
-          "slug",
-        ];
-        const needsRegen = contentFields.some(
-          (f) => (data as Record<string, unknown>)[f] !== undefined,
-        );
-
-        if (needsRegen) {
-          const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { username: true },
-          });
-          const username = user?.username ?? "user";
-          const templateId = (updatedCard.templateId ||
-            "executive") as TemplateId;
-          const publicUrl = buildPublicUrl(
-            username,
-            updatedCard.slug,
-            updatedCard.isDefault,
-          );
-          const templateData = buildTemplateData(updatedCard, publicUrl);
-          const { htmlContent, htmlBackContent } = await renderCardHtml(
-            templateId,
-            templateData,
-          );
-
-          return tx.card.update({
-            where: { id: cardId },
-            data: { htmlContent, htmlBackContent },
-            include: {
-              _count: { select: { contacts: true, views: true } },
-            },
-          });
-        }
-
-        return updatedCard;
       },
       { timeout: 15000 },
     );
@@ -446,39 +439,35 @@ export const cardService = {
    * Get a public card by username + optional slug
    */
   async getPublicCard(username: string, slug?: string) {
+    const cardWhere = slug
+      ? { slug, isActive: true, isDeleted: false }
+      : { isActive: true, isDeleted: false };
+
     const user = await prisma.user.findUnique({
       where: { username },
-      select: { id: true, name: true, username: true, avatarUrl: true },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        avatarUrl: true,
+        cards: {
+          where: cardWhere,
+          orderBy: slug ? undefined : [{ isDefault: "desc" as const }, { createdAt: "asc" as const }],
+          take: 1,
+        },
+      },
     });
 
     if (!user) {
       throw ErrorFactory.notFound("User not found");
     }
 
-    let card;
-    if (slug) {
-      card = await prisma.card.findFirst({
-        where: { userId: user.id, slug, isActive: true, isDeleted: false },
-      });
-    } else {
-      // Get default card
-      card = await prisma.card.findFirst({
-        where: { userId: user.id, isDefault: true, isActive: true, isDeleted: false },
-      });
-      // Fallback to any active card
-      if (!card) {
-        card = await prisma.card.findFirst({
-          where: { userId: user.id, isActive: true, isDeleted: false },
-          orderBy: { createdAt: "asc" },
-        });
-      }
-    }
+    const card = user.cards[0];
 
-    if (!card || !card.isActive) {
+    if (!card) {
       throw ErrorFactory.notFound("Card not found");
     }
 
-    // Omit internal fields from the public response
     const {
       userId: _userId,
       isDefault: _isDefault,
@@ -489,7 +478,10 @@ export const cardService = {
       updatedAt: _updatedAt,
       ...publicCard
     } = card;
-    return { user, card: publicCard };
+    return {
+      user: { id: user.id, name: user.name, username: user.username, avatarUrl: user.avatarUrl },
+      card: publicCard,
+    };
   },
 
   /**
