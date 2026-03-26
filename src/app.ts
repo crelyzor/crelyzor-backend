@@ -5,11 +5,17 @@ import cors from "cors";
 import { corsOptions } from "./utils/security/corsOptions";
 import { logger } from "./utils/logging/logger";
 import { apiResponse } from "./utils/globalResponseHandler";
+import recallWebhookRouter from "./routes/recallWebhookRoutes";
 
 // Note: dotenv.config() is called in index.ts before app.ts is imported
 const app = express();
 
 app.use(cors(corsOptions));
+
+// Webhook routes are registered BEFORE express.json() — each webhook route
+// provides its own scoped express.json({ verify }) to capture rawBody only
+// for the routes that need HMAC signature verification.
+app.use("/webhooks", recallWebhookRouter);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));

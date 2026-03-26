@@ -1,13 +1,22 @@
 import {
   getTranscriptionQueue,
   getAIProcessingQueue,
+  getRecallBotQueue,
+  getRecallRecordingQueue,
   closeQueues,
+  JobNames,
   TranscriptionJobData,
   AIProcessingJobData,
+  RecallBotJobData,
+  RecallRecordingJobData,
 } from "../config/queue";
 import { transcriptionService } from "../services/transcription/transcriptionService";
 import { aiService } from "../services/ai/aiService";
+import { deployBot, getRecordingUrl } from "../services/recall/recallService";
+import { gcsService } from "../services/gcs/gcsService";
 import { logger } from "../utils/logging/logger";
+import { decrypt } from "../utils/encryption";
+import { TranscriptionStatus } from "@prisma/client";
 import prisma from "../db/prismaClient";
 
 /**
@@ -82,6 +91,138 @@ export const startWorker = async (): Promise<void> => {
       });
       throw error;
     }
+  });
+
+  // Recall bot deployment processor
+  const recallBotQueue = getRecallBotQueue();
+  recallBotQueue.process(JobNames.DEPLOY_RECALL_BOT, async (job) => {
+    const data = job.data as RecallBotJobData;
+    logger.info("Processing Recall bot deploy job", { meetingId: data.meetingId });
+
+    // Fetch meeting + host settings — both must exist for deployment to proceed
+    const [meeting, userSettings] = await Promise.all([
+      prisma.meeting.findFirst({
+        where: { id: data.meetingId, isDeleted: false },
+        select: {
+          id: true,
+          booking: {
+            select: {
+              eventType: {
+                select: { meetingLink: true },
+              },
+            },
+          },
+        },
+      }),
+      prisma.userSettings.findUnique({
+        where: { userId: data.hostUserId },
+        select: { recallApiKey: true, recallEnabled: true },
+      }),
+    ]);
+
+    if (!meeting) {
+      throw new Error(`Meeting ${data.meetingId} not found — skipping bot deploy`);
+    }
+    const meetingLink = meeting.booking?.eventType?.meetingLink;
+    if (!meetingLink) {
+      throw new Error(`Meeting ${data.meetingId} has no meetingLink — cannot deploy bot`);
+    }
+    if (!userSettings?.recallEnabled || !userSettings.recallApiKey) {
+      logger.warn("Recall not enabled or API key missing — skipping bot deploy", {
+        meetingId: data.meetingId,
+        hostUserId: data.hostUserId,
+      });
+      return { skipped: true };
+    }
+
+    // Decrypt API key — local variable, never logged or persisted
+    const recallApiKey = decrypt(userSettings.recallApiKey);
+
+    const { botId } = await deployBot(meetingLink, recallApiKey);
+
+    // Store botId on the meeting for webhook correlation
+    await prisma.meeting.update({
+      where: { id: data.meetingId },
+      data: { recallBotId: botId },
+    });
+
+    logger.info("Recall bot deployed", { meetingId: data.meetingId, botId });
+    return { success: true, botId };
+  });
+
+  // Recall recording download + transcription pipeline processor
+  const recallRecordingQueue = getRecallRecordingQueue();
+  recallRecordingQueue.process(JobNames.FETCH_RECALL_RECORDING, async (job) => {
+    const data = job.data as RecallRecordingJobData;
+    logger.info("Processing Recall recording fetch job", { meetingId: data.meetingId, botId: data.botId });
+
+    const userSettings = await prisma.userSettings.findUnique({
+      where: { userId: data.hostUserId },
+      select: { recallApiKey: true },
+    });
+
+    if (!userSettings?.recallApiKey) {
+      throw new Error(`No Recall API key for user ${data.hostUserId}`);
+    }
+
+    // Decrypt key — local variable only
+    const recallApiKey = decrypt(userSettings.recallApiKey);
+
+    // Fetch recording download URL from Recall.ai
+    const downloadUrl = await getRecordingUrl(data.botId, recallApiKey);
+
+    // Download the recording bytes
+    const response = await fetch(downloadUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download Recall recording: HTTP ${response.status}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Upload to GCS under the meeting's recordings folder
+    const uploadResult = await gcsService.uploadFile(
+      buffer,
+      `recall-${data.botId}.mp4`,
+      `recordings/${data.meetingId}`,
+      "video/mp4",
+    );
+
+    // Create MeetingRecording and set transcription status atomically
+    const recording = await prisma.$transaction(
+      async (tx) => {
+        const rec = await tx.meetingRecording.create({
+          data: {
+            meetingId: data.meetingId,
+            fileName: uploadResult.fileName,
+            gcsPath: uploadResult.filePath,
+            fileSize: buffer.length,
+            duration: 0, // duration unknown at this stage — will be updated after transcription
+            uploadedBy: data.hostUserId,
+          },
+        });
+
+        await tx.meeting.update({
+          where: { id: data.meetingId },
+          data: { transcriptionStatus: TranscriptionStatus.UPLOADED },
+        });
+
+        return rec;
+      },
+      { timeout: 15000 },
+    );
+
+    // Queue transcription job — same pipeline as manual upload
+    await getTranscriptionQueue().add(
+      JobNames.TRANSCRIBE,
+      { recordingId: recording.id, meetingId: data.meetingId },
+      { jobId: `transcribe-${recording.id}` },
+    );
+
+    logger.info("Recall recording uploaded and transcription queued", {
+      meetingId: data.meetingId,
+      recordingId: recording.id,
+    });
+    return { success: true, recordingId: recording.id };
   });
 
   logger.info("Queue worker started successfully");

@@ -245,6 +245,24 @@ export const getAIProcessingQueue = (): Bull.Queue<AIProcessingJobData> => {
   return aiProcessingQueue;
 };
 
+export const getRecallBotQueue = (): Bull.Queue<RecallBotJobData> => {
+  if (!recallBotQueue) {
+    throw new Error(
+      "Recall Bot queue not initialized. Call initializeQueues() first.",
+    );
+  }
+  return recallBotQueue;
+};
+
+export const getRecallRecordingQueue = (): Bull.Queue<RecallRecordingJobData> => {
+  if (!recallRecordingQueue) {
+    throw new Error(
+      "Recall Recording queue not initialized. Call initializeQueues() first.",
+    );
+  }
+  return recallRecordingQueue;
+};
+
 // Cleanup function for graceful shutdown
 export const closeQueues = async (): Promise<void> => {
   try {
@@ -257,6 +275,14 @@ export const closeQueues = async (): Promise<void> => {
     if (aiProcessingQueue) {
       closePromises.push(aiProcessingQueue.close());
       aiProcessingQueue = null;
+    }
+    if (recallBotQueue) {
+      closePromises.push(recallBotQueue.close());
+      recallBotQueue = null;
+    }
+    if (recallRecordingQueue) {
+      closePromises.push(recallRecordingQueue.close());
+      recallRecordingQueue = null;
     }
 
     await Promise.all(closePromises);

@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-03-26 (Phase 1.2 P3 complete — Google Calendar re-auth + read sync + write sync done)
+Last updated: 2026-03-26 (Phase 1.2 P4 complete — Recall.ai integration: encryption, service, bot job queue, webhook)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -180,10 +180,18 @@ Design doc: `docs/dev-notes/phase-1.2-scheduling.md`
 
 ### P4 — Recall.ai Integration
 
-- [ ] **Recall.ai settings storage:** `recallApiKey` encrypted at rest on `UserSettings`. `PATCH /settings/user` accepts/updates it.
-- [ ] **Recall.ai service:** `src/services/recall/recallService.ts` — `deployBot(meetingLink, recallApiKey)` → `POST https://api.recall.ai/v1/bots` → returns `botId`. Store `botId` on `Meeting.recallBotId`.
-- [ ] **Recall bot job:** On booking confirmed + `locationType === ONLINE` + `recallEnabled === true` → queue Bull job: `{ type: 'recall-deploy', bookingId, meetingLink, startTime }`. Worker picks it up ~5 mins before `startTime` and calls `recallService.deployBot`.
-- [ ] **Recall webhook:** `POST /webhooks/recall` — verify Recall.ai signature. On `bot.status_change` → update `Meeting` status. On audio data → stream to Deepgram (reuse `transcribeRecording`). Same AI pipeline fires after.
+- [x] **Recall.ai settings storage:** `recallApiKey` AES-256-GCM encrypted at rest. `PUT /settings/recall-api-key` saves it. `PATCH /settings/user { recallEnabled }` guarded — 400 if key not saved.
+- [x] **Recall.ai service:** `src/services/recall/recallService.ts` — `deployBot(meetingLink, recallApiKey)` + `getRecordingUrl(botId, recallApiKey)`. Uses `Authorization: Token <key>` (not Bearer).
+- [x] **Recall bot job:** On booking confirmed + `recallEnabled === true` → Bull delayed job fires 5 min before startTime. Worker decrypts key at runtime, calls deployBot, stores botId on Meeting.
+- [x] **Recall webhook:** `POST /webhooks/recall` — HMAC-SHA256 signature verification, scoped rawBody capture, rate-limited. On `done` status → queue recall-recording job → download + upload to GCS → transcription pipeline.
+
+---
+
+## Phase 2 — Standalone Tasks
+
+- [ ] Standalone tasks API — `GET /tasks` (all tasks, not scoped to a meeting), with filter/sort/pagination
+- [ ] Tag junction for Tasks (`TaskTag` — extends universal Tag system)
+- [ ] Due date + priority support (model already has the fields, just needs API + UI)
 
 ---
 
@@ -191,11 +199,3 @@ Design doc: `docs/dev-notes/phase-1.2-scheduling.md`
 
 - [ ] Vector embeddings pipeline
 - [ ] RAG query endpoint (global Ask AI)
-
----
-
-## Phase 4 — Standalone Tasks
-
-- [ ] Standalone tasks API — `GET /tasks` (all tasks, not scoped to a meeting), with filter/sort/pagination
-- [ ] Tag junction for Tasks (`TaskTag` — extends universal Tag system)
-- [ ] Due date + priority support (model already has the fields, just needs API + UI)

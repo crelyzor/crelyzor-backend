@@ -39,7 +39,7 @@ async function getAuthedCalendarClient(
   requireWriteScope: boolean,
 ): Promise<AuthedCalendarClient> {
   const oauthAccount = await prisma.oAuthAccount.findFirst({
-    where: { userId, provider: "GOOGLE", isDeleted: false },
+    where: { userId, provider: "GOOGLE" },
     select: {
       providerId: true,
       accessToken: true,

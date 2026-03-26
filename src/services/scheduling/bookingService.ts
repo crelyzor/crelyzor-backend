@@ -7,6 +7,7 @@ import {
   insertCalendarEvent,
   deleteCalendarEvent,
 } from "../googleCalendarService";
+import { getRecallBotQueue, JobNames } from "../../config/queue";
 
 // ── Timezone helpers (duplicated from slotService — small enough to avoid premature abstraction) ──
 
@@ -124,6 +125,7 @@ export async function createBooking(data: CreateBookingInput) {
             schedulingEnabled: true,
             minNoticeHours: true,
             maxWindowDays: true,
+            recallEnabled: true,
           },
         });
         if (!settings?.schedulingEnabled) {
@@ -329,10 +331,12 @@ export async function createBooking(data: CreateBookingInput) {
           select: BOOKING_SELECT,
         });
 
-        // Return the booking + event type summary together so both are
-        // available in the outer scope for the response shape
+        // Return the booking + event type summary + recall settings so all are
+        // available in the outer scope for GCal sync and Recall bot queueing
         return {
           booking,
+          meetingId: meeting.id,
+          recallEnabled: settings.recallEnabled ?? false,
           eventTypeSummary: {
             title: eventType.title,
             duration: eventType.duration,
@@ -387,6 +391,39 @@ export async function createBooking(data: CreateBookingInput) {
       where: { id: result.booking.id },
       data: { googleEventId: gcalEventId },
     });
+  }
+
+  // Recall.ai bot deployment — queue a delayed job to fire ~5 min before meeting start.
+  // Fail-open: booking is already confirmed, so a queueing failure must not break the response.
+  if (result.recallEnabled) {
+    const deployAt = startTime.getTime() - 5 * 60 * 1000;
+    const delay = deployAt - Date.now();
+
+    if (delay <= 0) {
+      // Meeting starts in less than 5 minutes (or is past) — skip bot deployment
+      logger.warn("Recall bot deployment skipped: meeting start too close or past", {
+        bookingId: result.booking.id,
+        meetingId: result.meetingId,
+        startTime: startTime.toISOString(),
+      });
+    } else {
+      try {
+        await getRecallBotQueue().add(
+          JobNames.DEPLOY_RECALL_BOT,
+          { meetingId: result.meetingId, hostUserId: user.id },
+          { delay },
+        );
+        logger.info("Recall bot deployment queued", {
+          meetingId: result.meetingId,
+          deployInMs: delay,
+        });
+      } catch (recallErr) {
+        logger.error("Failed to queue Recall bot deployment (non-critical)", {
+          meetingId: result.meetingId,
+          error: recallErr instanceof Error ? recallErr.message : String(recallErr),
+        });
+      }
+    }
   }
 
   // meetingLink intentionally omitted from response — sent to guest via confirmation email only.
