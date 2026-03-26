@@ -3,6 +3,7 @@ import prisma from "../../db/prismaClient";
 import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
 import type { ListBookingsFilters } from "../../validators/bookingManagementSchema";
+import { deleteCalendarEvent } from "../googleCalendarService";
 
 // Fields returned for each booking in the list
 const BOOKING_LIST_SELECT = {
@@ -97,7 +98,8 @@ export async function cancelBooking(
   // Ownership check: booking must belong to this host
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, userId, isDeleted: false },
-    select: { id: true, status: true, meetingId: true },
+    // googleEventId used internally for GCal cleanup — never returned in response
+    select: { id: true, status: true, meetingId: true, googleEventId: true },
   });
 
   if (!booking) throw new AppError("Booking not found", 404);
@@ -134,6 +136,11 @@ export async function cancelBooking(
   );
 
   logger.info("Booking cancelled by host", { bookingId, userId });
+
+  // Google Calendar write sync — fail-open: booking is already cancelled in DB.
+  // GCal call is outside the transaction to avoid DB lock inflation and to
+  // ensure a GCal failure does not roll back the confirmed cancellation.
+  await deleteCalendarEvent(userId, booking.googleEventId);
 
   // Return updated state so the controller can confirm to the caller without a second query
   return prisma.booking.findUnique({

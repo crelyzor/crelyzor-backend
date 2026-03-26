@@ -44,6 +44,83 @@ export const googleController = {
     }
   },
 
+  // ── Calendar connect ──
+
+  /**
+   * POST /auth/google/calendar/connect
+   * Authenticated (verifyJWT). Returns the Google OAuth URL for calendar scope.
+   * Frontend calls this via fetch (with Authorization header), then navigates to the URL.
+   * This avoids passing the JWT as a query parameter in a browser redirect.
+   */
+  async getCalendarConnectUrl(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const { redirectUrl } = req.body as { redirectUrl?: string };
+
+      if (!redirectUrl) {
+        throw ErrorFactory.validation("redirectUrl is required");
+      }
+      if (!isAllowedRedirectUrl(redirectUrl)) {
+        throw ErrorFactory.validation("redirectUrl must be a trusted origin");
+      }
+
+      const url = googleService.getCalendarConnectUrl(redirectUrl, userId);
+      res.json({ url });
+    } catch (error) {
+      globalErrorHandler(error as BaseError, req, res);
+    }
+  },
+
+  async handleCalendarConnectCallback(
+    req: Request,
+    res: Response,
+  ): Promise<void> {
+    const { code, state, error } = req.query;
+
+    // Extract redirectUrl from state before signature verification so we can
+    // always redirect back to the frontend — even on error or denial.
+    const fallbackRedirect =
+      (process.env.ALLOWED_ORIGINS?.split(",")[0]?.trim() ??
+        "http://localhost:5173") + "/settings?tab=integrations";
+
+    let redirectUrl = fallbackRedirect;
+    try {
+      const parsed = JSON.parse(String(state ?? "{}"));
+      if (
+        parsed.redirectUrl &&
+        typeof parsed.redirectUrl === "string" &&
+        isAllowedRedirectUrl(parsed.redirectUrl)
+      ) {
+        redirectUrl = parsed.redirectUrl;
+      }
+    } catch {
+      // Use fallback — state is malformed
+    }
+
+    const sep = redirectUrl.includes("?") ? "&" : "?";
+
+    // User denied calendar permission — redirect back cleanly
+    if (error === "access_denied") {
+      res.redirect(`${redirectUrl}${sep}calendarConnected=false`);
+      return;
+    }
+
+    if (!code || !state) {
+      res.redirect(`${redirectUrl}${sep}error=calendar_connect_failed`);
+      return;
+    }
+
+    try {
+      await googleService.handleCalendarConnectCallback(
+        String(code),
+        String(state),
+      );
+      res.redirect(`${redirectUrl}${sep}calendarConnected=true`);
+    } catch {
+      res.redirect(`${redirectUrl}${sep}error=calendar_connect_failed`);
+    }
+  },
+
   async handleGoogleLoginCallback(req: Request, res: Response): Promise<void> {
     try {
       const { code, state } = req.query;

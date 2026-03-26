@@ -66,6 +66,10 @@ export const guestCancelParamSchema = z.object({
  */
 export const guestCancelBodySchema = z
   .object({
-    reason: z.string().max(500).optional(),
+    reason: z
+      .string()
+      .max(500)
+      .transform((val) => val.replace(/<[^>]*>/g, "").trim())
+      .optional(),
   })
   .strict();

@@ -3,6 +3,10 @@ import prisma from "../../db/prismaClient";
 import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
 import type { CreateBookingInput } from "../../validators/bookingSchema";
+import {
+  insertCalendarEvent,
+  deleteCalendarEvent,
+} from "../googleCalendarService";
 
 // ── Timezone helpers (duplicated from slotService — small enough to avoid premature abstraction) ──
 
@@ -142,7 +146,7 @@ export async function createBooking(data: CreateBookingInput) {
             bufferBefore: true,
             bufferAfter: true,
             maxPerDay: true,
-            // meetingLink intentionally omitted — sent via confirmation email only
+            meetingLink: true, // needed for Google Calendar event location field
           },
         });
         if (!eventType) throw new AppError("Event type not found", 404);
@@ -333,6 +337,7 @@ export async function createBooking(data: CreateBookingInput) {
             title: eventType.title,
             duration: eventType.duration,
             locationType: eventType.locationType,
+            meetingLink: eventType.meetingLink,
           },
         };
       },
@@ -360,7 +365,31 @@ export async function createBooking(data: CreateBookingInput) {
     startTime: startTime.toISOString(),
   });
 
-  // meetingLink intentionally omitted — sent to guest via confirmation email only.
+  // Google Calendar write sync — fail-open: booking is already confirmed.
+  // GCal call is intentionally outside the transaction to avoid holding DB locks
+  // during external API round-trips and to prevent GCal failures from rolling
+  // back a successfully created booking.
+  const gcalEventId = await insertCalendarEvent(user.id, {
+    bookingId: result.booking.id,
+    startTime,
+    endTime: new Date(startTime.getTime() + result.eventTypeSummary.duration * 60 * 1000),
+    guestTimezone: data.guestTimezone,
+    guestName: data.guestName,
+    guestEmail: data.guestEmail,
+    guestNote: data.guestNote,
+    eventTypeTitle: result.eventTypeSummary.title,
+    locationType: result.eventTypeSummary.locationType,
+    meetingLink: result.eventTypeSummary.meetingLink,
+    hostName: user.name,
+  });
+  if (gcalEventId) {
+    await prisma.booking.update({
+      where: { id: result.booking.id },
+      data: { googleEventId: gcalEventId },
+    });
+  }
+
+  // meetingLink intentionally omitted from response — sent to guest via confirmation email only.
   // This prevents unauthenticated callers from scraping private video conference links.
   return {
     booking: {
@@ -396,7 +425,9 @@ export async function cancelBookingAsGuest(
 ) {
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, isDeleted: false },
-    select: { id: true, status: true, meetingId: true },
+    // userId and googleEventId are used internally for GCal cleanup only —
+    // neither field appears in the response shape (GUEST_CANCEL_SELECT)
+    select: { id: true, status: true, meetingId: true, userId: true, googleEventId: true },
   });
 
   if (!booking) throw new AppError("Booking not found", 404);
@@ -434,6 +465,11 @@ export async function cancelBookingAsGuest(
   );
 
   logger.info("Booking cancelled by guest", { bookingId });
+
+  // Google Calendar write sync — fail-open: booking is already cancelled in DB.
+  // GCal call is outside the transaction to avoid DB lock inflation and to
+  // ensure a GCal failure does not roll back the confirmed cancellation.
+  await deleteCalendarEvent(booking.userId, booking.googleEventId);
 
   return cancelled;
 }

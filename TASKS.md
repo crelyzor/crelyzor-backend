@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-03-26 (Phase 1.2 P2 complete — booking creation + host management + guest cancellation done)
+Last updated: 2026-03-26 (Phase 1.2 P3 complete — Google Calendar re-auth + read sync + write sync done)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -174,9 +174,9 @@ Design doc: `docs/dev-notes/phase-1.2-scheduling.md`
 
 ### P3 — Google Calendar Integration
 
-- [ ] **Google Calendar re-auth:** Update OAuth flow to conditionally request `https://www.googleapis.com/auth/calendar` write scope (when `googleCalendarSyncEnabled` is being turned on). Store updated tokens on `OAuthAccount`.
-- [ ] **Google Calendar read sync:** In slot engine, when `UserSettings.googleCalendarSyncEnabled === true`, call `calendar.freebusy.query` for the requested date. Cache result 5 minutes (Redis). Merge returned busy intervals with Crelyzor meetings before filtering.
-- [ ] **Google Calendar write sync:** On booking confirmed, call `calendar.events.insert` (attendees, location/link, description from guest note). Store `event.id` as `Booking.googleEventId`. On booking cancelled, call `calendar.events.delete(googleEventId)`.
+- [x] **Google Calendar re-auth:** New `POST /auth/google/calendar/connect` endpoint (verifyJWT) returns Google OAuth URL with calendar scope. Callback `GET /auth/google/calendar/connect/callback` verifies HMAC-signed state, exchanges code, updates OAuthAccount tokens + UserSettings.googleCalendarEmail. Frontend wired: connect button calls POST, navigates to returned URL; callback params handled on Settings mount.
+- [x] **Google Calendar read sync:** In slot engine, when `UserSettings.googleCalendarSyncEnabled === true`, call `calendar.freebusy.query` for the requested date. Cache result 5 minutes (Redis). Merge returned busy intervals with Crelyzor meetings before filtering.
+- [x] **Google Calendar write sync:** On booking confirmed, call `calendar.events.insert` (attendees, location/link, description from guest note). Store `event.id` as `Booking.googleEventId`. On booking cancelled, call `calendar.events.delete(googleEventId)`.
 
 ### P4 — Recall.ai Integration
 

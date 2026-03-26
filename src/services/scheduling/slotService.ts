@@ -1,6 +1,7 @@
 import prisma from "../../db/prismaClient";
 import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
+import { getCalendarBusyIntervals } from "../googleCalendarService";
 
 // ── Timezone utilities ────────────────────────────────────────────────────────
 
@@ -110,6 +111,7 @@ export async function getSlots(
       schedulingEnabled: true,
       minNoticeHours: true,
       maxWindowDays: true,
+      googleCalendarSyncEnabled: true,
     },
   });
   if (!settings?.schedulingEnabled) {
@@ -238,6 +240,12 @@ export async function getSlots(
   ]);
 
   const busyIntervals = [...bookings, ...meetings];
+
+  // 11b. Merge Google Calendar busy intervals when sync is enabled (fail-open)
+  if (settings.googleCalendarSyncEnabled === true) {
+    const gcalBusy = await getCalendarBusyIntervals(user.id, windowStart, windowEnd);
+    busyIntervals.push(...gcalBusy);
+  }
 
   // 12. Generate candidate slots, advancing by `duration` each step.
   //
