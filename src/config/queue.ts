@@ -10,7 +10,17 @@ import { logger } from "../utils/logging/logger";
 export enum QueueNames {
   TRANSCRIPTION = "transcription",
   AI_PROCESSING = "ai-processing",
+  RECALL_BOT_DEPLOY = "recall-bot-deploy",
+  RECALL_RECORDING = "recall-recording",
 }
+
+// Job name constants — must match exactly between .add() and .process() calls
+export const JobNames = {
+  TRANSCRIBE: "transcribe",
+  PROCESS_AI: "process-ai",
+  DEPLOY_RECALL_BOT: "deploy-bot",
+  FETCH_RECALL_RECORDING: "fetch-recording",
+} as const;
 
 // Job data interfaces
 export interface TranscriptionJobData {
@@ -25,9 +35,32 @@ export interface AIProcessingJobData {
   ownerId: string;
 }
 
+/**
+ * Job data for Recall.ai bot deployment.
+ * NOTE: recallApiKey is intentionally NOT included — the worker fetches and
+ * decrypts it from UserSettings at execution time to avoid storing sensitive
+ * credentials in Redis job payloads.
+ */
+export interface RecallBotJobData {
+  meetingId: string;
+  hostUserId: string;
+}
+
+/**
+ * Job data for Recall.ai recording download + transcription pipeline.
+ * Same key-exclusion policy as RecallBotJobData.
+ */
+export interface RecallRecordingJobData {
+  botId: string;
+  meetingId: string;
+  hostUserId: string;
+}
+
 // Queue instances
 let transcriptionQueue: Bull.Queue<TranscriptionJobData> | null = null;
 let aiProcessingQueue: Bull.Queue<AIProcessingJobData> | null = null;
+let recallBotQueue: Bull.Queue<RecallBotJobData> | null = null;
+let recallRecordingQueue: Bull.Queue<RecallRecordingJobData> | null = null;
 
 // Redis config optimized for Upstash
 const getRedisConfig = () => ({
@@ -94,10 +127,52 @@ export const initializeQueues = async () => {
       },
     );
 
+    // Initialize Recall Bot Deploy Queue
+    recallBotQueue = new Bull<RecallBotJobData>(
+      QueueNames.RECALL_BOT_DEPLOY,
+      REDIS_URL,
+      {
+        settings: {
+          maxStalledCount: 1,
+          lockDuration: 30000,
+          lockRenewTime: 15000,
+        },
+        createClient: () => new IORedis(REDIS_URL, redisConfig),
+        defaultJobOptions: {
+          attempts: 2,
+          backoff: { type: "exponential", delay: 10000 },
+          removeOnComplete: 100,
+          removeOnFail: 50,
+        },
+      },
+    );
+
+    // Initialize Recall Recording Queue
+    recallRecordingQueue = new Bull<RecallRecordingJobData>(
+      QueueNames.RECALL_RECORDING,
+      REDIS_URL,
+      {
+        settings: {
+          maxStalledCount: 1,
+          lockDuration: 120000,
+          lockRenewTime: 60000,
+        },
+        createClient: () => new IORedis(REDIS_URL, redisConfig),
+        defaultJobOptions: {
+          attempts: 2,
+          backoff: { type: "exponential", delay: 15000 },
+          removeOnComplete: 100,
+          removeOnFail: 50,
+        },
+      },
+    );
+
     // Wait for all queues to be ready
     await Promise.all([
       transcriptionQueue.isReady(),
       aiProcessingQueue.isReady(),
+      recallBotQueue.isReady(),
+      recallRecordingQueue.isReady(),
     ]);
 
     logger.info("✅ Redis queues connected successfully");
@@ -115,12 +190,16 @@ export const initializeQueues = async () => {
     // Setup event handlers
     setupQueueEvents(transcriptionQueue, "Transcription");
     setupQueueEvents(aiProcessingQueue, "AI Processing");
+    setupQueueEvents(recallBotQueue, "Recall Bot Deploy");
+    setupQueueEvents(recallRecordingQueue, "Recall Recording");
 
-    logger.info("📦 Queues initialized: transcription, ai-processing");
+    logger.info("📦 Queues initialized: transcription, ai-processing, recall-bot-deploy, recall-recording");
 
     return {
       transcriptionQueue,
       aiProcessingQueue,
+      recallBotQueue,
+      recallRecordingQueue,
     };
   } catch (error) {
     logger.error("Failed to initialize queues:", error);

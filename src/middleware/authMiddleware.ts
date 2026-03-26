@@ -18,6 +18,7 @@ declare module "express" {
     user?: TokenPayload;
     sessionId?: string;
     service?: Record<string, unknown>; // For internal service tokens
+    rawBody?: Buffer; // Captured by webhook routes for HMAC signature verification
   }
 }
 

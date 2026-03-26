@@ -28,3 +28,11 @@ export const bookingLimiter = createLimiterFactory({
   max: 10,
   message: "Too many booking attempts. Please try again later.",
 });
+
+// Recall.ai webhook limiter — generous for burst (1–2 events/sec per active bot)
+// but blocks floods from unauthenticated sources
+export const recallWebhookLimiter = createLimiterFactory({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120,
+  message: "Too many webhook requests.",
+});
