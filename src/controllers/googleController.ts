@@ -70,6 +70,7 @@ export const googleController = {
       const user = await prisma.$transaction(
         async (tx) => {
           let u = await tx.user.findUnique({ where: { email } });
+          const isNewUser = !u;
 
           if (!u) {
             u = await tx.user.create({
@@ -106,6 +107,20 @@ export const googleController = {
               userId: u.id,
             },
           });
+
+          // Auto-create UserSettings + seed Mon–Fri availability for new users
+          if (isNewUser) {
+            await tx.userSettings.create({ data: { userId: u.id } });
+            await tx.availability.createMany({
+              data: [1, 2, 3, 4, 5].map((dayOfWeek) => ({
+                userId: u.id,
+                dayOfWeek,
+                startTime: "09:00",
+                endTime: "17:00",
+              })),
+              skipDuplicates: true,
+            });
+          }
 
           return u;
         },

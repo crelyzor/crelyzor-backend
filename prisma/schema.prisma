@@ -60,6 +60,13 @@ model User {
   tags                  Tag[]
   meetingAttachments    MeetingAttachment[]
 
+  // Scheduling (Phase 1.2)
+  settings              UserSettings?
+  eventTypes            EventType[]
+  availabilities        Availability[]
+  availabilityOverrides AvailabilityOverride[]
+  bookings              Booking[]
+
   @@index([activeSessionId])
   @@index([createdAt])
 }
@@ -149,6 +156,10 @@ model Meeting {
   // Transcription processing status
   transcriptionStatus TranscriptionStatus @default(NONE)
 
+  // Recall.ai bot ID — populated when a bot joins an online meeting.
+  // Used to match Recall webhook events back to this meeting.
+  recallBotId String?
+
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -168,6 +179,7 @@ model Meeting {
   share        MeetingShare?
   tags         MeetingTag[]
   attachments  MeetingAttachment[]
+  booking      Booking?
 
   @@index([createdById])
   @@index([createdAt])
@@ -175,6 +187,7 @@ model Meeting {
   @@index([status, isDeleted])
   @@index([transcriptionStatus])
   @@index([type, isDeleted])
+  @@index([recallBotId])
 }
 
 model MeetingParticipant {
@@ -597,6 +610,154 @@ model CardTag {
 }
 
 // ================================
+// SCHEDULING (Phase 1.2)
+// ================================
+
+model UserSettings {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+
+  // Scheduling
+  schedulingEnabled Boolean @default(true)
+  minNoticeHours    Int     @default(24)
+  maxWindowDays     Int     @default(60)
+  defaultBufferMins Int     @default(15)
+
+  // Integrations
+  googleCalendarSyncEnabled Boolean @default(false)
+  googleCalendarEmail       String?
+  recallEnabled             Boolean @default(false)
+  recallApiKey              String? // encrypted at rest
+
+  // AI & Transcription
+  autoTranscribe  Boolean @default(true)
+  autoAIProcess   Boolean @default(true)
+  defaultLanguage String  @default("en")
+
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+}
+
+model EventType {
+  id           String       @id @default(uuid()) @db.Uuid
+  userId       String       @db.Uuid
+  title        String
+  slug         String
+  description  String?
+  duration     Int          // minutes
+  locationType LocationType @default(IN_PERSON)
+  meetingLink  String?      // Zoom/Meet URL — ONLINE only
+  bufferBefore Int          @default(0) // minutes
+  bufferAfter  Int          @default(0) // minutes
+  maxPerDay    Int?         // null = unlimited
+  isActive     Boolean      @default(true)
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  bookings Booking[]
+
+  @@unique([userId, slug])
+  @@index([userId, isActive, isDeleted])
+}
+
+model Availability {
+  id        String @id @default(uuid()) @db.Uuid
+  userId    String @db.Uuid
+  dayOfWeek Int    // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+  startTime String // "09:00" (24h, user's local timezone)
+  endTime   String // "17:00"
+
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, dayOfWeek])
+  @@index([userId])
+}
+
+model AvailabilityOverride {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  // NOTE: date comparisons in the slot engine must use the user's
+  // local timezone, not UTC, to avoid off-by-one errors at midnight.
+  date      DateTime @db.Date
+  isBlocked Boolean  @default(true)
+
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+model Booking {
+  id          String        @id @default(uuid()) @db.Uuid
+  eventTypeId String        @db.Uuid
+  userId      String        @db.Uuid // the host
+  meetingId   String?       @unique @db.Uuid // created Meeting
+
+  // Guest info
+  guestName  String
+  guestEmail String
+  guestNote  String?
+
+  // Time
+  startTime DateTime
+  endTime   DateTime
+  timezone  String   // guest's timezone at time of booking
+
+  status BookingStatus @default(CONFIRMED)
+
+  // Google Calendar
+  googleEventId String?
+
+  cancelReason String?
+  canceledAt   DateTime?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // EventType is soft-deleted in practice; Restrict is safe and documents intent
+  eventType EventType @relation(fields: [eventTypeId], references: [id], onDelete: Restrict)
+  // User must not be hard-deletable while bookings exist (guest record kept for audit)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  meeting   Meeting?  @relation(fields: [meetingId], references: [id])
+
+  @@index([userId])
+  @@index([eventTypeId])
+  @@index([guestEmail])
+  @@index([startTime])
+  @@index([status, isDeleted])
+  @@index([userId, isDeleted])    // dashboard booking list query
+  @@index([startTime, isDeleted]) // slot engine conflict check
+}
+
+// ================================
 // ENUMS
 // ================================
 
@@ -656,4 +817,16 @@ enum AttachmentType {
   FILE
   LINK
   PHOTO
+}
+
+enum LocationType {
+  IN_PERSON
+  ONLINE
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+  RESCHEDULED
+  NO_SHOW
 }

@@ -9,6 +9,10 @@ import cardRouter from "./cardRoutes";
 import publicCardRouter from "./publicCardRoutes";
 import publicMeetingRouter from "./publicMeetingRoutes";
 import tagRouter from "./tagRoutes";
+import settingsRouter from "./settingsRoutes";
+import schedulingRouter from "./schedulingRoutes";
+import publicSchedulingRouter from "./publicSchedulingRoutes";
+import publicBookingsRouter from "./publicBookingsRoutes";
 
 const indexRouter = Router();
 
@@ -25,6 +29,16 @@ indexRouter.use("/auth", authRouter);
 indexRouter.use("/users", userRouter);
 
 // ========================================
+// ⚙️ SETTINGS ROUTES
+// ========================================
+indexRouter.use("/settings", settingsRouter);
+
+// ========================================
+// 📅 SCHEDULING ROUTES
+// ========================================
+indexRouter.use("/scheduling", schedulingRouter);
+
+// ========================================
 // 📅 MEETING ROUTES
 // ========================================
 indexRouter.use("/meetings", meetingRouter);
@@ -39,6 +53,8 @@ indexRouter.use("/cards", cardRouter);
 // ========================================
 indexRouter.use("/public", publicCardRouter);
 indexRouter.use("/public", publicMeetingRouter);
+indexRouter.use("/public", publicSchedulingRouter);
+indexRouter.use("/public", publicBookingsRouter);
 
 // ========================================
 // 🤖 SMA (Smart Meeting Assistant) ROUTES

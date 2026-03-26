@@ -21,3 +21,10 @@ export const createResourceLimiter = createLimiterFactory({
   max: 50,
   message: "Too many creation requests, please try again later.",
 });
+
+// Strict limiter for public booking creation — 10 bookings per hour per IP
+export const bookingLimiter = createLimiterFactory({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  message: "Too many booking attempts. Please try again later.",
+});
