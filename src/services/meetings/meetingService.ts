@@ -488,7 +488,10 @@ export const meetingService = {
     endDate?: Date;
     limit?: number;
     offset?: number;
-  }): Promise<{ meetings: (Meeting & { participants: MeetingParticipant[] })[]; total: number }> {
+  }): Promise<{
+    meetings: (Meeting & { participants: MeetingParticipant[] })[];
+    total: number;
+  }> {
     const {
       userId,
       status,
