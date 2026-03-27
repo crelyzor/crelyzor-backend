@@ -14,11 +14,14 @@ const notesQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
+const uuidSchema = z.string().uuid();
+
 /**
  * Get AI summary for a meeting
  */
 export const getSummary = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -29,8 +32,8 @@ export const getSummary = async (req: Request, res: Response) => {
   });
   if (!meeting) throw new AppError("Meeting not found", 404);
 
-  const summary = await prisma.meetingAISummary.findUnique({
-    where: { meetingId },
+  const summary = await prisma.meetingAISummary.findFirst({
+    where: { meetingId, isDeleted: false },
   });
 
   if (!summary) throw new AppError("No AI summary found for this meeting", 404);
@@ -48,6 +51,7 @@ export const getSummary = async (req: Request, res: Response) => {
  */
 export const regenerateSummary = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -72,8 +76,8 @@ export const regenerateSummary = async (req: Request, res: Response) => {
   await aiService.generateSummary(meetingId, transcript.fullText);
   await aiService.extractKeyPoints(meetingId, transcript.fullText);
 
-  const updatedSummary = await prisma.meetingAISummary.findUnique({
-    where: { meetingId },
+  const updatedSummary = await prisma.meetingAISummary.findFirst({
+    where: { meetingId, isDeleted: false },
   });
 
   apiResponse(res, {
@@ -89,6 +93,7 @@ export const regenerateSummary = async (req: Request, res: Response) => {
  */
 export const regenerateTitle = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -128,6 +133,7 @@ export const regenerateTitle = async (req: Request, res: Response) => {
  */
 export const getNotes = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -163,6 +169,7 @@ export const getNotes = async (req: Request, res: Response) => {
  */
 export const createNote = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -199,6 +206,7 @@ export const createNote = async (req: Request, res: Response) => {
  */
 export const askAI = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) {
@@ -223,6 +231,7 @@ export const askAI = async (req: Request, res: Response) => {
  */
 export const generateContent = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
   if (!userId) throw new AppError("Unauthorized", 401);
 
@@ -250,6 +259,7 @@ export const generateContent = async (req: Request, res: Response) => {
  */
 export const getGeneratedContents = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
   if (!userId) throw new AppError("Unauthorized", 401);
 

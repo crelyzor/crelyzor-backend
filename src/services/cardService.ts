@@ -1,5 +1,6 @@
 import prisma from "../db/prismaClient";
 import { ErrorFactory } from "../utils/globalErrorHandler";
+import { logger } from "../utils/logging/logger";
 import type { Prisma } from "@prisma/client";
 import type {
   CreateCardDTO,
@@ -107,23 +108,24 @@ export const cardService = {
   async createCard(userId: string, data: CreateCardDTO) {
     const slug = data.slug || "default";
 
-    // Check if slug already exists for this user (excluding deleted cards)
-    const existing = await prisma.card.findFirst({
-      where: { userId, slug, isDeleted: false },
-    });
+    // Parallelize slug conflict check, card count, and username lookup
+    const [existing, cardCount, user] = await Promise.all([
+      prisma.card.findFirst({
+        where: { userId, slug, isDeleted: false },
+        select: { id: true },
+      }),
+      prisma.card.count({ where: { userId, isDeleted: false } }),
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { username: true },
+      }),
+    ]);
+
     if (existing) {
       throw ErrorFactory.conflict(`Card with slug "${slug}" already exists`);
     }
 
-    // If this is the user's first card, make it default
-    const cardCount = await prisma.card.count({ where: { userId, isDeleted: false } });
     const isDefault = data.isDefault ?? cardCount === 0;
-
-    // Get username for public URL
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { username: true },
-    });
     const username = user?.username ?? "user";
     const templateId = (data.templateId || "executive") as TemplateId;
     const showQr = data.showQr ?? true;
@@ -516,17 +518,25 @@ export const cardService = {
    * Track a card view
    */
   async trackView(cardId: string, event: CardViewEvent) {
-    await prisma.cardView.create({
-      data: {
+    try {
+      await prisma.cardView.create({
+        data: {
+          cardId,
+          ipHash: event.ipHash,
+          userAgent: event.userAgent,
+          referrer: event.referrer,
+          country: event.country,
+          city: event.city,
+          clickedLink: event.clickedLink,
+        },
+      });
+    } catch (err) {
+      // Analytics write failure must never surface as an error to the card visitor
+      logger.error("Failed to track card view", {
         cardId,
-        ipHash: event.ipHash,
-        userAgent: event.userAgent,
-        referrer: event.referrer,
-        country: event.country,
-        city: event.city,
-        clickedLink: event.clickedLink,
-      },
-    });
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   },
 
   /**
@@ -749,20 +759,18 @@ export const cardService = {
       .filter((r) => r.country)
       .map((r) => ({ country: r.country as string, count: r._count.country }));
 
-    // Views by day: use a bounded query for the time window
-    const viewsByDayRows = await prisma.cardView.findMany({
-      where: { cardId, viewedAt: { gte: since } },
-      select: { viewedAt: true },
-      orderBy: { viewedAt: "asc" },
-    });
-    const dayMap = new Map<string, number>();
-    for (const v of viewsByDayRows) {
-      const day = v.viewedAt.toISOString().split("T")[0];
-      dayMap.set(day, (dayMap.get(day) || 0) + 1);
-    }
-    const viewsByDay = Array.from(dayMap.entries()).map(([date, count]) => ({
-      date,
-      count,
+    // Views by day: aggregate in the DB to avoid loading all rows into memory
+    const viewsByDayRows = await prisma.$queryRaw<{ date: string; count: number }[]>`
+      SELECT DATE("viewedAt" AT TIME ZONE 'UTC') AS date, COUNT(*)::int AS count
+      FROM "CardView"
+      WHERE "cardId" = ${cardId}::uuid
+        AND "viewedAt" >= ${since}
+      GROUP BY DATE("viewedAt" AT TIME ZONE 'UTC')
+      ORDER BY date ASC
+    `;
+    const viewsByDay = viewsByDayRows.map((r) => ({
+      date: String(r.date).split("T")[0],
+      count: r.count,
     }));
 
     return {

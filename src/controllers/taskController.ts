@@ -14,19 +14,24 @@ const uuidSchema = z.string().uuid();
 export const getAllTasks = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
 
-  const tasks = await prisma.task.findMany({
-    where: { userId, isDeleted: false, isCompleted: false },
-    orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
-    take: 50,
-    include: {
-      meeting: { select: { id: true, title: true } },
-    },
-  });
+  const [tasks, total] = await Promise.all([
+    prisma.task.findMany({
+      where: { userId, isDeleted: false, isCompleted: false },
+      orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+      take: 50,
+      include: {
+        meeting: { select: { id: true, title: true } },
+      },
+    }),
+    prisma.task.count({
+      where: { userId, isDeleted: false, isCompleted: false },
+    }),
+  ]);
 
   return apiResponse(res, {
     statusCode: 200,
     message: "Tasks fetched",
-    data: { tasks },
+    data: { tasks, pagination: { total, limit: 50 } },
   });
 };
 
