@@ -6,6 +6,7 @@ import {
   globalErrorHandler,
 } from "../utils/globalErrorHandler";
 import { authService } from "../services/auth/authService";
+import { logger } from "../utils/logging/logger";
 import prisma from "../db/prismaClient";
 
 const ALLOWED_REDIRECT_ORIGINS = (
@@ -116,7 +117,11 @@ export const googleController = {
         String(state),
       );
       res.redirect(`${redirectUrl}${sep}calendarConnected=true`);
-    } catch {
+    } catch (err) {
+      logger.error("Google Calendar connect callback failed", {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
       res.redirect(`${redirectUrl}${sep}error=calendar_connect_failed`);
     }
   },

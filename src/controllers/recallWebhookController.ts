@@ -100,6 +100,25 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
   return apiResponse(res, { statusCode: 200, message: "OK" });
 };
 
+// Wrap the webhook handler in a top-level try/catch so unhandled errors
+// still return HTTP 200 to Recall.ai (preventing infinite retries).
+const _rawHandleRecallWebhook = handleRecallWebhook;
+export const handleRecallWebhookSafe = async (req: import("express").Request, res: import("express").Response) => {
+  try {
+    await _rawHandleRecallWebhook(req, res);
+  } catch (err) {
+    logger.error("Recall webhook handler threw unexpectedly", {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      body: req.body,
+    });
+    // Always 200 — Recall.ai should not retry for server-side errors
+    if (!res.headersSent) {
+      return apiResponse(res, { statusCode: 200, message: "OK" });
+    }
+  }
+};
+
 async function handleStatusChange(
   meetingId: string,
   statusCode: string,

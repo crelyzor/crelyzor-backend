@@ -1,6 +1,6 @@
 import express, { Router } from "express";
 import { recallWebhookLimiter } from "../utils/rateLimit/rateLimiter";
-import { handleRecallWebhook } from "../controllers/recallWebhookController";
+import { handleRecallWebhookSafe } from "../controllers/recallWebhookController";
 import type { Request } from "express";
 
 const recallWebhookRouter = Router();
@@ -20,7 +20,7 @@ recallWebhookRouter.post(
     },
   }),
   recallWebhookLimiter,
-  handleRecallWebhook,
+  handleRecallWebhookSafe,
 );
 
 export default recallWebhookRouter;
