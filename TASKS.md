@@ -202,29 +202,29 @@ Design doc: `docs/dev-notes/phase-1.3-gcal.md`
 
 ### P0 — Schema + Meet Link Foundation (do first — P1 and P3 depend on it)
 
-- [ ] **Schema:** Add `meetLink String?` to `Meeting` model — stores auto-generated Google Meet URL
-- [ ] **Schema:** Add `googleEventId String?` to `Meeting` model — for write sync back to GCal
-- [ ] **Migration:** `pnpm db:migrate` for both new fields
-- [ ] **`generateMeetLink(userId)`** in `googleCalendarService.ts` — calls `calendar.events.insert` with `conferenceData: { createRequest: { requestId: uuid } }`, extracts `conferenceData.entryPoints[0].uri`. Fail-open: returns `null` if GCal not connected or API fails.
-- [ ] **Auto Meet link on meeting create:** In `meetingService.createMeeting()` — if `locationType === 'ONLINE'` and `addToCalendar !== false` and GCal connected → call `generateMeetLink` → store on `Meeting.meetLink`
-- [ ] **Include `meetLink` in all meeting responses** — add to `getMeeting`, `getMeetings` select fields
+- [x] **Schema:** Add `meetLink String?` to `Meeting` model — stores auto-generated Google Meet URL
+- [x] **Schema:** Add `googleEventId String?` to `Meeting` model — for write sync back to GCal
+- [~] **Migration:** `pnpm db:push && pnpm db:generate` — run manually to sync DB + regenerate Prisma client
+- [x] **`generateMeetLink(userId)`** in `googleCalendarService.ts` — calls `calendar.events.insert` with `conferenceData: { createRequest: { requestId: uuid } }`, extracts `conferenceData.entryPoints[0].uri`. Fail-open: returns `null` if GCal not connected or API fails.
+- [x] **Auto Meet link on meeting create:** In `meetingService.createMeeting()` — if `addToCalendar === true` and type is SCHEDULED and GCal connected → call `generateMeetLink` → store `meetLink` + `googleEventId` on Meeting
+- [x] **Include `meetLink` in all meeting responses** — scalar fields auto-included in all `include`-based queries (no changes needed)
 
 ### P1 — GCal Write Sync for Meetings
 
-- [ ] **`createGCalEventForMeeting(userId, meeting)`** in `googleCalendarService.ts` — creates GCal event from a `Meeting` record (title, start/end, location/meetLink). Returns `googleEventId | null`. Fail-open.
-- [ ] **`updateGCalEventForMeeting(userId, googleEventId, updates)`** — patches GCal event. Fail-open.
-- [ ] **`deleteGCalEventForMeeting(userId, googleEventId)`** — already `deleteCalendarEvent` exists, reuse/alias it.
-- [ ] **Hook into `createMeeting`:** After DB write, if GCal connected + `addToCalendar` → create GCal event → `prisma.meeting.update({ googleEventId })`. Wrapped so GCal failure never rolls back the meeting.
-- [ ] **Hook into `updateMeeting`:** If `meeting.googleEventId` set → update GCal event.
-- [ ] **Hook into `cancelMeeting` / `deleteMeeting`:** If `meeting.googleEventId` set → delete GCal event.
-- [ ] **Zod:** Add `addToCalendar?: z.boolean().optional()` to `createMeetingSchema` and `updateMeetingSchema`
+- [x] **`createGCalEventForMeeting(userId, params)`** in `googleCalendarService.ts` — creates GCal event from a `Meeting` record (title, start/end, location, optional Meet link via conferenceData). Returns `{ googleEventId, meetLink } | null`. Fail-open.
+- [x] **`updateGCalEventForMeeting(userId, googleEventId, updates)`** — patches GCal event (title, times, timezone, location). Fail-open.
+- [x] **`deleteCalendarEvent`** — already existed, reused directly in meetingService.
+- [x] **Hook into `createMeeting`:** Replaced P0 `generateMeetLink` call with `createGCalEventForMeeting` (one API call gets proper event + Meet URL). Stores `googleEventId` + `meetLink`.
+- [x] **Hook into `updateMeeting`:** If `meeting.googleEventId` set → call `updateGCalEventForMeeting` after transaction.
+- [x] **Hook into `cancelMeeting` / `deleteMeeting`:** Added `deleteMeeting` service method. Both call `deleteCalendarEvent` after DB commit.
+- [x] **Zod:** Added `addToCalendar?: z.boolean().optional()` to both `createMeetingSchema` and `updateMeetingSchema`
 
 ### P2 — GCal Events Endpoint (for Dashboard Timeline)
 
-- [ ] **`fetchGCalEvents(userId, start, end)`** in `googleCalendarService.ts` — calls `calendar.events.list` (primary calendar, timeMin/timeMax, singleEvents: true, orderBy: startTime). Returns normalized `CalendarEvent[]` with `{ id, title, startTime, endTime, location, meetLink }`. Cached in Redis 5 min. Fail-open returns `[]`.
-- [ ] **`GET /integrations/google/events?start=&end=`** — `verifyJWT`, Zod validate query params (ISO datetime strings), call `fetchGCalEvents`, return array. New route file: `src/routes/integrationRoutes.ts`.
-- [ ] **`GET /integrations/google/status`** — `verifyJWT`, returns `{ connected: boolean, email: string | null, syncEnabled: boolean }`. Reads from `OAuthAccount` + `UserSettings`.
-- [ ] **Wire new routes** into `src/routes/indexRouter.ts` under `/integrations`
+- [x] **`fetchGCalEvents(userId, start, end)`** in `googleCalendarService.ts` — calls `calendar.events.list` (primary calendar, timeMin/timeMax, singleEvents: true, orderBy: startTime). Returns normalized `CalendarEvent[]` with `{ id, title, startTime, endTime, location, meetLink }`. Cached in Redis 5 min. Fail-open returns `[]`.
+- [x] **`GET /integrations/google/events?start=&end=`** — `verifyJWT`, Zod validate (ISO datetimes, end>start, 60-day cap), userRateLimit(60/hr). New route file: `src/routes/integrationRoutes.ts`.
+- [x] **`GET /integrations/google/status`** — `verifyJWT`, returns `{ connected: boolean, email: string | null, syncEnabled: boolean }`. Scoped service function `getGCalConnectionStatus` in `googleCalendarService.ts`.
+- [x] **Wire new routes** into `src/routes/indexRouter.ts` under `/integrations`
 
 ---
 

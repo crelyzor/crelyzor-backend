@@ -27,6 +27,7 @@ export const createMeetingSchema = z
       .array(z.string().uuid("Invalid participant ID format"))
       .optional(),
     notes: z.string().optional(),
+    addToCalendar: z.boolean().optional(),
   })
   .refine(
     (data) => {
@@ -114,6 +115,7 @@ export const updateMeetingSchema = z
       .array(z.string().uuid("Invalid participant ID format"))
       .optional(),
     notes: z.string().optional(),
+    addToCalendar: z.boolean().optional(),
   })
   .refine(
     (data) => {

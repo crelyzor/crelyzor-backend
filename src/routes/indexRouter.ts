@@ -13,6 +13,7 @@ import settingsRouter from "./settingsRoutes";
 import schedulingRouter from "./schedulingRoutes";
 import publicSchedulingRouter from "./publicSchedulingRoutes";
 import publicBookingsRouter from "./publicBookingsRoutes";
+import integrationRouter from "./integrationRoutes";
 
 const indexRouter = Router();
 
@@ -65,6 +66,11 @@ indexRouter.use("/sma", smaRouter);
 // 🏷️ TAG ROUTES
 // ========================================
 indexRouter.use("/tags", tagRouter);
+
+// ========================================
+// 🔗 INTEGRATION ROUTES
+// ========================================
+indexRouter.use("/integrations", integrationRouter);
 
 // ========================================
 // 📦 STORAGE ROUTES

@@ -7,6 +7,11 @@ import {
   MeetingParticipant,
   Prisma,
 } from "@prisma/client";
+import {
+  createGCalEventForMeeting,
+  updateGCalEventForMeeting,
+  deleteCalendarEvent,
+} from "../googleCalendarService";
 
 const meetingInclude = {
   participants: {
@@ -41,6 +46,7 @@ export interface CreateMeetingDTO {
   location?: string;
   participantUserIds?: string[];
   notes?: string;
+  addToCalendar?: boolean;
 }
 
 export interface UpdateMeetingStatusDTO {
@@ -165,6 +171,35 @@ export const meetingService = {
       throw ErrorFactory.validation("Failed to create meeting");
     }
 
+    // Create Google Calendar event for SCHEDULED meetings when requested.
+    // Includes conference data to generate a Meet URL in a single API call.
+    // Fail-open: GCal failure never prevents the meeting from being created.
+    if (data.addToCalendar === true && isScheduled) {
+      try {
+        const gcalResult = await createGCalEventForMeeting(createdById, {
+          title: meeting.title,
+          startTime: meeting.startTime,
+          endTime: meeting.endTime,
+          timezone: meeting.timezone,
+          location: meeting.location,
+          description: meeting.description,
+          requestMeetLink: true,
+        });
+        if (gcalResult) {
+          return await prisma.meeting.update({
+            where: { id: meeting.id },
+            data: {
+              googleEventId: gcalResult.googleEventId,
+              ...(gcalResult.meetLink ? { meetLink: gcalResult.meetLink } : {}),
+            },
+            include: meetingInclude,
+          });
+        }
+      } catch {
+        // fail-open — meeting is already committed
+      }
+    }
+
     return meeting;
   },
 
@@ -189,7 +224,9 @@ export const meetingService = {
         status: true,
         startTime: true,
         endTime: true,
+        timezone: true,
         createdById: true,
+        googleEventId: true,
         participants: { select: { userId: true, participantType: true } },
       },
     });
@@ -325,6 +362,19 @@ export const meetingService = {
       throw ErrorFactory.validation("Failed to update meeting");
     }
 
+    // Sync changes to Google Calendar if this meeting has a linked GCal event.
+    // Fail-open: GCal failure never blocks the meeting update response.
+    if (meeting.googleEventId) {
+      await updateGCalEventForMeeting(updatedByUserId, meeting.googleEventId, {
+        title: data.title,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        timezone: data.timezone ?? meeting.timezone,
+        location: data.location,
+        description: data.description,
+      });
+    }
+
     return updatedMeeting;
   },
 
@@ -333,14 +383,14 @@ export const meetingService = {
 
     const meeting = await prisma.meeting.findFirst({
       where: { id: meetingId, createdById: requesterUserId, isDeleted: false },
-      select: { id: true, status: true },
+      select: { id: true, status: true, googleEventId: true },
     });
 
     if (!meeting) {
       throw ErrorFactory.notFound("Meeting");
     }
 
-    return prisma.$transaction(
+    const cancelled = await prisma.$transaction(
       async (tx) => {
         const updated = await tx.meeting.update({
           where: { id: meetingId },
@@ -367,6 +417,11 @@ export const meetingService = {
       },
       { timeout: 15000 },
     );
+
+    // Remove from Google Calendar after DB is committed. Fail-open.
+    await deleteCalendarEvent(requesterUserId, meeting.googleEventId);
+
+    return cancelled;
   },
 
   async completeMeeting(data: UpdateMeetingStatusDTO): Promise<Meeting> {
@@ -541,5 +596,28 @@ export const meetingService = {
       endTime: meeting.endTime,
       details: `Meeting "${meeting.title}" at ${meeting.startTime.toLocaleTimeString()} - ${meeting.endTime.toLocaleTimeString()}`,
     }));
+  },
+
+  async deleteMeeting(meetingId: string, userId: string): Promise<void> {
+    const meeting = await prisma.meeting.findFirst({
+      where: { id: meetingId, isDeleted: false, createdById: userId },
+      select: { googleEventId: true },
+    });
+
+    if (!meeting) {
+      throw ErrorFactory.notFound("Meeting");
+    }
+
+    const result = await prisma.meeting.updateMany({
+      where: { id: meetingId, isDeleted: false, createdById: userId },
+      data: { isDeleted: true, deletedAt: new Date(), deletedBy: userId },
+    });
+
+    if (result.count === 0) {
+      throw ErrorFactory.notFound("Meeting");
+    }
+
+    // Remove from Google Calendar after DB is committed. Fail-open.
+    await deleteCalendarEvent(userId, meeting.googleEventId);
   },
 };

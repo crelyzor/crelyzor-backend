@@ -235,14 +235,7 @@ export class MeetingController {
       const user = req.user as TokenPayload;
       const meetingId = parseMeetingId(req.params.meetingId);
 
-      const result = await prisma.meeting.updateMany({
-        where: { id: meetingId, isDeleted: false, createdById: user.userId },
-        data: { isDeleted: true, deletedAt: new Date(), deletedBy: user.userId },
-      });
-
-      if (result.count === 0) {
-        throw ErrorFactory.notFound("Meeting");
-      }
+      await meetingService.deleteMeeting(meetingId, user.userId);
 
       apiResponse(res, {
         statusCode: 200,
