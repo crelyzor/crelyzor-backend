@@ -76,8 +76,8 @@ export async function updateShare(
     throw new AppError("Meeting not found", 404);
   }
 
-  const existing = await prisma.meetingShare.findUnique({
-    where: { meetingId },
+  const existing = await prisma.meetingShare.findFirst({
+    where: { meetingId, isDeleted: false },
     select: { id: true },
   });
 
@@ -124,6 +124,7 @@ export async function getPublicMeetingByShortId(shortId: string) {
     },
     select: {
       shortId: true,
+      meetingId: true,
       showTranscript: true,
       showSummary: true,
       showTasks: true,
@@ -148,13 +149,8 @@ export async function getPublicMeetingByShortId(shortId: string) {
     showTasks,
     meeting,
     shortId: sid,
+    meetingId,
   } = share;
-
-  // Re-resolve meetingId from the already-validated share so all subsequent
-  // queries use the scalar FK directly instead of re-traversing junction chains.
-  const meetingId = await prisma.meetingShare
-    .findUnique({ where: { shortId }, select: { meetingId: true } })
-    .then((s) => s!.meetingId);
 
   // Fetch speakers always (needed to resolve speakerLabel → displayName in transcript)
   const speakers = await prisma.meetingSpeaker.findMany({
