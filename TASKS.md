@@ -187,11 +187,52 @@ Design doc: `docs/dev-notes/phase-1.2-scheduling.md`
 
 ---
 
+---
+
+## Phase 1.3 — Google Calendar Deep Integration
+
+Design doc: `docs/dev-notes/phase-1.3-gcal.md`
+
+> **What already exists from Phase 1.2:**
+> - `googleCalendarService.ts` — `getCalendarBusyIntervals`, `insertCalendarEvent`, `deleteCalendarEvent` (booking-scoped)
+> - Google Calendar re-auth OAuth flow (`/auth/google/calendar/connect`)
+> - `OAuthAccount` stores scopes + tokens + refresh logic
+> - `UserSettings.googleCalendarSyncEnabled` + `googleCalendarEmail`
+> - `Booking.googleEventId`
+
+### P0 — Schema + Meet Link Foundation (do first — P1 and P3 depend on it)
+
+- [ ] **Schema:** Add `meetLink String?` to `Meeting` model — stores auto-generated Google Meet URL
+- [ ] **Schema:** Add `googleEventId String?` to `Meeting` model — for write sync back to GCal
+- [ ] **Migration:** `pnpm db:migrate` for both new fields
+- [ ] **`generateMeetLink(userId)`** in `googleCalendarService.ts` — calls `calendar.events.insert` with `conferenceData: { createRequest: { requestId: uuid } }`, extracts `conferenceData.entryPoints[0].uri`. Fail-open: returns `null` if GCal not connected or API fails.
+- [ ] **Auto Meet link on meeting create:** In `meetingService.createMeeting()` — if `locationType === 'ONLINE'` and `addToCalendar !== false` and GCal connected → call `generateMeetLink` → store on `Meeting.meetLink`
+- [ ] **Include `meetLink` in all meeting responses** — add to `getMeeting`, `getMeetings` select fields
+
+### P1 — GCal Write Sync for Meetings
+
+- [ ] **`createGCalEventForMeeting(userId, meeting)`** in `googleCalendarService.ts` — creates GCal event from a `Meeting` record (title, start/end, location/meetLink). Returns `googleEventId | null`. Fail-open.
+- [ ] **`updateGCalEventForMeeting(userId, googleEventId, updates)`** — patches GCal event. Fail-open.
+- [ ] **`deleteGCalEventForMeeting(userId, googleEventId)`** — already `deleteCalendarEvent` exists, reuse/alias it.
+- [ ] **Hook into `createMeeting`:** After DB write, if GCal connected + `addToCalendar` → create GCal event → `prisma.meeting.update({ googleEventId })`. Wrapped so GCal failure never rolls back the meeting.
+- [ ] **Hook into `updateMeeting`:** If `meeting.googleEventId` set → update GCal event.
+- [ ] **Hook into `cancelMeeting` / `deleteMeeting`:** If `meeting.googleEventId` set → delete GCal event.
+- [ ] **Zod:** Add `addToCalendar?: z.boolean().optional()` to `createMeetingSchema` and `updateMeetingSchema`
+
+### P2 — GCal Events Endpoint (for Dashboard Timeline)
+
+- [ ] **`fetchGCalEvents(userId, start, end)`** in `googleCalendarService.ts` — calls `calendar.events.list` (primary calendar, timeMin/timeMax, singleEvents: true, orderBy: startTime). Returns normalized `CalendarEvent[]` with `{ id, title, startTime, endTime, location, meetLink }`. Cached in Redis 5 min. Fail-open returns `[]`.
+- [ ] **`GET /integrations/google/events?start=&end=`** — `verifyJWT`, Zod validate query params (ISO datetime strings), call `fetchGCalEvents`, return array. New route file: `src/routes/integrationRoutes.ts`.
+- [ ] **`GET /integrations/google/status`** — `verifyJWT`, returns `{ connected: boolean, email: string | null, syncEnabled: boolean }`. Reads from `OAuthAccount` + `UserSettings`.
+- [ ] **Wire new routes** into `src/routes/indexRouter.ts` under `/integrations`
+
+---
+
 ## Phase 2 — Standalone Tasks
 
 - [ ] Standalone tasks API — `GET /tasks` (all tasks, not scoped to a meeting), with filter/sort/pagination
 - [ ] Tag junction for Tasks (`TaskTag` — extends universal Tag system)
-- [ ] Due date + priority support (model already has the fields, just needs API + UI)
+- [ ] Due date + `scheduledTime` support (model has `dueDate` — add `scheduledTime` for calendar view in Phase 3)
 
 ---
 
@@ -199,3 +240,4 @@ Design doc: `docs/dev-notes/phase-1.2-scheduling.md`
 
 - [ ] Vector embeddings pipeline
 - [ ] RAG query endpoint (global Ask AI)
+- [ ] Full two-way GCal sync — Google Calendar push webhooks (`calendar.events.watch`) → receive change notifications → upsert/cancel Meeting records. Needs conflict resolution (last-write-wins with `updatedAt` comparison).
