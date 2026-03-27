@@ -99,55 +99,65 @@ export const startWorker = async (): Promise<void> => {
     const data = job.data as RecallBotJobData;
     logger.info("Processing Recall bot deploy job", { meetingId: data.meetingId });
 
-    // Fetch meeting + host settings — both must exist for deployment to proceed
-    const [meeting, userSettings] = await Promise.all([
-      prisma.meeting.findFirst({
-        where: { id: data.meetingId, isDeleted: false },
-        select: {
-          id: true,
-          booking: {
-            select: {
-              eventType: {
-                select: { meetingLink: true },
+    try {
+      // Fetch meeting + host settings — both must exist for deployment to proceed
+      const [meeting, userSettings] = await Promise.all([
+        prisma.meeting.findFirst({
+          where: { id: data.meetingId, isDeleted: false },
+          select: {
+            id: true,
+            booking: {
+              select: {
+                eventType: {
+                  select: { meetingLink: true },
+                },
               },
             },
           },
-        },
-      }),
-      prisma.userSettings.findUnique({
-        where: { userId: data.hostUserId },
-        select: { recallApiKey: true, recallEnabled: true },
-      }),
-    ]);
+        }),
+        prisma.userSettings.findUnique({
+          where: { userId: data.hostUserId },
+          select: { recallApiKey: true, recallEnabled: true },
+        }),
+      ]);
 
-    if (!meeting) {
-      throw new Error(`Meeting ${data.meetingId} not found — skipping bot deploy`);
-    }
-    const meetingLink = meeting.booking?.eventType?.meetingLink;
-    if (!meetingLink) {
-      throw new Error(`Meeting ${data.meetingId} has no meetingLink — cannot deploy bot`);
-    }
-    if (!userSettings?.recallEnabled || !userSettings.recallApiKey) {
-      logger.warn("Recall not enabled or API key missing — skipping bot deploy", {
+      if (!meeting) {
+        throw new Error(`Meeting ${data.meetingId} not found — skipping bot deploy`);
+      }
+      const meetingLink = meeting.booking?.eventType?.meetingLink;
+      if (!meetingLink) {
+        throw new Error(`Meeting ${data.meetingId} has no meetingLink — cannot deploy bot`);
+      }
+      if (!userSettings?.recallEnabled || !userSettings.recallApiKey) {
+        logger.warn("Recall not enabled or API key missing — skipping bot deploy", {
+          meetingId: data.meetingId,
+          hostUserId: data.hostUserId,
+        });
+        return { skipped: true };
+      }
+
+      // Decrypt API key — local variable, never logged or persisted
+      const recallApiKey = decrypt(userSettings.recallApiKey);
+
+      const { botId } = await deployBot(meetingLink, recallApiKey);
+
+      // Store botId on the meeting for webhook correlation
+      await prisma.meeting.update({
+        where: { id: data.meetingId },
+        data: { recallBotId: botId },
+      });
+
+      logger.info("Recall bot deployed", { meetingId: data.meetingId, botId });
+      return { success: true, botId };
+    } catch (err) {
+      logger.error("Recall bot deploy job failed", {
         meetingId: data.meetingId,
         hostUserId: data.hostUserId,
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
       });
-      return { skipped: true };
+      throw err; // re-throw so Bull marks the job as failed
     }
-
-    // Decrypt API key — local variable, never logged or persisted
-    const recallApiKey = decrypt(userSettings.recallApiKey);
-
-    const { botId } = await deployBot(meetingLink, recallApiKey);
-
-    // Store botId on the meeting for webhook correlation
-    await prisma.meeting.update({
-      where: { id: data.meetingId },
-      data: { recallBotId: botId },
-    });
-
-    logger.info("Recall bot deployed", { meetingId: data.meetingId, botId });
-    return { success: true, botId };
   });
 
   // Recall recording download + transcription pipeline processor
