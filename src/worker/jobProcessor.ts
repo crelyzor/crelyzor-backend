@@ -166,73 +166,84 @@ export const startWorker = async (): Promise<void> => {
     const data = job.data as RecallRecordingJobData;
     logger.info("Processing Recall recording fetch job", { meetingId: data.meetingId, botId: data.botId });
 
-    const userSettings = await prisma.userSettings.findUnique({
-      where: { userId: data.hostUserId },
-      select: { recallApiKey: true },
-    });
+    try {
+      const userSettings = await prisma.userSettings.findUnique({
+        where: { userId: data.hostUserId },
+        select: { recallApiKey: true },
+      });
 
-    if (!userSettings?.recallApiKey) {
-      throw new Error(`No Recall API key for user ${data.hostUserId}`);
+      if (!userSettings?.recallApiKey) {
+        throw new Error(`No Recall API key for user ${data.hostUserId}`);
+      }
+
+      // Decrypt key — local variable only
+      const recallApiKey = decrypt(userSettings.recallApiKey);
+
+      // Fetch recording download URL from Recall.ai
+      const downloadUrl = await getRecordingUrl(data.botId, recallApiKey);
+
+      // Download the recording bytes
+      const response = await fetch(downloadUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to download Recall recording: HTTP ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      // Upload to GCS under the meeting's recordings folder
+      const uploadResult = await gcsService.uploadFile(
+        buffer,
+        `recall-${data.botId}.mp4`,
+        `recordings/${data.meetingId}`,
+        "video/mp4",
+      );
+
+      // Create MeetingRecording and set transcription status atomically
+      const recording = await prisma.$transaction(
+        async (tx) => {
+          const rec = await tx.meetingRecording.create({
+            data: {
+              meetingId: data.meetingId,
+              fileName: uploadResult.fileName,
+              gcsPath: uploadResult.filePath,
+              fileSize: buffer.length,
+              duration: 0, // duration unknown at this stage — will be updated after transcription
+              uploadedBy: data.hostUserId,
+            },
+          });
+
+          await tx.meeting.update({
+            where: { id: data.meetingId },
+            data: { transcriptionStatus: TranscriptionStatus.UPLOADED },
+          });
+
+          return rec;
+        },
+        { timeout: 15000 },
+      );
+
+      // Queue transcription job — same pipeline as manual upload
+      await getTranscriptionQueue().add(
+        JobNames.TRANSCRIBE,
+        { recordingId: recording.id, meetingId: data.meetingId },
+        { jobId: `transcribe-${recording.id}` },
+      );
+
+      logger.info("Recall recording uploaded and transcription queued", {
+        meetingId: data.meetingId,
+        recordingId: recording.id,
+      });
+      return { success: true, recordingId: recording.id };
+    } catch (err) {
+      logger.error("Recall recording fetch job failed", {
+        meetingId: data.meetingId,
+        botId: data.botId,
+        hostUserId: data.hostUserId,
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      throw err; // re-throw so Bull marks the job as failed
     }
-
-    // Decrypt key — local variable only
-    const recallApiKey = decrypt(userSettings.recallApiKey);
-
-    // Fetch recording download URL from Recall.ai
-    const downloadUrl = await getRecordingUrl(data.botId, recallApiKey);
-
-    // Download the recording bytes
-    const response = await fetch(downloadUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to download Recall recording: HTTP ${response.status}`);
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    // Upload to GCS under the meeting's recordings folder
-    const uploadResult = await gcsService.uploadFile(
-      buffer,
-      `recall-${data.botId}.mp4`,
-      `recordings/${data.meetingId}`,
-      "video/mp4",
-    );
-
-    // Create MeetingRecording and set transcription status atomically
-    const recording = await prisma.$transaction(
-      async (tx) => {
-        const rec = await tx.meetingRecording.create({
-          data: {
-            meetingId: data.meetingId,
-            fileName: uploadResult.fileName,
-            gcsPath: uploadResult.filePath,
-            fileSize: buffer.length,
-            duration: 0, // duration unknown at this stage — will be updated after transcription
-            uploadedBy: data.hostUserId,
-          },
-        });
-
-        await tx.meeting.update({
-          where: { id: data.meetingId },
-          data: { transcriptionStatus: TranscriptionStatus.UPLOADED },
-        });
-
-        return rec;
-      },
-      { timeout: 15000 },
-    );
-
-    // Queue transcription job — same pipeline as manual upload
-    await getTranscriptionQueue().add(
-      JobNames.TRANSCRIBE,
-      { recordingId: recording.id, meetingId: data.meetingId },
-      { jobId: `transcribe-${recording.id}` },
-    );
-
-    logger.info("Recall recording uploaded and transcription queued", {
-      meetingId: data.meetingId,
-      recordingId: recording.id,
-    });
-    return { success: true, recordingId: recording.id };
   });
 
   logger.info("Queue worker started successfully");
@@ -246,14 +257,3 @@ export const stopWorker = async (): Promise<void> => {
   await closeQueues();
   logger.info("Queue worker stopped");
 };
-
-// Handle graceful shutdown
-process.on("SIGTERM", async () => {
-  await stopWorker();
-  process.exit(0);
-});
-
-process.on("SIGINT", async () => {
-  await stopWorker();
-  process.exit(0);
-});

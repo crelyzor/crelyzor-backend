@@ -18,9 +18,9 @@ export async function createOrGetShare(meetingId: string, userId: string) {
     throw new AppError("Meeting not found", 404);
   }
 
-  // Return existing share if it exists
-  const existing = await prisma.meetingShare.findUnique({
-    where: { meetingId },
+  // Return existing share if it exists (exclude soft-deleted shares)
+  const existing = await prisma.meetingShare.findFirst({
+    where: { meetingId, isDeleted: false },
     select: {
       shortId: true,
       isPublic: true,
