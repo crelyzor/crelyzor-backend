@@ -39,6 +39,7 @@ export const createEventTypeSchema = z
     bufferAfter: z.number().int().min(0).max(120).default(0),
     maxPerDay: z.number().int().min(1).max(50).optional(),
     isActive: z.boolean().default(true),
+    availabilityScheduleId: z.string().uuid().nullable().optional(),
   })
   .refine(
     (data) => {
@@ -67,6 +68,7 @@ export const updateEventTypeSchema = z
     bufferAfter: z.number().int().min(0).max(120).optional(),
     maxPerDay: z.number().int().min(1).max(50).nullable().optional(),
     isActive: z.boolean().optional(),
+    availabilityScheduleId: z.string().uuid().nullable().optional(),
   })
   .strict();
 

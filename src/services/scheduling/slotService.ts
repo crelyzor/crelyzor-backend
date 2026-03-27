@@ -5,26 +5,10 @@ import { getCalendarBusyIntervals } from "../googleCalendarService";
 
 // ── Timezone utilities ────────────────────────────────────────────────────────
 
-/**
- * Convert a "YYYY-MM-DD HH:MM" local time in a named timezone to a UTC Date.
- *
- * Algorithm: treat the HH:MM as if it were UTC ("naive"), then ask Intl what
- * local time that UTC instant corresponds to in `tz`. The diff between naive
- * and the Intl reading gives the exact UTC offset at that wall-clock time —
- * which handles DST correctly (the offset is computed at the naive UTC instant,
- * which is close enough to the target local time for all business hours).
- *
- * Verified correct for: UTC±N, half-hour offsets (IST, NZST), DST transitions,
- * and far-east timezones (UTC+12/+13/+14).
- */
 function zonedToUTC(dateStr: string, timeStr: string, tz: string): Date {
   const [yr, mo, da] = dateStr.split("-").map(Number);
   const [hr, mn] = timeStr.split(":").map(Number);
-
-  // Treat the target local time as a UTC instant (purely for arithmetic)
   const naive = new Date(Date.UTC(yr, mo - 1, da, hr, mn, 0));
-
-  // Ask Intl: "what local time does this UTC instant correspond to in tz?"
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: tz,
     year: "numeric",
@@ -35,9 +19,7 @@ function zonedToUTC(dateStr: string, timeStr: string, tz: string): Date {
     second: "2-digit",
     hour12: false,
   }).formatToParts(naive);
-
   const p = Object.fromEntries(parts.map((x) => [x.type, x.value]));
-  // hour12: false can return "24" for midnight in some environments
   const localH = p.hour === "24" ? 0 : parseInt(p.hour);
   const localNaive = new Date(
     Date.UTC(
@@ -49,21 +31,10 @@ function zonedToUTC(dateStr: string, timeStr: string, tz: string): Date {
       parseInt(p.second),
     ),
   );
-
-  // offset = how many ms ahead UTC is vs localNaive (e.g. UTC+5.5 → offset = -5.5h)
   const offset = naive.getTime() - localNaive.getTime();
   return new Date(naive.getTime() + offset);
 }
 
-/**
- * Returns the day of week (0=Sun ... 6=Sat) for a YYYY-MM-DD date in the
- * given timezone.
- *
- * Uses noon UTC as the reference point to avoid off-by-one for timezones that
- * straddle the date boundary (e.g. UTC+13/+14 where noon UTC is already the
- * next calendar date locally). With explicit 'en-US' locale the weekday string
- * is always English regardless of server locale settings.
- */
 function getDayOfWeekInTz(dateStr: string, tz: string): number {
   const [yr, mo, da] = dateStr.split("-").map(Number);
   const noonUTC = new Date(Date.UTC(yr, mo - 1, da, 12, 0, 0));
@@ -71,25 +42,27 @@ function getDayOfWeekInTz(dateStr: string, tz: string): number {
     timeZone: tz,
     weekday: "short",
   }).format(noonUTC);
-  const idx = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(
-    weekdayStr,
-  );
-  // If indexOf returns -1 (should never happen with en-US locale) default to 0
+  const idx = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekdayStr);
   return idx === -1 ? 0 : idx;
+}
+
+// ── Resolve the effective schedule for a user + event type ────────────────────
+
+async function resolveSchedule(userId: string, availabilityScheduleId: string | null) {
+  if (availabilityScheduleId) {
+    return prisma.availabilitySchedule.findFirst({
+      where: { id: availabilityScheduleId, isDeleted: false },
+      select: { id: true, timezone: true },
+    });
+  }
+  return prisma.availabilitySchedule.findFirst({
+    where: { userId, isDefault: true, isDeleted: false },
+    select: { id: true, timezone: true },
+  });
 }
 
 // ── Slot engine ───────────────────────────────────────────────────────────────
 
-/**
- * Returns available booking slots for a given user + event type + date.
- *
- * All times in the returned slots array are UTC ISO strings.
- * Returns an empty slots array (not an error) when the day has no availability.
- *
- * @param username - The host's username (public identifier, not userId)
- * @param eventTypeSlug - The event type slug (public identifier, not eventTypeId)
- * @param date - YYYY-MM-DD date string (interpreted in the user's local timezone)
- */
 export async function getSlots(
   username: string,
   eventTypeSlug: string,
@@ -101,8 +74,6 @@ export async function getSlots(
     select: { id: true, timezone: true },
   });
   if (!user) throw new AppError("User not found", 404);
-
-  const tz = user.timezone || "UTC";
 
   // 2. Load settings
   const settings = await prisma.userSettings.findUnique({
@@ -125,15 +96,10 @@ export async function getSlots(
     Date.now() + settings.maxWindowDays * 24 * 60 * 60 * 1000,
   );
   if (dayStartUTC > maxDateUTC) {
-    logger.info("Slots requested beyond booking window", {
-      username,
-      date,
-      maxWindowDays: settings.maxWindowDays,
-    });
     return { slots: [] };
   }
 
-  // 4. Resolve event type by slug (must belong to this user)
+  // 4. Resolve event type — includes the linked schedule ID
   const eventType = await prisma.eventType.findFirst({
     where: {
       userId: user.id,
@@ -147,83 +113,65 @@ export async function getSlots(
       bufferBefore: true,
       bufferAfter: true,
       maxPerDay: true,
+      availabilityScheduleId: true,
     },
   });
   if (!eventType) throw new AppError("Event type not found", 404);
 
-  // 5. Get day of week in user's timezone
+  // 5. Resolve the effective schedule (event type's linked schedule or default)
+  const schedule = await resolveSchedule(user.id, eventType.availabilityScheduleId);
+  if (!schedule) {
+    logger.info("No availability schedule configured", { username });
+    return { slots: [] };
+  }
+
+  const tz = schedule.timezone || "UTC";
+
+  // 6. Get day of week in schedule's timezone
   const dayOfWeek = getDayOfWeekInTz(date, tz);
 
-  // 6. Check availability override for this date
+  // 7. Check availability override for this date
   const overrideDate = new Date(Date.UTC(yr, mo - 1, da, 12, 0, 0));
   const override = await prisma.availabilityOverride.findUnique({
-    where: { userId_date: { userId: user.id, date: overrideDate } },
+    where: { scheduleId_date: { scheduleId: schedule.id, date: overrideDate } },
     select: { isBlocked: true, isDeleted: true },
   });
   if (override && !override.isDeleted && override.isBlocked) {
-    logger.info("Slots blocked by override", { username, date });
     return { slots: [] };
   }
 
-  // 7. Get weekly availability row for this day
-  const availability = await prisma.availability.findUnique({
-    where: { userId_dayOfWeek: { userId: user.id, dayOfWeek } },
-    select: { startTime: true, endTime: true, isDeleted: true },
+  // 8. Get all availability slots for this day (multiple slots per day)
+  const availabilitySlots = await prisma.availability.findMany({
+    where: { scheduleId: schedule.id, dayOfWeek, isDeleted: false },
+    select: { startTime: true, endTime: true },
+    orderBy: { startTime: "asc" },
   });
-  if (!availability || availability.isDeleted) {
-    logger.info("No availability for day", { username, date, dayOfWeek });
+  if (availabilitySlots.length === 0) {
+    logger.info("No availability slots for day", { username, date, dayOfWeek });
     return { slots: [] };
   }
 
-  // 8. Build availability window in UTC
-  const windowStart = zonedToUTC(date, availability.startTime, tz);
-  const windowEnd = zonedToUTC(date, availability.endTime, tz);
-
-  // 9. Apply minNoticeHours — earliest slot the user can accept
+  // 9. Apply minNoticeHours
   const minEarliestStart = new Date(
     Date.now() + settings.minNoticeHours * 60 * 60 * 1000,
   );
-  const effectiveStart =
-    windowStart > minEarliestStart ? windowStart : minEarliestStart;
 
-  if (effectiveStart >= windowEnd) {
-    logger.info("No slots — window expired or all within notice period", {
-      username,
-      date,
-    });
-    return { slots: [] };
-  }
+  // 10. Fetch all busy intervals overlapping this day's full window
+  const dayWindowStart = zonedToUTC(date, availabilitySlots[0].startTime, tz);
+  const dayWindowEnd = zonedToUTC(
+    date,
+    availabilitySlots[availabilitySlots.length - 1].endTime,
+    tz,
+  );
 
-  // 10. maxPerDay guard — if the day is already fully booked, skip slot generation
-  if (eventType.maxPerDay !== null) {
-    const dayBookingCount = await prisma.booking.count({
-      where: {
-        userId: user.id,
-        eventTypeId: eventType.id,
-        isDeleted: false,
-        status: { not: "CANCELLED" },
-        startTime: { gte: windowStart, lt: windowEnd },
-      },
-    });
-    if (dayBookingCount >= eventType.maxPerDay) {
-      logger.info("Slots exhausted — maxPerDay reached", {
-        username,
-        date,
-        maxPerDay: eventType.maxPerDay,
-      });
-      return { slots: [] };
-    }
-  }
-
-  // 11. Fetch all busy intervals overlapping this day's window
   const [bookings, meetings] = await Promise.all([
     prisma.booking.findMany({
       where: {
         userId: user.id,
         isDeleted: false,
-        status: { not: "CANCELLED" },
-        startTime: { lt: windowEnd },
-        endTime: { gt: windowStart },
+        status: { notIn: ["CANCELLED", "DECLINED"] },
+        startTime: { lt: dayWindowEnd },
+        endTime: { gt: dayWindowStart },
       },
       select: { startTime: true, endTime: true },
     }),
@@ -232,8 +180,8 @@ export async function getSlots(
         createdById: user.id,
         isDeleted: false,
         status: { not: "CANCELLED" },
-        startTime: { lt: windowEnd },
-        endTime: { gt: windowStart },
+        startTime: { lt: dayWindowEnd },
+        endTime: { gt: dayWindowStart },
       },
       select: { startTime: true, endTime: true },
     }),
@@ -241,44 +189,64 @@ export async function getSlots(
 
   const busyIntervals = [...bookings, ...meetings];
 
-  // 11b. Merge Google Calendar busy intervals when sync is enabled (fail-open)
   if (settings.googleCalendarSyncEnabled === true) {
-    const gcalBusy = await getCalendarBusyIntervals(user.id, windowStart, windowEnd);
+    const gcalBusy = await getCalendarBusyIntervals(
+      user.id,
+      dayWindowStart,
+      dayWindowEnd,
+    );
     busyIntervals.push(...gcalBusy);
   }
 
-  // 12. Generate candidate slots, advancing by `duration` each step.
-  //
-  //  Each slot [s, s+duration] is valid if:
-  //   - s + duration <= windowEnd (fits in the availability window)
-  //   - No busy interval [b_start, b_end] overlaps [s - bufferBefore, s + duration + bufferAfter]
-  //
-  //  Buffers are applied to conflict detection only — they do not shift the
-  //  slot start visible to the guest. This is the cal.com convention.
+  // 11. maxPerDay guard
+  if (eventType.maxPerDay !== null) {
+    const dayBookingCount = await prisma.booking.count({
+      where: {
+        userId: user.id,
+        eventTypeId: eventType.id,
+        isDeleted: false,
+        status: { notIn: ["CANCELLED", "DECLINED"] },
+        startTime: { gte: dayWindowStart, lt: dayWindowEnd },
+      },
+    });
+    if (dayBookingCount >= eventType.maxPerDay) {
+      return { slots: [] };
+    }
+  }
+
+  // 12. Generate candidate slots across all availability windows for the day
   const durationMs = eventType.duration * 60 * 1000;
   const bufferBeforeMs = eventType.bufferBefore * 60 * 1000;
   const bufferAfterMs = eventType.bufferAfter * 60 * 1000;
-
   const slots: Array<{ startTime: string; endTime: string }> = [];
-  let slotStart = new Date(effectiveStart.getTime());
 
-  while (slotStart.getTime() + durationMs <= windowEnd.getTime()) {
-    const slotEnd = new Date(slotStart.getTime() + durationMs);
-    const blockStart = new Date(slotStart.getTime() - bufferBeforeMs);
-    const blockEnd = new Date(slotEnd.getTime() + bufferAfterMs);
+  for (const avail of availabilitySlots) {
+    const windowStart = zonedToUTC(date, avail.startTime, tz);
+    const windowEnd = zonedToUTC(date, avail.endTime, tz);
+    const effectiveStart =
+      windowStart > minEarliestStart ? windowStart : minEarliestStart;
 
-    const hasConflict = busyIntervals.some(
-      (b) => blockStart < b.endTime && blockEnd > b.startTime,
-    );
+    if (effectiveStart >= windowEnd) continue;
 
-    if (!hasConflict) {
-      slots.push({
-        startTime: slotStart.toISOString(),
-        endTime: slotEnd.toISOString(),
-      });
+    let slotStart = new Date(effectiveStart.getTime());
+    while (slotStart.getTime() + durationMs <= windowEnd.getTime()) {
+      const slotEnd = new Date(slotStart.getTime() + durationMs);
+      const blockStart = new Date(slotStart.getTime() - bufferBeforeMs);
+      const blockEnd = new Date(slotEnd.getTime() + bufferAfterMs);
+
+      const hasConflict = busyIntervals.some(
+        (b) => blockStart < b.endTime && blockEnd > b.startTime,
+      );
+
+      if (!hasConflict) {
+        slots.push({
+          startTime: slotStart.toISOString(),
+          endTime: slotEnd.toISOString(),
+        });
+      }
+
+      slotStart = new Date(slotStart.getTime() + durationMs);
     }
-
-    slotStart = new Date(slotStart.getTime() + durationMs);
   }
 
   logger.info("Slots computed", {
@@ -293,12 +261,6 @@ export async function getSlots(
 
 // ── Public scheduling profile ─────────────────────────────────────────────────
 
-/**
- * Returns a user's public scheduling profile — display info + active event types.
- * Internal user.id is never returned (only public-facing identifiers).
- *
- * @throws AppError 404 when user not found or scheduling disabled
- */
 export async function getSchedulingProfile(username: string) {
   const user = await prisma.user.findFirst({
     where: { username, isDeleted: false },
@@ -327,7 +289,6 @@ export async function getSchedulingProfile(username: string) {
     orderBy: { createdAt: "asc" },
   });
 
-  // Deliberately omit user.id — internal UUIDs must not be exposed on public endpoints
   return {
     user: {
       username,

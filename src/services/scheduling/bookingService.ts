@@ -3,13 +3,9 @@ import prisma from "../../db/prismaClient";
 import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
 import type { CreateBookingInput } from "../../validators/bookingSchema";
-import {
-  insertCalendarEvent,
-  deleteCalendarEvent,
-} from "../googleCalendarService";
-import { getRecallBotQueue, JobNames } from "../../config/queue";
+import { deleteCalendarEvent } from "../googleCalendarService";
 
-// ── Timezone helpers (duplicated from slotService — small enough to avoid premature abstraction) ──
+// ── Timezone helpers ───────────────────────────────────────────────────────────
 
 function zonedToUTC(dateStr: string, timeStr: string, tz: string): Date {
   const [yr, mo, da] = dateStr.split("-").map(Number);
@@ -48,13 +44,10 @@ function getDayOfWeekInTz(dateStr: string, tz: string): number {
     timeZone: tz,
     weekday: "short",
   }).format(noonUTC);
-  const idx = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(
-    weekdayStr,
-  );
+  const idx = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekdayStr);
   return idx === -1 ? 0 : idx;
 }
 
-/** Converts a UTC Date to "YYYY-MM-DD" in the given IANA timezone. */
 function getDateInTz(utcDate: Date, tz: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: tz,
@@ -80,59 +73,40 @@ const BOOKING_SELECT = {
 } as const;
 
 /**
- * Creates a confirmed booking for a guest.
+ * Creates a PENDING booking for a guest.
  *
- * All mutable state (schedulingEnabled, eventType.isActive, conflicts) is
- * re-read inside a Serializable transaction to prevent races. A P2034
- * (serialization failure) means a concurrent request took the slot → 409.
- *
- * NOTE: user.id is used internally only and must never appear in the response.
- *       meetingLink is intentionally omitted from the response — it travels
- *       to the guest via confirmation email only, preventing link scraping.
+ * GCal event and Recall bot are NOT triggered here — they fire in confirmBooking
+ * once the host approves. PENDING bookings block the slot (treated as busy) to
+ * prevent double-booking before the host approves or declines.
  */
 export async function createBooking(data: CreateBookingInput) {
   // 1. Resolve host by username (early 404 before entering the transaction)
   const user = await prisma.user.findFirst({
     where: { username: data.username, isDeleted: false },
-    // user.id is used internally only — never returned to caller
     select: { id: true, name: true, username: true, timezone: true },
   });
   if (!user) throw new AppError("User not found", 404);
-
-  // username is String? in the schema — any scheduling-enabled user must have one,
-  // but guard defensively so the response never contains a null username.
   if (!user.username) throw new AppError("User not found", 404);
 
-  const tz = user.timezone || "UTC";
-
-  // 2. Parse startTime (Zod already validated it is future + valid ISO UTC)
   const startTime = new Date(data.startTime);
 
-  // 3. All validation + creation inside a Serializable transaction.
-  //    Every mutable state check (schedulingEnabled, isActive, conflicts)
-  //    is re-read via tx.* inside the lambda so changes between the outer
-  //    check and the transaction are caught correctly.
-  //
-  //    The transaction returns the full confirmation payload so all values
-  //    (eventType details, booking row) are available in the outer scope.
   const result = await prisma
     .$transaction(
       async (tx) => {
-        // a. Re-read settings inside tx — host may have toggled schedulingEnabled
+        // a. Re-read settings inside tx
         const settings = await tx.userSettings.findUnique({
           where: { userId: user.id },
           select: {
             schedulingEnabled: true,
             minNoticeHours: true,
             maxWindowDays: true,
-            recallEnabled: true,
           },
         });
         if (!settings?.schedulingEnabled) {
           throw new AppError("Scheduling is not available for this user", 400);
         }
 
-        // b. Re-read event type inside tx — host may have deactivated it
+        // b. Re-read event type inside tx
         const eventType = await tx.eventType.findFirst({
           where: {
             userId: user.id,
@@ -148,17 +122,35 @@ export async function createBooking(data: CreateBookingInput) {
             bufferBefore: true,
             bufferAfter: true,
             maxPerDay: true,
-            meetingLink: true, // needed for Google Calendar event location field
+            meetingLink: true,
+            availabilityScheduleId: true,
           },
         });
         if (!eventType) throw new AppError("Event type not found", 404);
 
-        // c. Compute endTime from the tx-fresh duration (safe against race on duration change)
+        // c. Resolve effective schedule (event type's linked or user's default)
+        const schedule = eventType.availabilityScheduleId
+          ? await tx.availabilitySchedule.findFirst({
+              where: { id: eventType.availabilityScheduleId, isDeleted: false },
+              select: { id: true, timezone: true },
+            })
+          : await tx.availabilitySchedule.findFirst({
+              where: { userId: user.id, isDefault: true, isDeleted: false },
+              select: { id: true, timezone: true },
+            });
+
+        if (!schedule) {
+          throw new AppError("No availability schedule configured", 400);
+        }
+
+        const tz = schedule.timezone || "UTC";
+
+        // d. Compute endTime
         const endTime = new Date(
           startTime.getTime() + eventType.duration * 60 * 1000,
         );
 
-        // d. minNoticeHours guard — Date.now() is evaluated inside the tx for freshness
+        // e. minNoticeHours guard
         const minEarliestStart = new Date(
           Date.now() + settings.minNoticeHours * 60 * 60 * 1000,
         );
@@ -169,51 +161,48 @@ export async function createBooking(data: CreateBookingInput) {
           );
         }
 
-        // e. maxWindowDays guard — prevents bookings arbitrarily far in the future
+        // f. maxWindowDays guard
         const maxBookingDate = new Date(
           Date.now() + settings.maxWindowDays * 24 * 60 * 60 * 1000,
         );
         if (startTime > maxBookingDate) {
-          throw new AppError(
-            "Selected time is outside the booking window",
-            409,
-          );
+          throw new AppError("Selected time is outside the booking window", 409);
         }
 
-        // f. Derive calendar date in host's timezone and check override
+        // g. Check date override for this schedule
         const dateStr = getDateInTz(startTime, tz);
-        const [yr, mo, da] = dateStr.split("-").map(Number);
-        const overrideDate = new Date(Date.UTC(yr, mo - 1, da, 12, 0, 0));
+        const [oYr, oMo, oDa] = dateStr.split("-").map(Number);
+        const overrideDate = new Date(Date.UTC(oYr, oMo - 1, oDa, 12, 0, 0));
 
         const override = await tx.availabilityOverride.findUnique({
-          where: { userId_date: { userId: user.id, date: overrideDate } },
+          where: { scheduleId_date: { scheduleId: schedule.id, date: overrideDate } },
           select: { isBlocked: true, isDeleted: true },
         });
         if (override && !override.isDeleted && override.isBlocked) {
           throw new AppError("Selected date is unavailable", 409);
         }
 
-        // g. Check weekly availability for this day
+        // h. Check weekly availability slots for this day
         const dayOfWeek = getDayOfWeekInTz(dateStr, tz);
-        const availability = await tx.availability.findUnique({
-          where: { userId_dayOfWeek: { userId: user.id, dayOfWeek } },
-          select: { startTime: true, endTime: true, isDeleted: true },
+        const availabilitySlots = await tx.availability.findMany({
+          where: { scheduleId: schedule.id, dayOfWeek, isDeleted: false },
+          select: { startTime: true, endTime: true },
         });
-        if (!availability || availability.isDeleted) {
+        if (availabilitySlots.length === 0) {
           throw new AppError("No availability for selected day", 409);
         }
 
-        // h. Validate slot is within the availability window
-        const windowStart = zonedToUTC(dateStr, availability.startTime, tz);
-        const windowEnd = zonedToUTC(dateStr, availability.endTime, tz);
-        if (startTime < windowStart || endTime > windowEnd) {
-          throw new AppError(
-            "Selected time is outside availability window",
-            409,
-          );
+        // i. Validate slot is within one of the availability windows
+        const fitsInWindow = availabilitySlots.some((avail) => {
+          const windowStart = zonedToUTC(dateStr, avail.startTime, tz);
+          const windowEnd = zonedToUTC(dateStr, avail.endTime, tz);
+          return startTime >= windowStart && endTime <= windowEnd;
+        });
+        if (!fitsInWindow) {
+          throw new AppError("Selected time is outside availability window", 409);
         }
 
-        // i. Conflict check with buffer padding — covers both bookings and meetings
+        // j. Conflict check with buffer padding
         const blockStart = new Date(
           startTime.getTime() - eventType.bufferBefore * 60 * 1000,
         );
@@ -226,7 +215,7 @@ export async function createBooking(data: CreateBookingInput) {
             where: {
               userId: user.id,
               isDeleted: false,
-              status: { not: "CANCELLED" },
+              status: { notIn: ["CANCELLED", "DECLINED"] },
               startTime: { lt: blockEnd },
               endTime: { gt: blockStart },
             },
@@ -248,14 +237,19 @@ export async function createBooking(data: CreateBookingInput) {
           throw new AppError("Slot is no longer available", 409);
         }
 
-        // j. maxPerDay guard
+        // k. maxPerDay guard
         if (eventType.maxPerDay !== null) {
+          const firstSlot = availabilitySlots[0];
+          const lastSlot = availabilitySlots[availabilitySlots.length - 1];
+          const windowStart = zonedToUTC(dateStr, firstSlot.startTime, tz);
+          const windowEnd = zonedToUTC(dateStr, lastSlot.endTime, tz);
+
           const dayBookingCount = await tx.booking.count({
             where: {
               userId: user.id,
               eventTypeId: eventType.id,
               isDeleted: false,
-              status: { not: "CANCELLED" },
+              status: { notIn: ["CANCELLED", "DECLINED"] },
               startTime: { gte: windowStart, lt: windowEnd },
             },
           });
@@ -264,14 +258,14 @@ export async function createBooking(data: CreateBookingInput) {
           }
         }
 
-        // k. Duplicate guard — same guest submitting the same slot twice (network retry)
+        // l. Duplicate guard
         const duplicateBooking = await tx.booking.findFirst({
           where: {
             userId: user.id,
             guestEmail: data.guestEmail,
             startTime,
             isDeleted: false,
-            status: { not: "CANCELLED" },
+            status: { notIn: ["CANCELLED", "DECLINED"] },
           },
           select: { id: true },
         });
@@ -282,14 +276,13 @@ export async function createBooking(data: CreateBookingInput) {
           );
         }
 
-        // l. Per-guest-email frequency cap — prevents calendar flooding
-        //    (3 bookings per 24 hours per guest per host)
+        // m. Per-guest-email frequency cap
         const recentGuestBookings = await tx.booking.count({
           where: {
             userId: user.id,
             guestEmail: data.guestEmail,
             isDeleted: false,
-            status: { not: "CANCELLED" },
+            status: { notIn: ["CANCELLED", "DECLINED"] },
             createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
           },
         });
@@ -300,8 +293,7 @@ export async function createBooking(data: CreateBookingInput) {
           );
         }
 
-        // m. Create the Meeting first (Booking.meetingId links to Meeting, not the other way around)
-        //    TODO: Queue confirmation email with meetingLink after this transaction completes
+        // n. Create Meeting first
         const meeting = await tx.meeting.create({
           data: {
             title: `${eventType.title} with ${data.guestName}`,
@@ -314,7 +306,7 @@ export async function createBooking(data: CreateBookingInput) {
           select: { id: true },
         });
 
-        // n. Create the Booking linked to the new Meeting
+        // o. Create Booking with PENDING status
         const booking = await tx.booking.create({
           data: {
             eventTypeId: eventType.id,
@@ -326,17 +318,14 @@ export async function createBooking(data: CreateBookingInput) {
             startTime,
             endTime,
             timezone: data.guestTimezone,
-            status: "CONFIRMED",
+            status: "PENDING",
           },
           select: BOOKING_SELECT,
         });
 
-        // Return the booking + event type summary + recall settings so all are
-        // available in the outer scope for GCal sync and Recall bot queueing
         return {
           booking,
           meetingId: meeting.id,
-          recallEnabled: settings.recallEnabled ?? false,
           eventTypeSummary: {
             title: eventType.title,
             duration: eventType.duration,
@@ -351,8 +340,6 @@ export async function createBooking(data: CreateBookingInput) {
       },
     )
     .catch((err: unknown) => {
-      // Serialization failure: two concurrent requests raced for the same slot.
-      // Surface as 409 (slot taken) — the client should re-fetch available slots.
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === "P2034"
@@ -362,85 +349,27 @@ export async function createBooking(data: CreateBookingInput) {
       throw err;
     });
 
-  logger.info("Booking created", {
+  logger.info("Booking created (PENDING — awaiting host approval)", {
     bookingId: result.booking.id,
     hostUsername: data.username,
     eventTypeSlug: data.eventTypeSlug,
     startTime: startTime.toISOString(),
   });
 
-  // Google Calendar write sync — fail-open: booking is already confirmed.
-  // GCal call is intentionally outside the transaction to avoid holding DB locks
-  // during external API round-trips and to prevent GCal failures from rolling
-  // back a successfully created booking.
-  const gcalEventId = await insertCalendarEvent(user.id, {
-    bookingId: result.booking.id,
-    startTime,
-    endTime: new Date(startTime.getTime() + result.eventTypeSummary.duration * 60 * 1000),
-    guestTimezone: data.guestTimezone,
-    guestName: data.guestName,
-    guestEmail: data.guestEmail,
-    guestNote: data.guestNote,
-    eventTypeTitle: result.eventTypeSummary.title,
-    locationType: result.eventTypeSummary.locationType,
-    meetingLink: result.eventTypeSummary.meetingLink,
-    hostName: user.name,
-  });
-  if (gcalEventId) {
-    await prisma.booking.update({
-      where: { id: result.booking.id },
-      data: { googleEventId: gcalEventId },
-    });
-  }
-
-  // Recall.ai bot deployment — queue a delayed job to fire ~5 min before meeting start.
-  // Fail-open: booking is already confirmed, so a queueing failure must not break the response.
-  if (result.recallEnabled) {
-    const deployAt = startTime.getTime() - 5 * 60 * 1000;
-    const delay = deployAt - Date.now();
-
-    if (delay <= 0) {
-      // Meeting starts in less than 5 minutes (or is past) — skip bot deployment
-      logger.warn("Recall bot deployment skipped: meeting start too close or past", {
-        bookingId: result.booking.id,
-        meetingId: result.meetingId,
-        startTime: startTime.toISOString(),
-      });
-    } else {
-      try {
-        await getRecallBotQueue().add(
-          JobNames.DEPLOY_RECALL_BOT,
-          { meetingId: result.meetingId, hostUserId: user.id },
-          { delay },
-        );
-        logger.info("Recall bot deployment queued", {
-          meetingId: result.meetingId,
-          deployInMs: delay,
-        });
-      } catch (recallErr) {
-        logger.error("Failed to queue Recall bot deployment (non-critical)", {
-          meetingId: result.meetingId,
-          error: recallErr instanceof Error ? recallErr.message : String(recallErr),
-        });
-      }
-    }
-  }
-
-  // meetingLink intentionally omitted from response — sent to guest via confirmation email only.
-  // This prevents unauthenticated callers from scraping private video conference links.
   return {
     booking: {
       ...result.booking,
       host: {
         name: user.name,
-        username: user.username, // asserted non-null above
+        username: user.username,
       },
       eventType: result.eventTypeSummary,
     },
   };
 }
 
-// Fields returned after guest cancellation
+// ── Guest cancellation ────────────────────────────────────────────────────────
+
 const GUEST_CANCEL_SELECT = {
   id: true,
   status: true,
@@ -448,23 +377,16 @@ const GUEST_CANCEL_SELECT = {
   canceledAt: true,
 } as const;
 
-/**
- * Cancels a booking as the guest. The booking UUID is the guest's only
- * authorization token — this is the standard Cal.com/Calendly pattern.
- * UUID entropy (128-bit) makes enumeration infeasible.
- *
- * Only CONFIRMED and RESCHEDULED bookings can be cancelled.
- * CANCELLED and NO_SHOW are terminal states.
- */
-export async function cancelBookingAsGuest(
-  bookingId: string,
-  reason?: string,
-) {
+export async function cancelBookingAsGuest(bookingId: string, reason?: string) {
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, isDeleted: false },
-    // userId and googleEventId are used internally for GCal cleanup only —
-    // neither field appears in the response shape (GUEST_CANCEL_SELECT)
-    select: { id: true, status: true, meetingId: true, userId: true, googleEventId: true },
+    select: {
+      id: true,
+      status: true,
+      meetingId: true,
+      userId: true,
+      googleEventId: true,
+    },
   });
 
   if (!booking) throw new AppError("Booking not found", 404);
@@ -475,7 +397,9 @@ export async function cancelBookingAsGuest(
   if (booking.status === "NO_SHOW") {
     throw new AppError("No-show bookings cannot be cancelled", 409);
   }
-  // Covers CONFIRMED and RESCHEDULED — both are active states the guest can cancel
+  if (booking.status === "DECLINED") {
+    throw new AppError("Declined bookings cannot be cancelled", 409);
+  }
 
   const cancelled = await prisma.$transaction(
     async (tx) => {
@@ -503,10 +427,10 @@ export async function cancelBookingAsGuest(
 
   logger.info("Booking cancelled by guest", { bookingId });
 
-  // Google Calendar write sync — fail-open: booking is already cancelled in DB.
-  // GCal call is outside the transaction to avoid DB lock inflation and to
-  // ensure a GCal failure does not roll back the confirmed cancellation.
-  await deleteCalendarEvent(booking.userId, booking.googleEventId);
+  // Only clean up GCal if the booking was CONFIRMED (had a GCal event)
+  if (booking.status === "CONFIRMED") {
+    await deleteCalendarEvent(booking.userId, booking.googleEventId);
+  }
 
   return cancelled;
 }

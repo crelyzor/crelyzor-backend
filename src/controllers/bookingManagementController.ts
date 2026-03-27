@@ -5,15 +5,10 @@ import {
   listBookingsQuerySchema,
   bookingIdParamSchema,
   cancelBookingBodySchema,
+  declineBookingBodySchema,
 } from "../validators/bookingManagementSchema";
 import * as bookingManagementService from "../services/scheduling/bookingManagementService";
 
-/**
- * GET /scheduling/bookings
- *
- * Returns a paginated list of the authenticated host's bookings.
- * Supports optional filters: status, from (YYYY-MM-DD), to (YYYY-MM-DD), page, limit.
- */
 export const listBookings = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
 
@@ -29,12 +24,46 @@ export const listBookings = async (req: Request, res: Response) => {
   });
 };
 
-/**
- * PATCH /scheduling/bookings/:id/cancel
- *
- * Cancels a confirmed or rescheduled booking as the host.
- * Updates both the Booking status and the linked Meeting status to CANCELLED.
- */
+export const confirmBooking = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+
+  const params = bookingIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid booking ID", 400);
+
+  const booking = await bookingManagementService.confirmBooking(
+    userId,
+    params.data.id,
+  );
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Booking confirmed",
+    data: { booking },
+  });
+};
+
+export const declineBooking = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+
+  const params = bookingIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid booking ID", 400);
+
+  const body = declineBookingBodySchema.safeParse(req.body);
+  if (!body.success) throw new AppError("Validation failed", 400);
+
+  const booking = await bookingManagementService.declineBooking(
+    userId,
+    params.data.id,
+    body.data.reason,
+  );
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Booking declined",
+    data: { booking },
+  });
+};
+
 export const cancelBooking = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
 

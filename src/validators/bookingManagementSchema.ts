@@ -12,7 +12,7 @@ const dateString = z
 export const listBookingsQuerySchema = z
   .object({
     status: z
-      .enum(["CONFIRMED", "CANCELLED", "RESCHEDULED", "NO_SHOW"])
+      .enum(["PENDING", "CONFIRMED", "DECLINED", "CANCELLED", "RESCHEDULED", "NO_SHOW"])
       .optional(),
     // Date range filters use UTC midnight boundaries (V1 simplification).
     // Hosts in non-UTC timezones may see slight boundary differences — acceptable for V1.
@@ -39,5 +39,15 @@ export const cancelBookingBodySchema = z
   })
   .strict();
 
+/**
+ * Body for POST /scheduling/bookings/:id/decline
+ */
+export const declineBookingBodySchema = z
+  .object({
+    reason: z.string().max(500).optional(),
+  })
+  .strict();
+
 export type ListBookingsFilters = z.infer<typeof listBookingsQuerySchema>;
 export type CancelBookingBody = z.infer<typeof cancelBookingBodySchema>;
+export type DeclineBookingBody = z.infer<typeof declineBookingBodySchema>;

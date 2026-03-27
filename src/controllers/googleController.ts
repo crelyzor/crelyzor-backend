@@ -185,12 +185,21 @@ export const googleController = {
             },
           });
 
-          // Auto-create UserSettings + seed Mon–Fri availability for new users
+          // Auto-create UserSettings + default schedule + Mon–Fri slots for new users
           if (isNewUser) {
             await tx.userSettings.create({ data: { userId: u.id } });
+            const defaultSchedule = await tx.availabilitySchedule.create({
+              data: {
+                userId: u.id,
+                name: "Working Hours",
+                timezone: u.timezone ?? "UTC",
+                isDefault: true,
+              },
+              select: { id: true },
+            });
             await tx.availability.createMany({
               data: [1, 2, 3, 4, 5].map((dayOfWeek) => ({
-                userId: u.id,
+                scheduleId: defaultSchedule.id,
                 dayOfWeek,
                 startTime: "09:00",
                 endTime: "17:00",

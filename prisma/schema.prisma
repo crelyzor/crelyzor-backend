@@ -61,11 +61,10 @@ model User {
   meetingAttachments    MeetingAttachment[]
 
   // Scheduling (Phase 1.2)
-  settings              UserSettings?
-  eventTypes            EventType[]
-  availabilities        Availability[]
-  availabilityOverrides AvailabilityOverride[]
-  bookings              Booking[]
+  settings               UserSettings?
+  eventTypes             EventType[]
+  availabilitySchedules  AvailabilitySchedule[]
+  bookings               Booking[]
 
   @@index([activeSessionId])
   @@index([createdAt])
@@ -660,24 +659,50 @@ model EventType {
   maxPerDay    Int?         // null = unlimited
   isActive     Boolean      @default(true)
 
+  // Linked availability schedule — null = use user's default schedule
+  availabilityScheduleId String? @db.Uuid
+
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Restrict)
-  bookings Booking[]
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  availabilitySchedule AvailabilitySchedule? @relation(fields: [availabilityScheduleId], references: [id])
+  bookings             Booking[]
 
   @@unique([userId, slug])
   @@index([userId, isActive, isDeleted])
+  @@index([availabilityScheduleId])
+}
+
+model AvailabilitySchedule {
+  id        String  @id @default(uuid()) @db.Uuid
+  userId    String  @db.Uuid
+  name      String                          // "Working Hours", "Consulting Hours"
+  timezone  String  @default("UTC")         // IANA, e.g. "America/New_York"
+  isDefault Boolean @default(false)
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  slots      Availability[]
+  overrides  AvailabilityOverride[]
+  eventTypes EventType[]
+
+  @@index([userId, isDeleted])
+  @@index([userId, isDefault])
 }
 
 model Availability {
-  id        String @id @default(uuid()) @db.Uuid
-  userId    String @db.Uuid
-  dayOfWeek Int    // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
-  startTime String // "09:00" (24h, user's local timezone)
-  endTime   String // "17:00"
+  id         String @id @default(uuid()) @db.Uuid
+  scheduleId String @db.Uuid
+  dayOfWeek  Int    // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+  startTime  String // "09:00" (24h, schedule's timezone)
+  endTime    String // "17:00"
 
   // Soft delete
   isDeleted Boolean   @default(false)
@@ -686,17 +711,16 @@ model Availability {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  schedule AvailabilitySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, dayOfWeek])
-  @@index([userId])
+  @@index([scheduleId, dayOfWeek, isDeleted])
 }
 
 model AvailabilityOverride {
-  id     String @id @default(uuid()) @db.Uuid
-  userId String @db.Uuid
-  // NOTE: date comparisons in the slot engine must use the user's
-  // local timezone, not UTC, to avoid off-by-one errors at midnight.
+  id         String @id @default(uuid()) @db.Uuid
+  scheduleId String @db.Uuid
+  // NOTE: date comparisons in the slot engine must use the schedule's
+  // timezone, not UTC, to avoid off-by-one errors at midnight.
   date      DateTime @db.Date
   isBlocked Boolean  @default(true)
 
@@ -707,10 +731,10 @@ model AvailabilityOverride {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  schedule AvailabilitySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, date])
-  @@index([userId])
+  @@unique([scheduleId, date])
+  @@index([scheduleId])
 }
 
 model Booking {
@@ -729,7 +753,7 @@ model Booking {
   endTime   DateTime
   timezone  String   // guest's timezone at time of booking
 
-  status BookingStatus @default(CONFIRMED)
+  status BookingStatus @default(PENDING)
 
   // Google Calendar
   googleEventId String?
@@ -825,7 +849,9 @@ enum LocationType {
 }
 
 enum BookingStatus {
+  PENDING
   CONFIRMED
+  DECLINED
   CANCELLED
   RESCHEDULED
   NO_SHOW

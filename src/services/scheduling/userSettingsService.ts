@@ -35,8 +35,8 @@ function toClientSettings<T extends { recallApiKey: string | null }>(
   return { ...rest, hasRecallApiKey: recallApiKey !== null };
 }
 
-// Default Mon–Fri 09:00–17:00 availability rows seeded on first setup
-const DEFAULT_AVAILABILITY = [1, 2, 3, 4, 5].map((dayOfWeek) => ({
+// Default Mon–Fri 09:00–17:00 slots seeded on first setup
+const DEFAULT_SLOTS = [1, 2, 3, 4, 5].map((dayOfWeek) => ({
   dayOfWeek,
   startTime: "09:00",
   endTime: "17:00",
@@ -56,7 +56,7 @@ export async function getOrCreateUserSettings(userId: string) {
   if (existing) return toClientSettings(existing);
 
   // Lazy-create: first time this user hits the settings endpoint.
-  // Wraps UserSettings + Availability seeding in a transaction.
+  // Wraps UserSettings + default AvailabilitySchedule + slots in a transaction.
   const settings = await prisma.$transaction(
     async (tx) => {
       const created = await tx.userSettings.upsert({
@@ -66,11 +66,34 @@ export async function getOrCreateUserSettings(userId: string) {
         select: SETTINGS_SELECT,
       });
 
-      // Seed Mon–Fri availability if not already present
-      await tx.availability.createMany({
-        data: DEFAULT_AVAILABILITY.map((a) => ({ ...a, userId })),
-        skipDuplicates: true,
+      // Read user timezone for the default schedule
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { timezone: true },
       });
+
+      // Seed a default "Working Hours" schedule if none exists yet
+      const existingSchedule = await tx.availabilitySchedule.findFirst({
+        where: { userId, isDeleted: false },
+        select: { id: true },
+      });
+
+      if (!existingSchedule) {
+        const schedule = await tx.availabilitySchedule.create({
+          data: {
+            userId,
+            name: "Working Hours",
+            timezone: user?.timezone ?? "UTC",
+            isDefault: true,
+          },
+          select: { id: true },
+        });
+
+        await tx.availability.createMany({
+          data: DEFAULT_SLOTS.map((s) => ({ ...s, scheduleId: schedule.id })),
+          skipDuplicates: true,
+        });
+      }
 
       logger.info("UserSettings created with defaults", { userId });
       return created;

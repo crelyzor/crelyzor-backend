@@ -19,6 +19,7 @@ const EVENT_TYPE_SELECT = {
   bufferAfter: true,
   maxPerDay: true,
   isActive: true,
+  availabilityScheduleId: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -58,6 +59,7 @@ export async function createEventType(
         bufferAfter: data.bufferAfter,
         maxPerDay: data.maxPerDay,
         isActive: data.isActive,
+        availabilityScheduleId: data.availabilityScheduleId ?? null,
       },
       select: EVENT_TYPE_SELECT,
     });
@@ -112,6 +114,9 @@ export async function updateEventType(
         ...(data.bufferAfter !== undefined && { bufferAfter: data.bufferAfter }),
         ...(data.maxPerDay !== undefined && { maxPerDay: data.maxPerDay }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
+        ...(data.availabilityScheduleId !== undefined && {
+          availabilityScheduleId: data.availabilityScheduleId,
+        }),
       },
       select: EVENT_TYPE_SELECT,
     });
@@ -137,7 +142,7 @@ export async function deleteEventType(userId: string, id: string) {
     where: {
       eventTypeId: id,
       isDeleted: false,
-      status: "CONFIRMED",
+      status: { in: ["PENDING", "CONFIRMED"] },
       startTime: { gt: new Date() },
     },
   });
