@@ -33,6 +33,9 @@ const meetingInclude = {
       },
     },
   },
+  booking: {
+    select: { id: true, status: true },
+  },
 } satisfies Prisma.MeetingInclude;
 
 export interface CreateMeetingDTO {
