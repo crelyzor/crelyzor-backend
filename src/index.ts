@@ -37,9 +37,17 @@ const startServer = async () => {
   try {
     await initializeQueues();
   } catch (error) {
-    logger.warn("⚠️ Queue initialization failed (job processing disabled):", {
+    logger.error("❌ Queue initialization failed (job processing disabled):", {
       error: error instanceof Error ? error.message : String(error),
     });
+  }
+
+  // Warn about missing optional-but-important env vars
+  if (!process.env.ALLOWED_ORIGINS) {
+    logger.warn("⚠️ ALLOWED_ORIGINS not set — CORS will use defaults");
+  }
+  if (!process.env.RECALL_WEBHOOK_SECRET) {
+    logger.warn("⚠️ RECALL_WEBHOOK_SECRET not set — Recall.ai webhook signature verification is disabled");
   }
 
   // Log configured services

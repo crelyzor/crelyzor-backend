@@ -130,7 +130,7 @@ Return ONLY a JSON array, no other text.`;
     keyPoints = JSON.parse(stripMarkdownJson(content));
   } catch {
     logger.error("Failed to parse key points JSON", { rawContent: content.slice(0, 200) });
-    return [];
+    throw new AppError("Failed to parse key points JSON from OpenAI response", 502);
   }
 
   // Update the summary with key points (separate from parse — let DB errors propagate)
@@ -212,7 +212,7 @@ Return ONLY a JSON array, no other text.`;
     rawTasks = JSON.parse(stripMarkdownJson(content));
   } catch {
     logger.error("Failed to parse tasks JSON", { rawContent: content.slice(0, 200) });
-    return [];
+    throw new AppError("Failed to parse tasks JSON from OpenAI response", 502);
   }
 
   const tasks: ExtractedTask[] = rawTasks.map((item) => ({
@@ -320,6 +320,19 @@ export const processTranscriptWithAI = async (
     throw new AppError(`No transcript found for meeting ${meetingId}`, 422);
   }
 
+  // Idempotency: skip if summary already processed
+  const existingSummary = await prisma.meetingAISummary.findFirst({
+    where: { meetingId, isDeleted: false },
+    select: { summary: true, keyPoints: true },
+  });
+  if (existingSummary?.summary) {
+    logger.info("AI pipeline already processed for meeting — skipping", { meetingId });
+    return {
+      summary: existingSummary.summary,
+      keyPoints: (existingSummary.keyPoints as string[]) ?? [],
+    };
+  }
+
   // Title generation is genuinely fire-and-forget — run outside Promise.all so a
   // title failure cannot reject the entire pipeline.
   void generateMeetingTitle(meetingId, transcript.fullText).catch((err) =>
@@ -329,17 +342,40 @@ export const processTranscriptWithAI = async (
     }),
   );
 
-  const [summary, keyPoints, tasks] = await Promise.all([
-    generateSummary(meetingId, transcript.fullText),
+  // generateSummary is a hard failure — if it fails the whole pipeline fails
+  const summary = await generateSummary(meetingId, transcript.fullText);
+
+  // extractKeyPoints and extractTasks are soft failures — log but don't fail the pipeline
+  const [keyPointsResult, tasksResult] = await Promise.allSettled([
     extractKeyPoints(meetingId, transcript.fullText),
     extractTasks(meetingId, transcript.fullText, userId),
   ]);
 
-  return {
-    summary,
-    keyPoints,
-    tasks,
-  };
+  const keyPoints =
+    keyPointsResult.status === "fulfilled" ? keyPointsResult.value : [];
+  if (keyPointsResult.status === "rejected") {
+    logger.error("extractKeyPoints failed (non-fatal)", {
+      meetingId,
+      error:
+        keyPointsResult.reason instanceof Error
+          ? keyPointsResult.reason.message
+          : String(keyPointsResult.reason),
+    });
+  }
+
+  const tasks =
+    tasksResult.status === "fulfilled" ? tasksResult.value : [];
+  if (tasksResult.status === "rejected") {
+    logger.error("extractTasks failed (non-fatal)", {
+      meetingId,
+      error:
+        tasksResult.reason instanceof Error
+          ? tasksResult.reason.message
+          : String(tasksResult.reason),
+    });
+  }
+
+  return { summary, keyPoints, tasks };
 };
 
 const ASK_AI_RATE_LIMIT = 20; // max requests per user per hour

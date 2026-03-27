@@ -38,6 +38,7 @@ export async function listEventTypes(userId: string) {
     where: { userId, isDeleted: false },
     select: EVENT_TYPE_SELECT,
     orderBy: { createdAt: "asc" },
+    take: 50,
   });
 }
 

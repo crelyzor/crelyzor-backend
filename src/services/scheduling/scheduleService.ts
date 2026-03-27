@@ -56,6 +56,7 @@ export async function listSchedules(userId: string) {
     where: { userId, isDeleted: false },
     select: SCHEDULE_SELECT,
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+    take: 20,
   });
 }
 
@@ -276,6 +277,7 @@ export async function getOverrides(userId: string, scheduleId: string) {
     where: { scheduleId, isDeleted: false },
     select: OVERRIDE_SELECT,
     orderBy: { date: "asc" },
+    take: 365,
   });
 }
 

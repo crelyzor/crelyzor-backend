@@ -62,6 +62,20 @@ class AuthService {
   async getUserProfile(userId: string): Promise<UserResponse> {
     const user = await prisma.user.findUnique({
       where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        emailVerified: true,
+        name: true,
+        avatarUrl: true,
+        countryCode: true,
+        phoneNumber: true,
+        country: true,
+        state: true,
+        lastLoginAt: true,
+        isActive: true,
+      },
     });
 
     if (!user) {
@@ -144,7 +158,23 @@ class AuthService {
     return { message: "Account deactivated successfully" };
   }
 
-  private mapUserToResponse(user: User): UserResponse {
+  private mapUserToResponse(
+    user: Pick<
+      User,
+      | "id"
+      | "email"
+      | "username"
+      | "emailVerified"
+      | "name"
+      | "avatarUrl"
+      | "countryCode"
+      | "phoneNumber"
+      | "country"
+      | "state"
+      | "lastLoginAt"
+      | "isActive"
+    >,
+  ): UserResponse {
     return {
       id: user.id,
       email: user.email,

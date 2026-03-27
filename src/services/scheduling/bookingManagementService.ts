@@ -153,6 +153,12 @@ export async function confirmBooking(userId: string, bookingId: string) {
       where: { id: bookingId },
       data: { googleEventId: gcalEventId },
     });
+  } else {
+    // Fail-open: booking is already confirmed in DB regardless of GCal outcome
+    logger.warn("GCal event creation returned no event ID — booking confirmed without calendar event", {
+      bookingId,
+      userId,
+    });
   }
 
   // Recall bot — fail-open

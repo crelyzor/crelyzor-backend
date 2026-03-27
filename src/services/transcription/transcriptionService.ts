@@ -226,7 +226,11 @@ export const regenerateTranscript = async (
   // Ownership + recording check
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, createdById: userId, isDeleted: false },
-    include: { recording: true },
+    select: {
+      id: true,
+      transcriptionStatus: true,
+      recording: { select: { id: true } },
+    },
   });
 
   if (!meeting) throw new AppError("Meeting not found", 404);

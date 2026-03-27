@@ -1,7 +1,10 @@
 import type { Request, Response } from "express";
+import { z } from "zod";
 import { recordingService } from "../services/recording/recordingService";
 import { ErrorFactory } from "../utils/globalErrorHandler";
 import { apiResponse } from "../utils/globalResponseHandler";
+
+const uuidSchema = z.string().uuid();
 
 interface MulterRequest extends Request {
   file?: Express.Multer.File;
@@ -12,6 +15,7 @@ interface MulterRequest extends Request {
  */
 export const uploadRecording = async (req: MulterRequest, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw ErrorFactory.validation("Invalid meetingId");
   const memberId = req.user?.userId;
 
   if (!req.file) {
@@ -50,6 +54,7 @@ export const uploadRecording = async (req: MulterRequest, res: Response) => {
  */
 export const getRecordings = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw ErrorFactory.validation("Invalid meetingId");
   const userId = req.user?.userId;
 
   if (!userId) {
@@ -70,6 +75,7 @@ export const getRecordings = async (req: Request, res: Response) => {
  */
 export const deleteRecording = async (req: Request, res: Response) => {
   const recordingId = req.params.recordingId as string;
+  if (!uuidSchema.safeParse(recordingId).success) throw ErrorFactory.validation("Invalid recordingId");
   const userId = req.user?.userId;
 
   if (!userId) {
@@ -89,6 +95,7 @@ export const deleteRecording = async (req: Request, res: Response) => {
  */
 export const triggerAIProcessing = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw ErrorFactory.validation("Invalid meetingId");
   const userId = req.user?.userId;
 
   if (!userId) {
