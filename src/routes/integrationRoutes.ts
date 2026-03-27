@@ -14,5 +14,6 @@ integrationRouter.get(
   integrationController.getGoogleCalendarEvents,
 );
 integrationRouter.get("/google/status", integrationController.getGoogleCalendarStatus);
+integrationRouter.delete("/google/disconnect", integrationController.disconnectGoogleCalendar);
 
 export default integrationRouter;

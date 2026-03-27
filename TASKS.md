@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-03-26 (Phase 1.2 P4 complete — Recall.ai integration: encryption, service, bot job queue, webhook)
+Last updated: 2026-03-27 (Phase 1.3 complete — GCal write sync, events endpoint, status endpoint, disconnect endpoint)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -204,7 +204,7 @@ Design doc: `docs/dev-notes/phase-1.3-gcal.md`
 
 - [x] **Schema:** Add `meetLink String?` to `Meeting` model — stores auto-generated Google Meet URL
 - [x] **Schema:** Add `googleEventId String?` to `Meeting` model — for write sync back to GCal
-- [~] **Migration:** `pnpm db:push && pnpm db:generate` — run manually to sync DB + regenerate Prisma client
+- [x] **Migration:** `pnpm db:push && pnpm db:generate` — schema synced, Prisma client regenerated
 - [x] **`generateMeetLink(userId)`** in `googleCalendarService.ts` — calls `calendar.events.insert` with `conferenceData: { createRequest: { requestId: uuid } }`, extracts `conferenceData.entryPoints[0].uri`. Fail-open: returns `null` if GCal not connected or API fails.
 - [x] **Auto Meet link on meeting create:** In `meetingService.createMeeting()` — if `addToCalendar === true` and type is SCHEDULED and GCal connected → call `generateMeetLink` → store `meetLink` + `googleEventId` on Meeting
 - [x] **Include `meetLink` in all meeting responses** — scalar fields auto-included in all `include`-based queries (no changes needed)
@@ -225,6 +225,11 @@ Design doc: `docs/dev-notes/phase-1.3-gcal.md`
 - [x] **`GET /integrations/google/events?start=&end=`** — `verifyJWT`, Zod validate (ISO datetimes, end>start, 60-day cap), userRateLimit(60/hr). New route file: `src/routes/integrationRoutes.ts`.
 - [x] **`GET /integrations/google/status`** — `verifyJWT`, returns `{ connected: boolean, email: string | null, syncEnabled: boolean }`. Scoped service function `getGCalConnectionStatus` in `googleCalendarService.ts`.
 - [x] **Wire new routes** into `src/routes/indexRouter.ts` under `/integrations`
+
+### P3 — Disconnect Endpoint
+
+- [x] **`disconnectGCalendar(userId)`** in `googleCalendarService.ts` — strips calendar scopes from `OAuthAccount`, clears `googleCalendarEmail` + disables sync in `UserSettings`. Single `prisma.$transaction` with 15s timeout. Fail-open pattern: existing meetings with `googleEventId` retain the field, GCal sync simply stops.
+- [x] **`DELETE /integrations/google/disconnect`** in `integrationRoutes.ts` — `verifyJWT` applied at router level. Controller calls `disconnectGCalendar(userId)`.
 
 ---
 

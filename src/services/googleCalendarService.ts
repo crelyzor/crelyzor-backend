@@ -686,3 +686,41 @@ export async function getGCalConnectionStatus(
     syncEnabled: settings?.googleCalendarSyncEnabled ?? false,
   };
 }
+
+/**
+ * Removes Google Calendar access from the user's account:
+ * - Strips calendar scopes from their OAuthAccount
+ * - Clears googleCalendarEmail and disables sync in UserSettings
+ *
+ * Does NOT revoke the Google OAuth token — the user can revoke via Google account settings.
+ * Existing meetings with googleEventId retain the field; GCal sync simply stops (fail-open).
+ */
+export async function disconnectGCalendar(userId: string): Promise<void> {
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.userSettings.updateMany({
+        where: { userId },
+        data: { googleCalendarEmail: null, googleCalendarSyncEnabled: false },
+      });
+
+      const oauthAccount = await tx.oAuthAccount.findFirst({
+        where: { userId, provider: "GOOGLE" },
+        select: { id: true, scopes: true },
+      });
+
+      if (oauthAccount) {
+        await tx.oAuthAccount.update({
+          where: { id: oauthAccount.id },
+          data: {
+            scopes: oauthAccount.scopes.filter(
+              (s) => s !== CALENDAR_SCOPE && s !== CALENDAR_READONLY_SCOPE,
+            ),
+          },
+        });
+      }
+    },
+    { timeout: 15000 },
+  );
+
+  logger.info("Google Calendar disconnected", { userId });
+}

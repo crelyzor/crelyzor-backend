@@ -29,7 +29,7 @@ export function getOAuthClient(redirectUri?: string) {
 function signCalendarState(redirectUrl: string, userId: string): string {
   const canonical = `${userId}:${redirectUrl}`;
   const sig = crypto
-    .createHmac("sha256", process.env.JWT_SECRET!)
+    .createHmac("sha256", process.env.JWT_ACCESS_SECRET!)
     .update(canonical)
     .digest("hex");
   return JSON.stringify({ redirectUrl, userId, sig });
@@ -51,7 +51,7 @@ function verifyCalendarState(raw: string): { redirectUrl: string; userId: string
 
   const canonical = `${userId}:${redirectUrl}`;
   const expected = crypto
-    .createHmac("sha256", process.env.JWT_SECRET!)
+    .createHmac("sha256", process.env.JWT_ACCESS_SECRET!)
     .update(canonical)
     .digest("hex");
 

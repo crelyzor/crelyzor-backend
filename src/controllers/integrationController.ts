@@ -5,6 +5,7 @@ import { getCalendarEventsSchema } from "../validators/integrationSchema";
 import {
   fetchGCalEvents,
   getGCalConnectionStatus,
+  disconnectGCalendar,
 } from "../services/googleCalendarService";
 
 /**
@@ -39,5 +40,20 @@ export const getGoogleCalendarStatus = async (req: Request, res: Response) => {
     statusCode: 200,
     message: "Google Calendar status fetched",
     data: status,
+  });
+};
+
+/**
+ * DELETE /integrations/google/disconnect
+ * Removes Google Calendar access — strips calendar scopes and clears calendar settings.
+ */
+export const disconnectGoogleCalendar = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+  await disconnectGCalendar(userId);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Google Calendar disconnected",
+    data: null,
   });
 };
