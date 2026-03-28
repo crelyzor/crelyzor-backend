@@ -24,6 +24,15 @@ export const tagCardParamSchema = z.object({
   tagId: uuidParam,
 });
 
+export const taskIdParamSchema = z.object({
+  taskId: uuidParam,
+});
+
+export const tagTaskParamSchema = z.object({
+  taskId: uuidParam,
+  tagId: uuidParam,
+});
+
 export const DEFAULT_TAG_COLOR = "#6b7280";
 
 export const createTagSchema = z.object({

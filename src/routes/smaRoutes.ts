@@ -8,6 +8,7 @@ import * as speakerController from "../controllers/speakerController";
 import * as taskController from "../controllers/taskController";
 import * as shareController from "../controllers/shareController";
 import * as exportController from "../controllers/exportController";
+import * as tagController from "../controllers/tagController";
 
 const router = Router();
 
@@ -127,10 +128,14 @@ router.post(
 
 // Tasks routes
 router.get("/tasks", taskController.getAllTasks);
+router.post("/tasks", taskController.createStandaloneTask);
 router.get("/meetings/:meetingId/tasks", taskController.getTasks);
 router.post("/meetings/:meetingId/tasks", taskController.createTask);
 router.patch("/tasks/:taskId", taskController.updateTask);
 router.delete("/tasks/:taskId", taskController.deleteTask);
+router.get("/tasks/:taskId/tags", tagController.getTaskTags);
+router.post("/tasks/:taskId/tags/:tagId", tagController.attachTagToTask);
+router.delete("/tasks/:taskId/tags/:tagId", tagController.detachTagFromTask);
 
 // Notes routes
 router.get("/meetings/:meetingId/notes", aiController.getNotes);

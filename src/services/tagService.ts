@@ -91,6 +91,7 @@ export async function deleteTag(userId: string, tagId: string) {
     async (tx) => {
       await tx.meetingTag.deleteMany({ where: { tagId } });
       await tx.cardTag.deleteMany({ where: { tagId } });
+      await tx.taskTag.deleteMany({ where: { tagId } });
       await tx.tag.update({
         where: { id: tagId },
         data: { isDeleted: true, deletedAt: new Date() },
@@ -220,4 +221,61 @@ export async function detachTagFromCard(
   await prisma.cardTag.deleteMany({ where: { cardId, tagId } });
 
   logger.info("Tag detached from card", { cardId, tagId, userId });
+}
+
+// ────────────────────────────────────────────────────────────
+// Task tags
+// ────────────────────────────────────────────────────────────
+
+async function verifyTaskOwnership(taskId: string, userId: string) {
+  const task = await prisma.task.findFirst({
+    where: { id: taskId, userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!task) throw new AppError("Task not found", 404);
+}
+
+export async function getTaskTags(userId: string, taskId: string) {
+  await verifyTaskOwnership(taskId, userId);
+
+  const rows = await prisma.taskTag.findMany({
+    where: { taskId, tag: { isDeleted: false } },
+    select: {
+      createdAt: true,
+      tag: { select: TAG_SELECT },
+    },
+    orderBy: { tag: { name: "asc" } },
+  });
+
+  return rows.map((r) => ({ ...r.tag, attachedAt: r.createdAt }));
+}
+
+export async function attachTagToTask(
+  userId: string,
+  taskId: string,
+  tagId: string,
+) {
+  await verifyTaskOwnership(taskId, userId);
+  await verifyTagOwnership(tagId, userId);
+
+  await prisma.taskTag.upsert({
+    where: { taskId_tagId: { taskId, tagId } },
+    create: { taskId, tagId },
+    update: {},
+  });
+
+  logger.info("Tag attached to task", { taskId, tagId, userId });
+}
+
+export async function detachTagFromTask(
+  userId: string,
+  taskId: string,
+  tagId: string,
+) {
+  await verifyTaskOwnership(taskId, userId);
+  await verifyTagOwnership(tagId, userId);
+
+  await prisma.taskTag.deleteMany({ where: { taskId, tagId } });
+
+  logger.info("Tag detached from task", { taskId, tagId, userId });
 }

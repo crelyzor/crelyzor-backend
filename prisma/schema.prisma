@@ -319,24 +319,40 @@ model Task {
   description String?
   isCompleted Boolean       @default(false)
   completedAt DateTime?
-  dueDate     DateTime?
-  priority    TaskPriority?
-  source      TaskSource    @default(MANUAL)
+  dueDate       DateTime?
+  scheduledTime DateTime?
+  priority      TaskPriority?
+  source        TaskSource    @default(MANUAL)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
 
-  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  meeting Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  meeting  Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  taskTags TaskTag[]
 
   @@index([userId])
   @@index([meetingId])
   @@index([userId, isDeleted])
   @@index([dueDate])
+  @@index([scheduledTime])
   @@index([isCompleted])
   @@index([source])
+}
+
+model TaskTag {
+  taskId    String   @db.Uuid
+  tagId     String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+  @@index([taskId])
+  @@index([tagId])
 }
 
 model MeetingNote {
@@ -578,6 +594,7 @@ model Tag {
   user        User         @relation(fields: [userId], references: [id])
   meetingTags MeetingTag[]
   cardTags    CardTag[]
+  taskTags    TaskTag[]
 
   @@unique([userId, name])
   @@index([userId])

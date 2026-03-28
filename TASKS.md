@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-03-28 (Phase 1.4 complete)
+Last updated: 2026-03-28 (Phase 2 standalone tasks complete)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -277,9 +277,9 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ## Phase 2 — Standalone Tasks
 
-- [ ] Standalone tasks API — `GET /tasks` (all tasks, not scoped to a meeting), with filter/sort/pagination
-- [ ] Tag junction for Tasks (`TaskTag` — extends universal Tag system)
-- [ ] Due date + `scheduledTime` support (model has `dueDate` — add `scheduledTime` for calendar view in Phase 3)
+- [x] Standalone tasks API — `GET /sma/tasks` (filter/sort/pagination) + `POST /sma/tasks` (standalone create with optional meetingId)
+- [x] Tag junction for Tasks (`TaskTag` — extends universal Tag system, GET/POST/DELETE /sma/tasks/:taskId/tags, tags included in GET /sma/tasks response)
+- [x] Due date + `scheduledTime` support (`scheduledTime DateTime?` + index, exposed in create/update/list endpoints, frontend type updated)
 
 ---
 
