@@ -15,7 +15,6 @@ import { aiService } from "../services/ai/aiService";
 import { deployBot, getRecordingUrl } from "../services/recall/recallService";
 import { gcsService } from "../services/gcs/gcsService";
 import { logger } from "../utils/logging/logger";
-import { decrypt } from "../utils/encryption";
 import { TranscriptionStatus } from "@prisma/client";
 import prisma from "../db/prismaClient";
 
@@ -106,6 +105,8 @@ export const startWorker = async (): Promise<void> => {
           where: { id: data.meetingId, isDeleted: false },
           select: {
             id: true,
+            meetLink: true,
+            startTime: true,
             booking: {
               select: {
                 eventType: {
@@ -117,29 +118,30 @@ export const startWorker = async (): Promise<void> => {
         }),
         prisma.userSettings.findUnique({
           where: { userId: data.hostUserId },
-          select: { recallApiKey: true, recallEnabled: true },
+          select: { recallEnabled: true },
         }),
       ]);
 
       if (!meeting) {
         throw new Error(`Meeting ${data.meetingId} not found — skipping bot deploy`);
       }
-      const meetingLink = meeting.booking?.eventType?.meetingLink;
+      // Meeting link can come from booking event type or directly from the meeting (Meet link)
+      const meetingLink = meeting.booking?.eventType?.meetingLink ?? meeting.meetLink;
       if (!meetingLink) {
         throw new Error(`Meeting ${data.meetingId} has no meetingLink — cannot deploy bot`);
       }
-      if (!userSettings?.recallEnabled || !userSettings.recallApiKey) {
-        logger.warn("Recall not enabled or API key missing — skipping bot deploy", {
+      if (!userSettings?.recallEnabled) {
+        logger.warn("Recall not enabled — skipping bot deploy", {
           meetingId: data.meetingId,
           hostUserId: data.hostUserId,
         });
         return { skipped: true };
       }
 
-      // Decrypt API key — local variable, never logged or persisted
-      const recallApiKey = decrypt(userSettings.recallApiKey);
+      // Join 5 minutes before start
+      const joinAt = new Date(meeting.startTime.getTime() - 5 * 60 * 1000).toISOString();
 
-      const { botId } = await deployBot(meetingLink, recallApiKey);
+      const { botId } = await deployBot(meetingLink, joinAt);
 
       // Store botId on the meeting for webhook correlation
       await prisma.meeting.update({
@@ -167,20 +169,8 @@ export const startWorker = async (): Promise<void> => {
     logger.info("Processing Recall recording fetch job", { meetingId: data.meetingId, botId: data.botId });
 
     try {
-      const userSettings = await prisma.userSettings.findUnique({
-        where: { userId: data.hostUserId },
-        select: { recallApiKey: true },
-      });
-
-      if (!userSettings?.recallApiKey) {
-        throw new Error(`No Recall API key for user ${data.hostUserId}`);
-      }
-
-      // Decrypt key — local variable only
-      const recallApiKey = decrypt(userSettings.recallApiKey);
-
-      // Fetch recording download URL from Recall.ai
-      const downloadUrl = await getRecordingUrl(data.botId, recallApiKey);
+      // Fetch recording download URL from Recall.ai (uses platform key from env)
+      const downloadUrl = await getRecordingUrl(data.botId);
 
       // Download the recording bytes
       const response = await fetch(downloadUrl);

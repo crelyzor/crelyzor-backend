@@ -31,10 +31,7 @@ const envSchema = z.object({
   REDIS_URL: z.string().min(1, "REDIS_URL is required"),
 
   // Recall.ai integration
-  RECALL_ENCRYPTION_KEY: z
-    .string()
-    .length(64, "RECALL_ENCRYPTION_KEY must be a 64-character hex string (32 bytes for AES-256)")
-    .optional(),
+  RECALL_API_KEY: z.string().min(1).optional(),
   RECALL_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
 

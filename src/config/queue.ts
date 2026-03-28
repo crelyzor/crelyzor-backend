@@ -35,21 +35,13 @@ export interface AIProcessingJobData {
   ownerId: string;
 }
 
-/**
- * Job data for Recall.ai bot deployment.
- * NOTE: recallApiKey is intentionally NOT included — the worker fetches and
- * decrypts it from UserSettings at execution time to avoid storing sensitive
- * credentials in Redis job payloads.
- */
+/** Job data for Recall.ai bot deployment. */
 export interface RecallBotJobData {
   meetingId: string;
   hostUserId: string;
 }
 
-/**
- * Job data for Recall.ai recording download + transcription pipeline.
- * Same key-exclusion policy as RecallBotJobData.
- */
+/** Job data for Recall.ai recording download + transcription pipeline. */
 export interface RecallRecordingJobData {
   botId: string;
   meetingId: string;

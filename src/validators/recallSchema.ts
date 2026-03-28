@@ -1,22 +1,6 @@
 import { z } from "zod";
 
 /**
- * PUT /settings/recall-api-key
- * Saves the user's Recall.ai API key (encrypted at rest).
- * The key is never returned in any response.
- */
-export const saveRecallApiKeySchema = z
-  .object({
-    apiKey: z
-      .string()
-      .min(16, "Recall.ai API key must be at least 16 characters")
-      .max(512, "Recall.ai API key too long"),
-  })
-  .strict();
-
-export type SaveRecallApiKeyInput = z.infer<typeof saveRecallApiKeySchema>;
-
-/**
  * Recall.ai webhook event payload shape.
  * Used to validate the inbound webhook body before acting on it.
  */

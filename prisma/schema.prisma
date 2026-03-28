@@ -630,7 +630,6 @@ model UserSettings {
   googleCalendarSyncEnabled Boolean @default(false)
   googleCalendarEmail       String?
   recallEnabled             Boolean @default(false)
-  recallApiKey              String? // encrypted at rest
 
   // AI & Transcription
   autoTranscribe  Boolean @default(true)
