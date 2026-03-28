@@ -106,6 +106,7 @@ export const startWorker = async (): Promise<void> => {
           select: {
             id: true,
             meetLink: true,
+            location: true,
             startTime: true,
             booking: {
               select: {
@@ -125,8 +126,8 @@ export const startWorker = async (): Promise<void> => {
       if (!meeting) {
         throw new Error(`Meeting ${data.meetingId} not found — skipping bot deploy`);
       }
-      // Meeting link can come from booking event type or directly from the meeting (Meet link)
-      const meetingLink = meeting.booking?.eventType?.meetingLink ?? meeting.meetLink;
+      // Meeting link can come from booking event type, Meet link, or location field
+      const meetingLink = meeting.booking?.eventType?.meetingLink ?? meeting.meetLink ?? meeting.location;
       if (!meetingLink) {
         throw new Error(`Meeting ${data.meetingId} has no meetingLink — cannot deploy bot`);
       }

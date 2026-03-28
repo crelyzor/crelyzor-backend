@@ -12,6 +12,9 @@ import {
   updateGCalEventForMeeting,
   deleteCalendarEvent,
 } from "../googleCalendarService";
+import { getRecallBotQueue, JobNames } from "../../config/queue";
+import { env } from "../../config/environment";
+import { logger } from "../../utils/logging/logger";
 
 const meetingInclude = {
   participants: {
@@ -200,6 +203,37 @@ export const meetingService = {
         }
       } catch {
         // fail-open — meeting is already committed
+      }
+    }
+
+    // Recall bot — queue deploy for SCHEDULED meetings with a video link.
+    // Fail-open: bot deploy failure never blocks meeting creation.
+    if (isScheduled && env.RECALL_API_KEY) {
+      const videoLink = meeting.meetLink ?? meeting.location;
+      if (videoLink) {
+        try {
+          const settings = await prisma.userSettings.findUnique({
+            where: { userId: createdById },
+            select: { recallEnabled: true },
+          });
+
+          if (settings?.recallEnabled) {
+            const deployAt = meeting.startTime.getTime() - 5 * 60 * 1000;
+            const delay = Math.max(0, deployAt - Date.now());
+
+            await getRecallBotQueue().add(
+              JobNames.DEPLOY_RECALL_BOT,
+              { meetingId: meeting.id, hostUserId: createdById },
+              { delay },
+            );
+            logger.info("Recall bot deployment queued for manual meeting", {
+              meetingId: meeting.id,
+              delayMs: delay,
+            });
+          }
+        } catch {
+          // fail-open — meeting is already committed
+        }
       }
     }
 
