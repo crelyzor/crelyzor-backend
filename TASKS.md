@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-03-28 (Phase 1.4 — Recall.ai platform integration)
+Last updated: 2026-03-28 (Phase 1.4 complete)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -233,7 +233,7 @@ Design doc: `docs/dev-notes/phase-1.3-gcal.md`
 
 ---
 
-## Phase 1.4 — Recall.ai Platform Integration ← current
+## Phase 1.4 — Recall.ai Platform Integration ✅ Complete
 
 Design doc: `docs/dev-notes/phase-1.4-recall-platform.md`
 
@@ -241,37 +241,37 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ### P0 — Schema + Environment
 
-- [ ] Schema: drop `recallApiKey String?` from `UserSettings` model (keep `recallEnabled`)
-- [ ] Migration: `pnpm db:migrate` — creates migration for column drop
-- [ ] Env: add `RECALL_API_KEY` to `.env.example` (required for Recall features, optional for running backend)
-- [ ] Env: remove `RECALL_ENCRYPTION_KEY` from `.env.example`
+- [x] Schema: drop `recallApiKey String?` from `UserSettings` model (keep `recallEnabled`)
+- [x] DB push: `pnpm db:push` — column dropped, Prisma client regenerated
+- [x] Env: add `RECALL_API_KEY` to `.env.example` + `environment.ts` Zod schema
+- [x] Env: remove `RECALL_ENCRYPTION_KEY` from `.env.example` + `environment.ts`
 
 ### P1 — Remove per-user key infrastructure
 
-- [ ] Delete `PUT /settings/recall-api-key` route from `settingsRoutes.ts`
-- [ ] Delete `upsertRecallApiKey` handler from `userSettingsController.ts`
-- [ ] Delete `upsertRecallApiKey` from `userSettingsService.ts`
-- [ ] Delete `recallApiKeySchema` from validators (if exists)
-- [ ] Remove "must have recallApiKey before enabling" guard in `updateUserSettings`
-- [ ] Remove `hasRecallApiKey` from settings response. Add `recallAvailable: boolean` (derived from `!!process.env.RECALL_API_KEY`)
-- [ ] Remove `encryption.ts` (`encrypt`/`decrypt`) if only Recall used it
+- [x] Delete `PUT /settings/recall-api-key` route from `settingsRoutes.ts`
+- [x] Delete `saveRecallApiKey` handler from `userSettingsController.ts`
+- [x] Delete `upsertRecallApiKey` from `userSettingsService.ts`
+- [x] Delete `saveRecallApiKeySchema` from `recallSchema.ts` (kept webhook schema)
+- [x] Remove "must have recallApiKey before enabling" guard — replaced with `env.RECALL_API_KEY` check
+- [x] Remove `hasRecallApiKey` from settings response. Add `recallAvailable: boolean` (derived from `!!env.RECALL_API_KEY`)
+- [x] Delete `encryption.ts` entirely (only Recall used it)
 
 ### P2 — Refactor Recall service + worker
 
-- [ ] `recallService.ts`: remove `recallApiKey` param from `deployBot()` + `getRecordingUrl()` — read `process.env.RECALL_API_KEY` internally
-- [ ] `recallService.ts`: add `joinAt` param to `deployBot()` — pass `join_at` ISO timestamp in Recall API request
-- [ ] `recallService.ts`: add `automatic_leave` config to bot payload (waiting_room_timeout: 600, noone_joined_timeout: 180)
-- [ ] `recallService.ts`: remove `assembly_ai` transcript provider from bot payload (we use our own Deepgram pipeline)
-- [ ] `jobProcessor.ts` — `DEPLOY_RECALL_BOT`: remove UserSettings query for `recallApiKey`, remove `decrypt()` call. Call `deployBot(meetingLink)`. Still check meeting exists.
-- [ ] `jobProcessor.ts` — `FETCH_RECALL_RECORDING`: remove UserSettings query for `recallApiKey`, remove `decrypt()`. Call `getRecordingUrl(botId)`.
-- [ ] `recallWebhookController.ts`: keep `recallEnabled` check on webhook receipt (user may disable mid-meeting). No other changes needed.
-- [ ] `bookingManagementService.ts`: simplify deploy trigger — check `recallEnabled` + `!!process.env.RECALL_API_KEY` (no per-user key dependency)
+- [x] `recallService.ts`: remove `recallApiKey` param — reads `env.RECALL_API_KEY` internally
+- [x] `recallService.ts`: add `joinAt` param to `deployBot()` — pass `join_at` ISO timestamp
+- [x] `recallService.ts`: add `automatic_leave` config (waiting_room_timeout: 600, noone_joined_timeout: 180)
+- [x] `recallService.ts`: remove `assembly_ai` transcript provider from bot payload
+- [x] `jobProcessor.ts` — `DEPLOY_RECALL_BOT`: removed decrypt, per-user key fetch; uses platform key + joinAt
+- [x] `jobProcessor.ts` — `FETCH_RECALL_RECORDING`: removed decrypt, per-user key fetch; calls `getRecordingUrl(botId)`
+- [x] `bookingManagementService.ts`: already clean — only checks `recallEnabled` (no per-user key dependency)
 
 ### P3 — Expand bot deployment scope
 
-- [ ] `meetingService.ts`: on `createMeeting()` — if type is SCHEDULED, has `meetingLink` or `meetLink`, and user's `recallEnabled === true` and `RECALL_API_KEY` exists → queue Recall bot deploy job
-- [ ] Same for meetings created with GCal Meet links (`addToCalendar: true`)
-- [ ] Fail-open: bot deploy failure doesn't block meeting creation (same pattern as GCal sync)
+- [x] `meetingService.ts`: on `createMeeting()` — queues Recall bot if SCHEDULED + video link + recallEnabled + RECALL_API_KEY
+- [x] Covers both GCal Meet links (`addToCalendar: true`) and manual video URLs in `location`
+- [x] URL allowlist validation (`isVideoMeetingUrl`) — only Google Meet, Zoom, Teams, Webex passed to Recall
+- [x] Fail-open: bot deploy failure doesn't block meeting creation
 
 ---
 
