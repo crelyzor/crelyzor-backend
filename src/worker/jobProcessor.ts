@@ -17,6 +17,7 @@ import { gcsService } from "../services/gcs/gcsService";
 import { logger } from "../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
 import prisma from "../db/prismaClient";
+import { isVideoMeetingUrl } from "../utils/isVideoMeetingUrl";
 
 /**
  * Initialize and start all queue processors
@@ -128,8 +129,11 @@ export const startWorker = async (): Promise<void> => {
       }
       // Meeting link can come from booking event type, Meet link, or location field
       const meetingLink = meeting.booking?.eventType?.meetingLink ?? meeting.meetLink ?? meeting.location;
-      if (!meetingLink) {
-        throw new Error(`Meeting ${data.meetingId} has no meetingLink — cannot deploy bot`);
+      if (!meetingLink || !isVideoMeetingUrl(meetingLink)) {
+        logger.warn("Meeting has no valid video meeting URL — skipping bot deploy", {
+          meetingId: data.meetingId,
+        });
+        return { skipped: true };
       }
       if (!userSettings?.recallEnabled) {
         logger.warn("Recall not enabled — skipping bot deploy", {

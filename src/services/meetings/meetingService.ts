@@ -15,6 +15,7 @@ import {
 import { getRecallBotQueue, JobNames } from "../../config/queue";
 import { env } from "../../config/environment";
 import { logger } from "../../utils/logging/logger";
+import { isVideoMeetingUrl } from "../../utils/isVideoMeetingUrl";
 
 const meetingInclude = {
   participants: {
@@ -210,7 +211,7 @@ export const meetingService = {
     // Fail-open: bot deploy failure never blocks meeting creation.
     if (isScheduled && env.RECALL_API_KEY) {
       const videoLink = meeting.meetLink ?? meeting.location;
-      if (videoLink) {
+      if (videoLink && isVideoMeetingUrl(videoLink)) {
         try {
           const settings = await prisma.userSettings.findUnique({
             where: { userId: createdById },
