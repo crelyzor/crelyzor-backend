@@ -275,7 +275,7 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ---
 
-## Phase 2 — Standalone Tasks
+## Phase 2 — Standalone Tasks ✅ Complete
 
 - [x] Standalone tasks API — `GET /sma/tasks` (filter/sort/pagination) + `POST /sma/tasks` (standalone create with optional meetingId)
 - [x] Tag junction for Tasks (`TaskTag` — extends universal Tag system, GET/POST/DELETE /sma/tasks/:taskId/tags, tags included in GET /sma/tasks response)
@@ -283,7 +283,15 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ---
 
-## Phase 3 — Big Brain
+## Phase 3 — Calendar View
+
+No backend changes needed — existing endpoints cover it.
+
+---
+
+## Phase 4 — Big Brain
+
+Requires separate infrastructure. Do not start until Phase 3 is complete.
 
 - [ ] Vector embeddings pipeline
 - [ ] RAG query endpoint (global Ask AI)
