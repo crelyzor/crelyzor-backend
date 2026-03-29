@@ -33,6 +33,7 @@ const envSchema = z.object({
   // Recall.ai integration
   RECALL_API_KEY: z.string().min(1).optional(),
   RECALL_WEBHOOK_SECRET: z.string().min(1).optional(),
+  RECALL_BASE_URL: z.string().url().default("https://api.recall.ai/api/v1"),
 });
 
 export type Environment = z.infer<typeof envSchema>;

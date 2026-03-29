@@ -2,7 +2,7 @@ import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
 import { env } from "../../config/environment";
 
-const RECALL_API_BASE = "https://api.recall.ai/api/v1";
+const RECALL_API_BASE = env.RECALL_BASE_URL;
 
 function getRecallApiKey(): string {
   if (!env.RECALL_API_KEY) {
