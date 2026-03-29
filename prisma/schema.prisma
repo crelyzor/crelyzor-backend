@@ -315,14 +315,21 @@ model Task {
   userId      String        @db.Uuid
   meetingId   String?       @db.Uuid
 
-  title       String
-  description String?
-  isCompleted Boolean       @default(false)
-  completedAt DateTime?
-  dueDate       DateTime?
-  scheduledTime DateTime?
-  priority      TaskPriority?
-  source        TaskSource    @default(MANUAL)
+  title             String
+  description       String?
+  isCompleted       Boolean       @default(false) // PHASE-OUT: keep in sync with status field
+  completedAt       DateTime?                      // PHASE-OUT: set when status = DONE
+  dueDate           DateTime?
+  scheduledTime     DateTime?
+  priority          TaskPriority?
+  source            TaskSource    @default(MANUAL)
+
+  // Phase 3 additions
+  status            TaskStatus    @default(TODO)
+  sortOrder         Int           @default(0)
+  parentTaskId      String?       @db.Uuid
+  cardId            String?       @db.Uuid
+  transcriptContext String?       // The transcript sentence that generated this task (AI_EXTRACTED only)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -332,6 +339,9 @@ model Task {
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   meeting  Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
   taskTags TaskTag[]
+  parent   Task?     @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  subtasks Task[]    @relation("TaskSubtasks")
+  card     Card?     @relation(fields: [cardId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([meetingId])
@@ -340,6 +350,12 @@ model Task {
   @@index([scheduledTime])
   @@index([isCompleted])
   @@index([source])
+  @@index([status])
+  @@index([userId, sortOrder])
+  @@index([parentTaskId])
+  @@index([cardId])
+  @@index([userId, status, isDeleted])
+  @@index([userId, cardId, isDeleted])
 }
 
 model TaskTag {
@@ -486,6 +502,7 @@ model Card {
   contacts CardContact[]
   views    CardView[]
   tags     CardTag[]
+  tasks    Task[]
 
   @@unique([userId, slug])
   @@index([slug])
@@ -848,6 +865,12 @@ enum TaskPriority {
   LOW
   MEDIUM
   HIGH
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
 }
 
 enum AIContentType {

@@ -15,6 +15,10 @@ export const createTaskSchema = z.object({
 
 export const createStandaloneTaskSchema = createTaskSchema.extend({
   meetingId: z.string().uuid("Invalid meetingId").optional(),
+  parentTaskId: z.string().uuid("Invalid parentTaskId").optional(),
+  cardId: z.string().uuid("Invalid cardId").optional(),
+  status: z.enum(["TODO", "IN_PROGRESS", "DONE"]).optional(),
+  transcriptContext: z.string().max(2000).optional(),
 });
 
 export const updateTaskSchema = z.object({
@@ -24,10 +28,14 @@ export const updateTaskSchema = z.object({
   dueDate: dateField.nullable().optional(),
   scheduledTime: dateField.nullable().optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH"]).nullable().optional(),
+  status: z.enum(["TODO", "IN_PROGRESS", "DONE"]).optional(),
+  cardId: z.string().uuid("Invalid cardId").nullable().optional(),
+  transcriptContext: z.string().max(2000).nullable().optional(),
 });
 
 export const listTasksQuerySchema = z.object({
   status: z.enum(["all", "completed", "pending"]).default("all"),
+  view: z.enum(["inbox", "today", "upcoming", "all", "from_meetings"]).optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
   source: z.enum(["AI_EXTRACTED", "MANUAL"]).optional(),
   meetingId: z.string().uuid().optional(),
@@ -39,11 +47,18 @@ export const listTasksQuerySchema = z.object({
   dueAfter: dateField.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
-  sortBy: z.enum(["createdAt", "dueDate", "priority"]).default("createdAt"),
+  sortBy: z.enum(["createdAt", "dueDate", "priority", "sortOrder"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
-export type ListTasksQuery = z.infer<typeof listTasksQuerySchema>;
+export const reorderTasksSchema = z.object({
+  taskIds: z
+    .array(z.string().uuid("Each taskId must be a UUID"))
+    .min(1)
+    .max(100, "Cannot reorder more than 100 tasks at once"),
+});
 
+export type ListTasksQuery = z.infer<typeof listTasksQuerySchema>;
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
+export type ReorderTasksInput = z.infer<typeof reorderTasksSchema>;

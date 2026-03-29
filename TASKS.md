@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-03-28 (Phase 2 standalone tasks complete)
+Last updated: 2026-03-29 (Phase 3 P0+P1+P2 complete)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -283,9 +283,52 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ---
 
-## Phase 3 — Calendar View
+## Phase 3 — Todoist-Level Tasks + Calendar View
 
-No backend changes needed — existing endpoints cover it.
+### P0 — Schema + API Upgrades ✅ Complete
+
+- [x] `TaskStatus` enum: `TODO | IN_PROGRESS | DONE` added to schema
+- [x] `status TaskStatus @default(TODO)` on Task — synced with isCompleted in service layer
+- [x] `sortOrder Int @default(0)` on Task
+- [x] `parentTaskId UUID?` on Task — self-referential FK, subtasks
+- [x] `cardId UUID?` on Task — link task to Card contact
+- [x] `transcriptContext String?` on Task — transcript sentence for AI_EXTRACTED tasks
+- [x] DB push + Prisma client regenerated
+- [x] `PATCH /sma/tasks/reorder` — bulk sortOrder update, userId-scoped transaction
+- [x] `GET /sma/tasks/:taskId/subtasks` — parent ownership verified
+- [x] `POST /sma/tasks/:taskId/subtasks` — parent ownership verified, userId from auth
+- [x] `GET /sma/tasks?view=` — inbox | today | upcoming | all | from_meetings
+- [x] `cardId`, `status`, `transcriptContext` on create + update endpoints
+- [x] `updateTask`: status↔isCompleted kept in sync
+- [x] `deleteTask`: cascades soft-delete to direct subtasks in transaction
+- [x] `getTasks` (meeting-scoped): userId added to Task where clause (security fix)
+
+### P1 — Task Detail Panel + Row Redesign (crelyzor-frontend) ✅ Complete
+
+- [x] Task detail slide panel (right-side slide-over, auto-save on blur)
+- [x] Task row redesign (priority border, overdue indicator, meeting chip, click to open panel)
+
+### P2 — Sidebar Nav + Views (crelyzor-frontend) ✅ Complete
+
+- [x] Sidebar nav: Inbox · Today · Upcoming · All · From Meetings (URL-driven `?view=`)
+- [x] Today view (overdue + due today sections, midnight boundary)
+- [x] Upcoming view (7-day grouped, backend pre-groups response)
+- [x] From Meetings view (grouped by meeting name on frontend)
+
+### P3 — Board View + Drag and Drop (crelyzor-frontend)
+- [ ] Board view (Kanban: Todo / In Progress / Done)
+- [ ] List drag-to-reorder (dnd-kit)
+- [ ] Grouped view (by date)
+
+### P4 — Quick Add + Integrations
+- [ ] Global quick-add Cmd+K with natural language parsing
+- [ ] Auto-create "Prepare" task on booking confirmed (bookingManagementService.ts)
+- [ ] Contact-linked tasks on Card detail page
+
+### P5 — Calendar View
+- [ ] /calendar page (week/day, GCal + meetings + tasks unified)
+- [ ] All-day task markers for dueDate-only tasks
+- [ ] Drag task to time slot → sets scheduledTime
 
 ---
 

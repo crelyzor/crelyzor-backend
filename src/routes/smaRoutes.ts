@@ -127,12 +127,16 @@ router.post(
 );
 
 // Tasks routes
+// NOTE: /tasks/reorder must be defined before /tasks/:taskId — Express matches top-to-bottom
 router.get("/tasks", taskController.getAllTasks);
 router.post("/tasks", taskController.createStandaloneTask);
+router.patch("/tasks/reorder", taskController.reorderTasks);
 router.get("/meetings/:meetingId/tasks", taskController.getTasks);
 router.post("/meetings/:meetingId/tasks", taskController.createTask);
 router.patch("/tasks/:taskId", taskController.updateTask);
 router.delete("/tasks/:taskId", taskController.deleteTask);
+router.get("/tasks/:taskId/subtasks", taskController.getSubtasks);
+router.post("/tasks/:taskId/subtasks", taskController.createSubtask);
 router.get("/tasks/:taskId/tags", tagController.getTaskTags);
 router.post("/tasks/:taskId/tags/:tagId", tagController.attachTagToTask);
 router.delete("/tasks/:taskId/tags/:tagId", tagController.detachTagFromTask);
