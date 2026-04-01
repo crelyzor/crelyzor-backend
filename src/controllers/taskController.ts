@@ -42,7 +42,7 @@ export const getAllTasks = async (req: Request, res: Response) => {
   const validated = listTasksQuerySchema.safeParse(req.query);
   if (!validated.success) throw new AppError("Validation failed", 400);
 
-  const { status, view, priority, source, meetingId, hasMeeting, dueBefore, dueAfter, limit, offset, sortBy, sortOrder } = validated.data;
+  const { status, view, priority, source, meetingId, cardId, hasMeeting, dueBefore, dueAfter, limit, offset, sortBy, sortOrder } = validated.data;
 
   const now = new Date();
   const startOfToday = new Date(now);
@@ -90,6 +90,7 @@ export const getAllTasks = async (req: Request, res: Response) => {
   if (priority) where.priority = priority;
   if (source) where.source = source;
   if (meetingId) where.meetingId = meetingId;
+  if (cardId) where.cardId = cardId;
   if (hasMeeting === true) where.meetingId = { not: null };
   else if (hasMeeting === false) where.meetingId = null;
 

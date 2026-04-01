@@ -39,6 +39,7 @@ export const listTasksQuerySchema = z.object({
   priority: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
   source: z.enum(["AI_EXTRACTED", "MANUAL"]).optional(),
   meetingId: z.string().uuid().optional(),
+  cardId: z.string().uuid().optional(),
   hasMeeting: z
     .enum(["true", "false"])
     .transform((v) => v === "true")
