@@ -316,12 +316,12 @@ Move Recall from per-user BYO-key to platform-level service.
 - [x] From Meetings view (grouped by meeting name on frontend)
 
 ### P3 — Board View + Drag and Drop (crelyzor-frontend)
-- [ ] Board view (Kanban: Todo / In Progress / Done)
-- [ ] List drag-to-reorder (dnd-kit)
-- [ ] Grouped view (by date)
+- [x] Board view (Kanban: Todo / In Progress / Done)
+- [x] List drag-to-reorder (dnd-kit)
+- [x] Grouped view (by date)
 
 ### P4 — Quick Add + Integrations
-- [ ] Global quick-add Cmd+K with natural language parsing
+- [x] Global quick-add Cmd+K with natural language parsing
 - [ ] Auto-create "Prepare" task on booking confirmed (bookingManagementService.ts)
 - [ ] Contact-linked tasks on Card detail page
 
