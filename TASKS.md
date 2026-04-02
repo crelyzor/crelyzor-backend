@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-03-29 (Phase 3 P0+P1+P2 complete)
+Last updated: 2026-04-02 (Phase 3 complete — Phase 3.2 in progress)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -332,10 +332,84 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ---
 
-## Phase 4 — Big Brain
+## Phase 3.2 — Polish, Enhancements & Power Features ← current
 
-Requires separate infrastructure. Do not start until Phase 3 is complete.
+### P1 — Task Duration Field
+
+- [ ] **Schema:** Add `durationMinutes Int? @default(30)` to `Task` model
+- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
+- [ ] **Update endpoints:** Expose `durationMinutes` in `createStandaloneTask`, `updateTask` create/update Zod schemas and service handlers
+- [ ] **Validate:** `z.number().int().min(5).max(480).optional()` (5 min to 8 hrs)
+
+---
+
+### P2 — Auto-create "Prepare for Meeting" Task on Booking Confirmed
+
+- [ ] **`bookingManagementService.ts`:** After `Booking` + `Meeting` are created atomically, create a `Task` record:
+  - `title`: `"Prepare for [eventType.title] with [guestName]"`
+  - `userId`: host's userId
+  - `meetingId`: newly created meeting's id
+  - `dueDate`: 1 hour before `startTime` (ISO string)
+  - `source`: `MANUAL`
+  - `status`: `TODO`
+- [ ] Done inside the same `$transaction` as booking creation
+- [ ] Fail-open — task creation failure should not roll back the booking
+
+---
+
+### P3 — Schedule Task → Create GCal Block
+
+- [ ] **`googleCalendarService.ts`:** Add `createTaskBlock(userId, task)` — inserts a GCal event titled `"🔲 [task.title]"` at `task.scheduledTime` for `task.durationMinutes`. Returns `googleEventId | null`. Fail-open.
+- [ ] **`googleCalendarService.ts`:** Add `deleteTaskBlock(userId, googleEventId)` — deletes the GCal event. Fail-open.
+- [ ] **Schema:** Add `googleEventId String?` to `Task` model (stores the GCal block event id)
+- [ ] **`taskService.ts` → `updateTask`:** When `scheduledTime` is set + user has GCal connected + `blockInCalendar: true` in payload → call `createTaskBlock`, store `googleEventId` on Task. When `scheduledTime` cleared → call `deleteTaskBlock`.
+- [ ] **`PATCH /sma/tasks/:taskId` Zod schema:** Add `blockInCalendar?: z.boolean().optional()`
+- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
+
+---
+
+### P3 — Meeting ↔ Card Contact Auto-Linking
+
+- [ ] **`meetingService.ts` → `createMeeting`:** After meeting is created, query `Card` + `CardContact` where `cardContact.email` matches any participant email (scoped to same userId). For each match, create a `Task` card link or update meeting metadata. Actually: create a `MeetingContact` junction or store `cardId` on `MeetingParticipant`.
+- [ ] **Schema option:** Add `cardId UUID?` to `MeetingParticipant` model — links a participant slot to a Card contact
+- [ ] **`GET /meetings/:meetingId`:** Include `participants.card { id, displayName, slug }` in response
+- [ ] **New endpoint:** `GET /cards/:cardId/meetings` — list meetings where a card contact participated (join through `MeetingParticipant.cardId`). `verifyJWT`, ownership check.
+- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
+
+---
+
+### P3 — Global Search Endpoint
+
+- [ ] **New endpoint:** `GET /search?q=<query>&types=meetings,tasks,cards`
+  - `verifyJWT`
+  - Zod: `q` (string, 2–100 chars), `types` (optional comma-separated enum)
+  - Queries in parallel (Promise.all):
+    - Meetings: `title ILIKE %q%` OR summary text ILIKE
+    - Tasks: `title ILIKE %q%` OR description ILIKE
+    - Cards: `displayName ILIKE %q%`
+  - Returns `{ meetings: [...], tasks: [...], cards: [...] }` — each capped at 10 results
+  - All queries scoped to `userId`, `isDeleted: false`
+- [ ] **New route:** `GET /search` in `src/routes/searchRoutes.ts`, wired in `indexRouter.ts`
+- [ ] **Rate limit:** 30 req/min per user
+
+---
+
+### P4 — Recurring Tasks
+
+- [ ] **Schema:** Add `recurringRule String?` to `Task` (stores RRULE string, e.g. `FREQ=WEEKLY;BYDAY=MO`)
+- [ ] **Schema:** Add `recurringParentId UUID?` → self-referential FK to original Task
+- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
+- [ ] **`taskService.ts` → `updateTask`:** When `isCompleted: true` + task has `recurringRule` → generate next occurrence: parse RRULE, compute next `dueDate`, create new Task (same title/description/priority/cardId/meetingId, `recurringParentId = original.id`)
+- [ ] **`PATCH /sma/tasks/:taskId` Zod:** Add `recurringRule?: z.string().optional().nullable()`
+- [ ] **`POST /sma/tasks` Zod:** Add `recurringRule?: z.string().optional()`
+- [ ] Use `rrule` npm package for RRULE parsing/generation (lightweight, no dependencies)
+
+---
+
+## Phase 4 — Big Brain ⛔ BLOCKED
+
+Requires separate infrastructure. Do not start.
 
 - [ ] Vector embeddings pipeline
 - [ ] RAG query endpoint (global Ask AI)
-- [ ] Full two-way GCal sync — Google Calendar push webhooks (`calendar.events.watch`) → receive change notifications → upsert/cancel Meeting records. Needs conflict resolution (last-write-wins with `updatedAt` comparison).
+- [ ] Full two-way GCal sync — Google Calendar push webhooks
