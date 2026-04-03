@@ -11,6 +11,7 @@ export const createTaskSchema = z.object({
   dueDate: dateField.optional(),
   scheduledTime: dateField.optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+  durationMinutes: z.number().int().min(5).max(480).optional(),
 });
 
 export const createStandaloneTaskSchema = createTaskSchema.extend({
@@ -31,6 +32,7 @@ export const updateTaskSchema = z.object({
   status: z.enum(["TODO", "IN_PROGRESS", "DONE"]).optional(),
   cardId: z.string().uuid("Invalid cardId").nullable().optional(),
   transcriptContext: z.string().max(2000).nullable().optional(),
+  durationMinutes: z.number().int().min(5).max(480).nullable().optional(),
 });
 
 export const listTasksQuerySchema = z.object({

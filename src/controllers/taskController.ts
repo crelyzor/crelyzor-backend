@@ -187,10 +187,10 @@ export const createTask = async (req: Request, res: Response) => {
 
   if (!meeting) throw new AppError("Meeting not found", 404);
 
-  const { title, description, dueDate, scheduledTime, priority } = validated.data;
+  const { title, description, dueDate, scheduledTime, priority, durationMinutes } = validated.data;
 
   const task = await prisma.task.create({
-    data: { meetingId, userId, title, description, dueDate, scheduledTime, priority, source: "MANUAL" },
+    data: { meetingId, userId, title, description, dueDate, scheduledTime, priority, source: "MANUAL", ...(durationMinutes !== undefined && { durationMinutes }) },
   });
 
   logger.info("Task created", { taskId: task.id, meetingId, userId });
@@ -207,7 +207,7 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
   const validated = createStandaloneTaskSchema.safeParse(req.body);
   if (!validated.success) throw new AppError("Validation failed", 400);
 
-  const { title, description, dueDate, scheduledTime, priority, meetingId, parentTaskId, cardId, status, transcriptContext } = validated.data;
+  const { title, description, dueDate, scheduledTime, priority, meetingId, parentTaskId, cardId, status, transcriptContext, durationMinutes } = validated.data;
 
   // Verify meeting ownership if meetingId provided
   if (meetingId) {
@@ -250,6 +250,7 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
       ...(parentTaskId && { parentTaskId }),
       ...(cardId && { cardId }),
       ...(transcriptContext && { transcriptContext }),
+      ...(durationMinutes !== undefined && { durationMinutes }),
     },
   });
 
@@ -276,7 +277,7 @@ export const updateTask = async (req: Request, res: Response) => {
 
   if (!existing) throw new AppError("Task not found", 404);
 
-  const { title, description, isCompleted, dueDate, scheduledTime, priority, status, cardId, transcriptContext } = validated.data;
+  const { title, description, isCompleted, dueDate, scheduledTime, priority, status, cardId, transcriptContext, durationMinutes } = validated.data;
 
   // Verify card ownership if cardId is being set (not cleared)
   if (cardId !== null && cardId !== undefined) {
@@ -319,6 +320,7 @@ export const updateTask = async (req: Request, res: Response) => {
       ...(resolvedStatus !== undefined && { status: resolvedStatus }),
       ...(cardId !== undefined && { cardId }),
       ...(transcriptContext !== undefined && { transcriptContext }),
+      ...(durationMinutes !== undefined && { durationMinutes }),
     },
   });
 
@@ -449,7 +451,7 @@ export const createSubtask = async (req: Request, res: Response) => {
   const validated = createTaskSchema.safeParse(req.body);
   if (!validated.success) throw new AppError("Validation failed", 400);
 
-  const { title, description, dueDate, scheduledTime, priority } = validated.data;
+  const { title, description, dueDate, scheduledTime, priority, durationMinutes } = validated.data;
 
   const subtask = await prisma.task.create({
     data: {
@@ -461,6 +463,7 @@ export const createSubtask = async (req: Request, res: Response) => {
       scheduledTime,
       priority,
       source: "MANUAL",
+      ...(durationMinutes !== undefined && { durationMinutes }),
     },
   });
 

@@ -336,10 +336,10 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ### P1 — Task Duration Field
 
-- [ ] **Schema:** Add `durationMinutes Int? @default(30)` to `Task` model
-- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
-- [ ] **Update endpoints:** Expose `durationMinutes` in `createStandaloneTask`, `updateTask` create/update Zod schemas and service handlers
-- [ ] **Validate:** `z.number().int().min(5).max(480).optional()` (5 min to 8 hrs)
+- [x] **Schema:** Add `durationMinutes Int? @default(30)` to `Task` model
+- [x] **Migration:** `pnpm db:push && pnpm db:generate`
+- [x] **Update endpoints:** Expose `durationMinutes` in `createStandaloneTask`, `updateTask` create/update Zod schemas and service handlers
+- [x] **Validate:** `z.number().int().min(5).max(480).optional()` (5 min to 8 hrs)
 
 ---
 

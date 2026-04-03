@@ -330,6 +330,7 @@ model Task {
   parentTaskId      String?       @db.Uuid
   cardId            String?       @db.Uuid
   transcriptContext String?       // The transcript sentence that generated this task (AI_EXTRACTED only)
+  durationMinutes   Int?          @default(30) // Task duration in minutes (5–480)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
