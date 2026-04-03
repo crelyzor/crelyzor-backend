@@ -1,8 +1,12 @@
 import { Storage } from "@google-cloud/storage";
 
 const GCS_PROJECT_ID = process.env.GCS_PROJECT_ID;
-const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || "sma-dev";
+const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME;
 const GCS_KEY_FILE = process.env.GCS_KEY_FILE;
+
+if (!GCS_BUCKET_NAME) {
+  throw new Error("GCS_BUCKET_NAME environment variable is required");
+}
 
 // Initialize GCS client
 let storage: Storage | null = null;
@@ -24,6 +28,7 @@ interface GenerateUploadUrlRequest {
   fileType: string;
   folder: "images" | "sharedResources" | "activityReport" | "report";
   fileSize?: number;
+  userId?: string;
 }
 
 interface GenerateUploadUrlResponse {
@@ -98,7 +103,7 @@ class StorageService {
   async generateUploadUrl(
     request: GenerateUploadUrlRequest,
   ): Promise<GenerateUploadUrlResponse> {
-    const { fileName, fileType, folder, fileSize } = request;
+    const { fileName, fileType, folder, fileSize, userId } = request;
 
     // Validate file type
     if (!this.validateFileType(fileType, folder)) {
@@ -110,12 +115,13 @@ class StorageService {
       throw new Error(`File size exceeds limit for ${folder}`);
     }
 
-    // Generate unique file path
+    // Generate unique file path — include userId so ownership can be verified on delete
     const env = this.getEnvironmentPrefix();
     const timestamp = Date.now();
     const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
     const uniqueFileName = `${timestamp}_${sanitizedFileName}`;
-    const filePath = `${env}/${folder}/${uniqueFileName}`;
+    const userSegment = userId ? `${userId}/` : "";
+    const filePath = `${env}/${folder}/${userSegment}${uniqueFileName}`;
 
     const file = getBucket().file(filePath);
 

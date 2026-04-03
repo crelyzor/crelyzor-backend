@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { MeetingStatus, MeetingType } from "@prisma/client";
 import { TokenPayload } from "../types/authTypes";
 import { ErrorFactory } from "../utils/globalErrorHandler";
 import { apiResponse } from "../utils/globalResponseHandler";
@@ -12,6 +13,16 @@ import {
   getMeetingsWithoutPaginationSchema,
   updateMeetingSchema,
 } from "../validators/meetingSchema";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function parseMeetingId(raw: unknown): string {
+  if (typeof raw !== "string" || !UUID_RE.test(raw)) {
+    throw ErrorFactory.notFound("Meeting");
+  }
+  return raw;
+}
 
 export class MeetingController {
   async createMeeting(req: Request, res: Response): Promise<void> {
@@ -37,7 +48,7 @@ export class MeetingController {
   async updateMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const meetingId = req.params.meetingId as string;
+      const meetingId = parseMeetingId(req.params.meetingId);
       const validatedData = updateMeetingSchema.parse(req.body);
 
       const meeting = await meetingService.updateMeeting(
@@ -59,12 +70,12 @@ export class MeetingController {
   async cancelMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const meetingId = req.params.meetingId as string;
+      const meetingId = parseMeetingId(req.params.meetingId);
       const validatedData = meetingActionSchema.parse(req.body);
 
       const meeting = await meetingService.cancelMeeting({
         meetingId,
-        newStatus: "CANCELLED" as any,
+        newStatus: MeetingStatus.CANCELLED,
         requesterUserId: user.userId,
         reason: validatedData.reason,
       });
@@ -82,11 +93,11 @@ export class MeetingController {
   async completeMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const meetingId = req.params.meetingId as string;
+      const meetingId = parseMeetingId(req.params.meetingId);
 
       const meeting = await meetingService.completeMeeting({
         meetingId,
-        newStatus: "COMPLETED" as any,
+        newStatus: MeetingStatus.COMPLETED,
         requesterUserId: user.userId,
       });
 
@@ -105,10 +116,10 @@ export class MeetingController {
       const user = req.user as TokenPayload;
       const validatedData = getMeetingsSchema.parse(req.query);
 
-      const meetings = await meetingService.getMeetings({
+      const { meetings, total } = await meetingService.getMeetings({
         userId: user.userId,
-        status: validatedData.status as any,
-        type: validatedData.type as any,
+        status: validatedData.status as MeetingStatus | undefined,
+        type: validatedData.type as MeetingType | undefined,
         startDate: validatedData.startDate,
         endDate: validatedData.endDate,
         limit: validatedData.limit,
@@ -122,6 +133,7 @@ export class MeetingController {
           meetings,
           pagination: {
             count: meetings.length,
+            total,
             limit: validatedData.limit,
             offset: validatedData.offset,
           },
@@ -140,18 +152,21 @@ export class MeetingController {
       const user = req.user as TokenPayload;
       const validatedData = getMeetingsWithoutPaginationSchema.parse(req.query);
 
-      const meetings = await meetingService.getMeetingsWithoutPagination({
-        userId: user.userId,
-        status: validatedData.status as any,
-        type: validatedData.type as any,
-        startDate: validatedData.startDate,
-        endDate: validatedData.endDate,
-      });
+      const { meetings, truncated } =
+        await meetingService.getMeetingsWithoutPagination({
+          userId: user.userId,
+          status: validatedData.status as MeetingStatus | undefined,
+          type: validatedData.type as MeetingType | undefined,
+          startDate: validatedData.startDate,
+          endDate: validatedData.endDate,
+        });
 
       apiResponse(res, {
         statusCode: 200,
-        message: "Meetings retrieved successfully",
-        data: meetings,
+        message: truncated
+          ? "Meetings retrieved (showing first 200 — apply a date range to see all)"
+          : "Meetings retrieved successfully",
+        data: { meetings, truncated },
       });
     } catch (error) {
       globalErrorHandler(error as Error, req, res);
@@ -161,10 +176,17 @@ export class MeetingController {
   async getMeetingById(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const meetingId = req.params.meetingId as string;
+      const meetingId = parseMeetingId(req.params.meetingId);
 
-      const meeting = await prisma.meeting.findUnique({
-        where: { id: meetingId },
+      const meeting = await prisma.meeting.findFirst({
+        where: {
+          id: meetingId,
+          isDeleted: false,
+          OR: [
+            { createdById: user.userId },
+            { participants: { some: { userId: user.userId } } },
+          ],
+        },
         include: {
           participants: {
             include: {
@@ -178,7 +200,6 @@ export class MeetingController {
               },
             },
           },
-          stateHistory: true,
           createdBy: {
             select: {
               id: true,
@@ -187,21 +208,16 @@ export class MeetingController {
               avatarUrl: true,
             },
           },
+          tags: {
+            include: {
+              tag: { select: { id: true, name: true, color: true } },
+            },
+          },
         },
       });
 
       if (!meeting) {
         throw ErrorFactory.notFound("Meeting");
-      }
-
-      const hasAccess =
-        meeting.createdById === user.userId ||
-        meeting.participants.some((p) => p.userId === user.userId);
-
-      if (!hasAccess) {
-        throw ErrorFactory.forbidden(
-          "You are not a participant in this meeting",
-        );
       }
 
       apiResponse(res, {
@@ -217,28 +233,9 @@ export class MeetingController {
   async deleteMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const meetingId = req.params.meetingId as string;
+      const meetingId = parseMeetingId(req.params.meetingId);
 
-      const meeting = await prisma.meeting.findUnique({
-        where: { id: meetingId },
-      });
-
-      if (!meeting || meeting.isDeleted) {
-        throw ErrorFactory.notFound("Meeting");
-      }
-
-      if (meeting.createdById !== user.userId) {
-        throw ErrorFactory.forbidden("Only the meeting creator can delete it");
-      }
-
-      await prisma.meeting.update({
-        where: { id: meetingId },
-        data: {
-          isDeleted: true,
-          deletedAt: new Date(),
-          deletedBy: user.userId,
-        },
-      });
+      await meetingService.deleteMeeting(meetingId, user.userId);
 
       apiResponse(res, {
         statusCode: 200,

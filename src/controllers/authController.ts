@@ -13,8 +13,9 @@ import {
   usernameSchema,
   checkUsernameSchema,
 } from "../validators/usernameSchema";
-import { getClientIP, getDeviceInfo } from "../middleware/authMiddleware";
+import { getClientIP } from "../middleware/authMiddleware";
 import prisma from "../db/prismaClient";
+import { logger } from "../utils/logging/logger";
 
 export const authController = {
   refreshToken: async (req: Request, res: Response): Promise<void> => {
@@ -33,7 +34,9 @@ export const authController = {
         data: result,
       });
     } catch (err) {
-      console.error("Token refresh error:", err);
+      logger.error("Token refresh error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       globalErrorHandler(err as BaseError, req, res);
     }
   },
@@ -64,7 +67,9 @@ export const authController = {
         data: null,
       });
     } catch (err) {
-      console.error("Logout error:", err);
+      logger.error("Logout error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       globalErrorHandler(err as BaseError, req, res);
     }
   },
@@ -84,7 +89,9 @@ export const authController = {
         data: result,
       });
     } catch (err) {
-      console.error("Get profile error:", err);
+      logger.error("Get profile error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       globalErrorHandler(err as BaseError, req, res);
     }
   },
@@ -109,7 +116,9 @@ export const authController = {
         data: { sessions },
       });
     } catch (err) {
-      console.error("Get sessions error:", err);
+      logger.error("Get sessions error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       globalErrorHandler(err as BaseError, req, res);
     }
   },
@@ -135,7 +144,9 @@ export const authController = {
         data: null,
       });
     } catch (err) {
-      console.error("Revoke session error:", err);
+      logger.error("Revoke session error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       globalErrorHandler(err as BaseError, req, res);
     }
   },
@@ -155,39 +166,9 @@ export const authController = {
         data: null,
       });
     } catch (err) {
-      console.error("Deactivate account error:", err);
-      globalErrorHandler(err as BaseError, req, res);
-    }
-  },
-
-  getAuthStatus: async (req: Request, res: Response): Promise<void> => {
-    try {
-      const user = req.user;
-      const sessionId = req.sessionId;
-
-      if (!user) {
-        apiResponse(res, {
-          statusCode: 200,
-          message: "Not authenticated",
-          data: { authenticated: false },
-        });
-        return;
-      }
-
-      apiResponse(res, {
-        statusCode: 200,
-        message: "Authentication status retrieved",
-        data: {
-          authenticated: true,
-          user: {
-            id: user.userId,
-            email: user.email,
-          },
-          sessionId,
-        },
+      logger.error("Deactivate account error", {
+        error: err instanceof Error ? err.message : String(err),
       });
-    } catch (err) {
-      console.error("Get auth status error:", err);
       globalErrorHandler(err as BaseError, req, res);
     }
   },
@@ -259,8 +240,8 @@ export const authController = {
         message: "Username set successfully",
         data: profile,
       });
-    } catch (err: any) {
-      if (err.code === "P2002") {
+    } catch (err) {
+      if ((err as { code?: string }).code === "P2002") {
         globalErrorHandler(
           ErrorFactory.conflict("Username is already taken"),
           req,

@@ -18,8 +18,12 @@ const uuidSchema = z.string().uuid();
  */
 export const getTranscript = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  const userId = req.user!.userId;
 
-  const transcript = await transcriptionService.getTranscript(meetingId);
+  const transcript = await transcriptionService.getTranscript(
+    meetingId,
+    userId,
+  );
 
   if (!transcript) {
     throw new AppError("No transcript found for this meeting", 404);
@@ -87,8 +91,12 @@ export const patchSummary = async (req: Request, res: Response) => {
  */
 export const getTranscriptionStatus = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  const userId = req.user!.userId;
 
-  const transcript = await transcriptionService.getTranscript(meetingId);
+  const transcript = await transcriptionService.getTranscript(
+    meetingId,
+    userId,
+  );
 
   return apiResponse(res, {
     statusCode: 200,

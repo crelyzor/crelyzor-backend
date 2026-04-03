@@ -23,10 +23,11 @@ model User {
   phoneNumber     String?
   lastLoginAt     DateTime?
   isActive        Boolean   @default(true)
-  activeSessionId String?
+  activeSessionId String?   @db.Uuid
   timezone        String    @default("UTC")
 
   // Soft delete fields
+  isDeleted   Boolean   @default(false)
   deletedAt   DateTime?
   deletedById String?   @db.Uuid
 
@@ -58,6 +59,15 @@ model User {
   meetingShares         MeetingShare[]
   tags                  Tag[]
   meetingAttachments    MeetingAttachment[]
+
+  // Scheduling (Phase 1.2)
+  settings               UserSettings?
+  eventTypes             EventType[]
+  availabilitySchedules  AvailabilitySchedule[]
+  bookings               Booking[]
+
+  @@index([activeSessionId])
+  @@index([createdAt])
 }
 
 model Session {
@@ -69,6 +79,9 @@ model Session {
   expiredAt      DateTime
   lastAccessedAt DateTime
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiredAt])
 }
 
 model LoginHistory {
@@ -96,6 +109,9 @@ model RefreshToken {
   deviceInfo String
   ipAddress  String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
 }
 
 model OAuthAccount {
@@ -111,6 +127,7 @@ model OAuthAccount {
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerId])
+  @@index([userId])
 }
 
 // ================================
@@ -138,6 +155,14 @@ model Meeting {
   // Transcription processing status
   transcriptionStatus TranscriptionStatus @default(NONE)
 
+  // Recall.ai bot ID — populated when a bot joins an online meeting.
+  // Used to match Recall webhook events back to this meeting.
+  recallBotId String?
+
+  // Google Calendar integration
+  meetLink      String? // Auto-generated Google Meet URL (Phase 1.3)
+  googleEventId String? // GCal event ID for write sync (Phase 1.3)
+
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -157,12 +182,15 @@ model Meeting {
   share        MeetingShare?
   tags         MeetingTag[]
   attachments  MeetingAttachment[]
+  booking      Booking?
 
   @@index([createdById])
+  @@index([createdAt])
   @@index([startTime])
   @@index([status, isDeleted])
   @@index([transcriptionStatus])
   @@index([type, isDeleted])
+  @@index([recallBotId])
 }
 
 model MeetingParticipant {
@@ -194,6 +222,7 @@ model MeetingStateHistory {
 
   @@index([meetingId])
   @@index([toStatus])
+  @@index([changedById])
 }
 
 // ================================
@@ -212,6 +241,10 @@ model MeetingRecording {
   uploadedBy String   @db.Uuid
   uploadedAt DateTime @default(now())
 
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
   meeting    Meeting           @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   transcript MeetingTranscript?
 
@@ -229,10 +262,15 @@ model MeetingTranscript {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
   recording MeetingRecording    @relation(fields: [recordingId], references: [id], onDelete: Cascade)
   segments  TranscriptSegment[]
 
   @@index([recordingId])
+  @@index([recordingId, isDeleted])
 }
 
 model TranscriptSegment {
@@ -248,6 +286,7 @@ model TranscriptSegment {
 
   @@index([transcriptId])
   @@index([speaker])
+  @@index([startTime])
 }
 
 model MeetingSpeaker {
@@ -276,25 +315,60 @@ model Task {
   userId      String        @db.Uuid
   meetingId   String?       @db.Uuid
 
-  title       String
-  description String?
-  isCompleted Boolean       @default(false)
-  completedAt DateTime?
-  dueDate     DateTime?
-  priority    TaskPriority?
-  source      TaskSource    @default(MANUAL)
+  title             String
+  description       String?
+  isCompleted       Boolean       @default(false) // PHASE-OUT: keep in sync with status field
+  completedAt       DateTime?                      // PHASE-OUT: set when status = DONE
+  dueDate           DateTime?
+  scheduledTime     DateTime?
+  priority          TaskPriority?
+  source            TaskSource    @default(MANUAL)
+
+  // Phase 3 additions
+  status            TaskStatus    @default(TODO)
+  sortOrder         Int           @default(0)
+  parentTaskId      String?       @db.Uuid
+  cardId            String?       @db.Uuid
+  transcriptContext String?       // The transcript sentence that generated this task (AI_EXTRACTED only)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
 
-  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  meeting Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  meeting  Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  taskTags TaskTag[]
+  parent   Task?     @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  subtasks Task[]    @relation("TaskSubtasks")
+  card     Card?     @relation(fields: [cardId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([meetingId])
   @@index([userId, isDeleted])
+  @@index([dueDate])
+  @@index([scheduledTime])
+  @@index([isCompleted])
+  @@index([source])
+  @@index([status])
+  @@index([userId, sortOrder])
+  @@index([parentTaskId])
+  @@index([cardId])
+  @@index([userId, status, isDeleted])
+  @@index([userId, cardId, isDeleted])
+}
+
+model TaskTag {
+  taskId    String   @db.Uuid
+  tagId     String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+  @@index([taskId])
+  @@index([tagId])
 }
 
 model MeetingNote {
@@ -305,6 +379,10 @@ model MeetingNote {
   author    String @db.Uuid // userId
   timestamp Float? // seconds into the meeting
 
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -312,6 +390,7 @@ model MeetingNote {
 
   @@index([meetingId])
   @@index([author])
+  @@index([meetingId, isDeleted])
 }
 
 model MeetingAISummary {
@@ -324,9 +403,14 @@ model MeetingAISummary {
   generatedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
   meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
 
   @@index([meetingId])
+  @@index([meetingId, isDeleted])
 }
 
 model MeetingAIContent {
@@ -361,12 +445,15 @@ model MeetingShare {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  meeting Meeting @relation(fields: [meetingId], references: [id])
+  // Note: onDelete: Cascade only applies to hard deletes. Normal operation
+  // uses soft deletes (isDeleted: true). HARD_DELETE_ENABLED is false by default.
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id])
 
   @@index([shortId])
   @@index([meetingId])
   @@index([userId])
+  @@index([isPublic])
 }
 
 // ================================
@@ -402,6 +489,10 @@ model Card {
   isDefault Boolean @default(false) // shown at /username
   isActive  Boolean @default(true)  // can be paused
 
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -411,8 +502,11 @@ model Card {
   contacts CardContact[]
   views    CardView[]
   tags     CardTag[]
+  tasks    Task[]
 
   @@unique([userId, slug])
+  @@index([slug])
+  @@index([userId])
   @@index([userId, isActive])
   @@index([userId, isDefault])
 }
@@ -489,7 +583,9 @@ model MeetingAttachment {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  meeting Meeting @relation(fields: [meetingId], references: [id])
+  // Note: onDelete: Cascade only applies to hard deletes. Normal operation
+  // uses soft deletes (isDeleted: true). HARD_DELETE_ENABLED is false by default.
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id])
 
   @@index([meetingId, isDeleted])
@@ -515,8 +611,10 @@ model Tag {
   user        User         @relation(fields: [userId], references: [id])
   meetingTags MeetingTag[]
   cardTags    CardTag[]
+  taskTags    TaskTag[]
 
   @@unique([userId, name])
+  @@index([userId])
   @@index([userId, isDeleted])
 }
 
@@ -546,6 +644,178 @@ model CardTag {
   @@id([cardId, tagId])
   @@index([cardId])
   @@index([tagId])
+}
+
+// ================================
+// SCHEDULING (Phase 1.2)
+// ================================
+
+model UserSettings {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+
+  // Scheduling
+  schedulingEnabled Boolean @default(true)
+  minNoticeHours    Int     @default(24)
+  maxWindowDays     Int     @default(60)
+  defaultBufferMins Int     @default(15)
+
+  // Integrations
+  googleCalendarSyncEnabled Boolean @default(false)
+  googleCalendarEmail       String?
+  recallEnabled             Boolean @default(false)
+
+  // AI & Transcription
+  autoTranscribe  Boolean @default(true)
+  autoAIProcess   Boolean @default(true)
+  defaultLanguage String  @default("en")
+
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+}
+
+model EventType {
+  id           String       @id @default(uuid()) @db.Uuid
+  userId       String       @db.Uuid
+  title        String
+  slug         String
+  description  String?
+  duration     Int          // minutes
+  locationType LocationType @default(IN_PERSON)
+  meetingLink  String?      // Zoom/Meet URL — ONLINE only
+  bufferBefore Int          @default(0) // minutes
+  bufferAfter  Int          @default(0) // minutes
+  maxPerDay    Int?         // null = unlimited
+  isActive     Boolean      @default(true)
+
+  // Linked availability schedule — null = use user's default schedule
+  availabilityScheduleId String? @db.Uuid
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  availabilitySchedule AvailabilitySchedule? @relation(fields: [availabilityScheduleId], references: [id])
+  bookings             Booking[]
+
+  @@unique([userId, slug])
+  @@index([userId, isActive, isDeleted])
+  @@index([availabilityScheduleId])
+}
+
+model AvailabilitySchedule {
+  id        String  @id @default(uuid()) @db.Uuid
+  userId    String  @db.Uuid
+  name      String                          // "Working Hours", "Consulting Hours"
+  timezone  String  @default("UTC")         // IANA, e.g. "America/New_York"
+  isDefault Boolean @default(false)
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  slots      Availability[]
+  overrides  AvailabilityOverride[]
+  eventTypes EventType[]
+
+  @@index([userId, isDeleted])
+  @@index([userId, isDefault])
+}
+
+model Availability {
+  id         String @id @default(uuid()) @db.Uuid
+  scheduleId String @db.Uuid
+  dayOfWeek  Int    // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+  startTime  String // "09:00" (24h, schedule's timezone)
+  endTime    String // "17:00"
+
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  schedule AvailabilitySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId, dayOfWeek, isDeleted])
+}
+
+model AvailabilityOverride {
+  id         String @id @default(uuid()) @db.Uuid
+  scheduleId String @db.Uuid
+  // NOTE: date comparisons in the slot engine must use the schedule's
+  // timezone, not UTC, to avoid off-by-one errors at midnight.
+  date      DateTime @db.Date
+  isBlocked Boolean  @default(true)
+
+  // Soft delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  schedule AvailabilitySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, date])
+  @@index([scheduleId])
+}
+
+model Booking {
+  id          String        @id @default(uuid()) @db.Uuid
+  eventTypeId String        @db.Uuid
+  userId      String        @db.Uuid // the host
+  meetingId   String?       @unique @db.Uuid // created Meeting
+
+  // Guest info
+  guestName  String
+  guestEmail String
+  guestNote  String?
+
+  // Time
+  startTime DateTime
+  endTime   DateTime
+  timezone  String   // guest's timezone at time of booking
+
+  status BookingStatus @default(PENDING)
+
+  // Google Calendar
+  googleEventId String?
+
+  cancelReason String?
+  canceledAt   DateTime?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // EventType is soft-deleted in practice; Restrict is safe and documents intent
+  eventType EventType @relation(fields: [eventTypeId], references: [id], onDelete: Restrict)
+  // User must not be hard-deletable while bookings exist (guest record kept for audit)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  meeting   Meeting?  @relation(fields: [meetingId], references: [id])
+
+  @@index([userId])
+  @@index([eventTypeId])
+  @@index([guestEmail])
+  @@index([startTime])
+  @@index([status, isDeleted])
+  @@index([userId, isDeleted])    // dashboard booking list query
+  @@index([startTime, isDeleted]) // slot engine conflict check
 }
 
 // ================================
@@ -597,6 +867,12 @@ enum TaskPriority {
   HIGH
 }
 
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
 enum AIContentType {
   MEETING_REPORT
   TWEET
@@ -608,4 +884,18 @@ enum AttachmentType {
   FILE
   LINK
   PHOTO
+}
+
+enum LocationType {
+  IN_PERSON
+  ONLINE
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  DECLINED
+  CANCELLED
+  RESCHEDULED
+  NO_SHOW
 }

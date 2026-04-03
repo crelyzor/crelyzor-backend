@@ -1,15 +1,13 @@
-import OpenAI from "openai";
 import type { Response } from "express";
 import type { AIContentType } from "@prisma/client";
 import prisma from "../../db/prismaClient";
 import { getOpenAIClient } from "../../config/openai";
 import { logger } from "../../utils/logging/logger";
 import { AppError } from "../../utils/errors/AppError";
-import { redis } from "../../config/redisClient";
+import { getRedisClient } from "../../config/redisClient";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const OPENAI_MODEL = "gpt-4o-mini";
+const MAX_PIPELINE_CHARS = 40000; // ~10k tokens — keeps pipeline calls within context
 
 export interface AIProcessingResult {
   summary?: string;
@@ -31,14 +29,15 @@ export const generateSummary = async (
   transcriptText: string,
 ): Promise<string> => {
   if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is required for AI features");
+    throw new AppError("OPENAI_API_KEY is required for AI features", 503);
   }
 
-  const meeting = await prisma.meeting.findUnique({
-    where: { id: meetingId },
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, isDeleted: false },
   });
 
-  const prompt = `You are an AI assistant that summarizes meeting transcripts. 
+  const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
+  const prompt = `You are an AI assistant that summarizes meeting transcripts.
 Provide a clear, professional summary of the following meeting transcript.
 Focus on key decisions, discussion points, and outcomes.
 
@@ -46,12 +45,13 @@ Meeting Title: ${meeting?.title || "Untitled Meeting"}
 Meeting Description: ${meeting?.description || "No description"}
 
 Transcript:
-${transcriptText}
+${capped}
 
 Provide a summary in 2-3 paragraphs.`;
 
+  const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: OPENAI_MODEL,
     messages: [
       { role: "system", content: "You are a professional meeting summarizer." },
       { role: "user", content: prompt },
@@ -60,7 +60,10 @@ Provide a summary in 2-3 paragraphs.`;
     temperature: 0.3,
   });
 
-  const summary = response.choices[0]?.message?.content || "";
+  const summary = response.choices[0]?.message?.content?.trim() ?? "";
+  if (!summary) {
+    throw new AppError("OpenAI returned empty summary content", 502);
+  }
 
   // Save summary to database
   await prisma.meetingAISummary.upsert({
@@ -88,20 +91,22 @@ export const extractKeyPoints = async (
   transcriptText: string,
 ): Promise<string[]> => {
   if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is required for AI features");
+    throw new AppError("OPENAI_API_KEY is required for AI features", 503);
   }
 
+  const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
   const prompt = `Extract the key points from this meeting transcript.
 Return them as a JSON array of strings, with each key point being concise (1-2 sentences).
 Focus on important decisions, agreements, and notable discussion items.
 
 Transcript:
-${transcriptText}
+${capped}
 
 Return ONLY a JSON array, no other text.`;
 
+  const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: OPENAI_MODEL,
     messages: [
       {
         role: "system",
@@ -114,32 +119,36 @@ Return ONLY a JSON array, no other text.`;
     temperature: 0.3,
   });
 
-  const content = response.choices[0]?.message?.content || "[]";
-
-  try {
-    const keyPoints = JSON.parse(stripMarkdownJson(content));
-
-    // Update the summary with key points
-    await prisma.meetingAISummary.upsert({
-      where: { meetingId },
-      create: {
-        meetingId,
-        summary: "",
-        keyPoints: keyPoints,
-      },
-      update: {
-        keyPoints: keyPoints,
-        updatedAt: new Date(),
-      },
-    });
-
-    logger.info(`Key points extracted for meeting ${meetingId}`);
-
-    return keyPoints;
-  } catch {
-    logger.error("Failed to parse key points JSON");
-    return [];
+  const rawKeyPointsContent = response.choices[0]?.message?.content?.trim();
+  if (!rawKeyPointsContent) {
+    throw new AppError("OpenAI returned empty key points content", 502);
   }
+  const content = rawKeyPointsContent;
+
+  let keyPoints: string[];
+  try {
+    keyPoints = JSON.parse(stripMarkdownJson(content));
+  } catch {
+    logger.error("Failed to parse key points JSON", { rawContent: content.slice(0, 200) });
+    throw new AppError("Failed to parse key points JSON from OpenAI response", 502);
+  }
+
+  // Update the summary with key points (separate from parse — let DB errors propagate)
+  await prisma.meetingAISummary.upsert({
+    where: { meetingId },
+    create: {
+      meetingId,
+      summary: "",
+      keyPoints,
+    },
+    update: {
+      keyPoints,
+      updatedAt: new Date(),
+    },
+  });
+
+  logger.info(`Key points extracted for meeting ${meetingId}`);
+  return keyPoints;
 };
 
 /** Strip markdown code fences that GPT sometimes wraps JSON in */
@@ -158,9 +167,10 @@ export const extractTasks = async (
   userId: string,
 ): Promise<ExtractedTask[]> => {
   if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is required for AI features");
+    throw new AppError("OPENAI_API_KEY is required for AI features", 503);
   }
 
+  const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
   const prompt = `Extract action items and tasks from this meeting transcript.
 Return them as a JSON array of objects with these fields:
 - title: string (short, actionable task title)
@@ -168,12 +178,13 @@ Return them as a JSON array of objects with these fields:
 - assigneeHint: string (optional, name/role of person responsible if mentioned)
 
 Transcript:
-${transcriptText}
+${capped}
 
 Return ONLY a JSON array, no other text.`;
 
+  const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: OPENAI_MODEL,
     messages: [
       {
         role: "system",
@@ -186,41 +197,50 @@ Return ONLY a JSON array, no other text.`;
     temperature: 0.3,
   });
 
-  const content = response.choices[0]?.message?.content || "[]";
-
-  try {
-    const rawTasks = JSON.parse(stripMarkdownJson(content)) as Array<{
-      title: string;
-      description?: string;
-      assigneeHint?: string;
-    }>;
-
-    const tasks: ExtractedTask[] = rawTasks.map((item) => ({
-      title: item.title,
-      description: item.description,
-      assigneeHint: item.assigneeHint,
-    }));
-
-    // Save tasks to database
-    for (const task of tasks) {
-      await prisma.task.create({
-        data: {
-          meetingId,
-          userId,
-          title: task.title,
-          description: task.description,
-          source: "AI_EXTRACTED",
-        },
-      });
-    }
-
-    logger.info(`${tasks.length} tasks extracted for meeting ${meetingId}`);
-
-    return tasks;
-  } catch {
-    logger.error("Failed to parse tasks JSON");
-    return [];
+  const rawTasksContent = response.choices[0]?.message?.content?.trim();
+  if (!rawTasksContent) {
+    throw new AppError("OpenAI returned empty tasks content", 502);
   }
+  const content = rawTasksContent;
+
+  let rawTasks: Array<{
+    title: string;
+    description?: string;
+    assigneeHint?: string;
+  }>;
+  try {
+    rawTasks = JSON.parse(stripMarkdownJson(content));
+  } catch {
+    logger.error("Failed to parse tasks JSON", { rawContent: content.slice(0, 200) });
+    throw new AppError("Failed to parse tasks JSON from OpenAI response", 502);
+  }
+
+  const tasks: ExtractedTask[] = rawTasks.map((item) => ({
+    title: item.title,
+    description: item.description,
+    assigneeHint: item.assigneeHint,
+  }));
+
+  // Save tasks to database in a single transaction
+  if (tasks.length > 0) {
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.task.createMany({
+          data: tasks.map((task) => ({
+            meetingId,
+            userId,
+            title: task.title,
+            description: task.description,
+            source: "AI_EXTRACTED" as const,
+          })),
+        });
+      },
+      { timeout: 15000 },
+    );
+  }
+
+  logger.info(`${tasks.length} tasks extracted for meeting ${meetingId}`);
+  return tasks;
 };
 
 /**
@@ -233,6 +253,8 @@ export const generateMeetingTitle = async (
 ): Promise<string | null> => {
   if (!process.env.OPENAI_API_KEY) return null;
 
+  let title: string | null = null;
+
   try {
     const prompt = `Based on this meeting transcript, generate a short, descriptive meeting title (4-7 words max).
 The title should capture the main topic or purpose of the meeting.
@@ -241,8 +263,9 @@ Return ONLY the title text, nothing else.
 Transcript (first 2000 chars):
 ${transcriptText.slice(0, 2000)}`;
 
+    const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: OPENAI_MODEL,
       messages: [
         {
           role: "system",
@@ -255,21 +278,31 @@ ${transcriptText.slice(0, 2000)}`;
       temperature: 0.4,
     });
 
-    const title = response.choices[0]?.message?.content?.trim();
-    if (!title) return null;
+    title = response.choices[0]?.message?.content?.trim() ?? null;
+  } catch (err) {
+    logger.error(`OpenAI title generation failed for meeting ${meetingId}`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 
+  if (!title) return null;
+
+  try {
     // Update meeting title in DB
     await prisma.meeting.update({
       where: { id: meetingId },
       data: { title },
     });
-
     logger.info(`Meeting ${meetingId} renamed to: "${title}"`);
-    return title;
   } catch (err) {
-    logger.warn(`Failed to generate title for meeting ${meetingId}:`, err);
-    return null;
+    logger.error(`DB write failed when saving generated title for meeting ${meetingId}`, {
+      error: err instanceof Error ? err.message : String(err),
+      title,
+    });
   }
+
+  return title;
 };
 
 /**
@@ -280,25 +313,69 @@ export const processTranscriptWithAI = async (
   userId: string,
 ): Promise<AIProcessingResult> => {
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
+    where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
   });
 
   if (!transcript) {
-    throw new Error(`No transcript found for meeting ${meetingId}`);
+    throw new AppError(`No transcript found for meeting ${meetingId}`, 422);
   }
 
-  const [summary, keyPoints, tasks] = await Promise.all([
-    generateSummary(meetingId, transcript.fullText),
+  // Idempotency: skip if summary already processed
+  const existingSummary = await prisma.meetingAISummary.findFirst({
+    where: { meetingId, isDeleted: false },
+    select: { summary: true, keyPoints: true },
+  });
+  if (existingSummary?.summary) {
+    logger.info("AI pipeline already processed for meeting — skipping", { meetingId });
+    return {
+      summary: existingSummary.summary,
+      keyPoints: (existingSummary.keyPoints as string[]) ?? [],
+    };
+  }
+
+  // Title generation is genuinely fire-and-forget — run outside Promise.all so a
+  // title failure cannot reject the entire pipeline.
+  void generateMeetingTitle(meetingId, transcript.fullText).catch((err) =>
+    logger.error("generateMeetingTitle failed (non-fatal)", {
+      meetingId,
+      error: err instanceof Error ? err.message : String(err),
+    }),
+  );
+
+  // generateSummary is a hard failure — if it fails the whole pipeline fails
+  const summary = await generateSummary(meetingId, transcript.fullText);
+
+  // extractKeyPoints and extractTasks are soft failures — log but don't fail the pipeline
+  const [keyPointsResult, tasksResult] = await Promise.allSettled([
     extractKeyPoints(meetingId, transcript.fullText),
     extractTasks(meetingId, transcript.fullText, userId),
-    generateMeetingTitle(meetingId, transcript.fullText),
   ]);
 
-  return {
-    summary,
-    keyPoints,
-    tasks,
-  };
+  const keyPoints =
+    keyPointsResult.status === "fulfilled" ? keyPointsResult.value : [];
+  if (keyPointsResult.status === "rejected") {
+    logger.error("extractKeyPoints failed (non-fatal)", {
+      meetingId,
+      error:
+        keyPointsResult.reason instanceof Error
+          ? keyPointsResult.reason.message
+          : String(keyPointsResult.reason),
+    });
+  }
+
+  const tasks =
+    tasksResult.status === "fulfilled" ? tasksResult.value : [];
+  if (tasksResult.status === "rejected") {
+    logger.error("extractTasks failed (non-fatal)", {
+      meetingId,
+      error:
+        tasksResult.reason instanceof Error
+          ? tasksResult.reason.message
+          : String(tasksResult.reason),
+    });
+  }
+
+  return { summary, keyPoints, tasks };
 };
 
 const ASK_AI_RATE_LIMIT = 20; // max requests per user per hour
@@ -310,9 +387,9 @@ const ASK_AI_RATE_LIMIT = 20; // max requests per user per hour
 const checkAskAIRateLimit = async (userId: string): Promise<void> => {
   try {
     const key = `ask_ai:${userId}:${Math.floor(Date.now() / 3_600_000)}`;
-    const count = await redis.incr(key);
+    const count = await getRedisClient().incr(key);
     if (count === 1) {
-      await redis.expire(key, 3600);
+      await getRedisClient().expire(key, 3600);
     }
     if (count > ASK_AI_RATE_LIMIT) {
       throw new AppError(
@@ -365,11 +442,11 @@ export const askAI = async (
     throw new AppError("Meeting not found", 404);
   }
 
-  // Fetch transcript with segments
+  // Fetch transcript with segments (capped to avoid loading megabytes for long meetings)
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
+    where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
     include: {
-      segments: { orderBy: { startTime: "asc" } },
+      segments: { orderBy: { startTime: "asc" }, take: 500 },
     },
   });
 
@@ -383,10 +460,13 @@ export const askAI = async (
     select: { speakerLabel: true, displayName: true },
   });
 
-  const transcriptContext = buildTranscriptContext(
-    transcript.segments,
-    speakers,
-  );
+  const MAX_TRANSCRIPT_CHARS = 20000; // ~5k tokens — stay well within context
+  const rawTranscript = buildTranscriptContext(transcript.segments, speakers);
+  const transcriptContext =
+    rawTranscript.length > MAX_TRANSCRIPT_CHARS
+      ? rawTranscript.slice(0, MAX_TRANSCRIPT_CHARS) +
+        "\n[transcript truncated]"
+      : rawTranscript;
 
   const systemPrompt = `You are an intelligent meeting assistant. You have access to the full transcript of a meeting titled "${meeting.title ?? "Untitled Meeting"}".
 Answer the user's questions based solely on the transcript content.
@@ -405,7 +485,7 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
 
   try {
     const stream = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: OPENAI_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage },
@@ -479,7 +559,7 @@ export const generateContent = async (
   if (cached) return cached.content;
 
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
+    where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
   });
   if (!transcript) {
     throw new AppError(
@@ -489,10 +569,11 @@ export const generateContent = async (
   }
 
   const openai = getOpenAIClient();
-  const prompt = CONTENT_PROMPTS[type](transcript.fullText);
+  const capped = transcript.fullText.slice(0, MAX_PIPELINE_CHARS);
+  const prompt = CONTENT_PROMPTS[type](capped);
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: OPENAI_MODEL,
     messages: [
       {
         role: "system",
@@ -506,6 +587,9 @@ export const generateContent = async (
   });
 
   const content = response.choices[0]?.message?.content?.trim() ?? "";
+  if (!content) {
+    throw new AppError("OpenAI returned empty content", 502);
+  }
 
   await prisma.meetingAIContent.upsert({
     where: { meetingId_type: { meetingId, type } },
@@ -533,6 +617,7 @@ export const getGeneratedContents = async (
   return prisma.meetingAIContent.findMany({
     where: { meetingId },
     select: { type: true, content: true },
+    take: 50,
   });
 };
 

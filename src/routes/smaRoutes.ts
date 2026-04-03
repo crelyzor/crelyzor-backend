@@ -8,6 +8,7 @@ import * as speakerController from "../controllers/speakerController";
 import * as taskController from "../controllers/taskController";
 import * as shareController from "../controllers/shareController";
 import * as exportController from "../controllers/exportController";
+import * as tagController from "../controllers/tagController";
 
 const router = Router();
 
@@ -34,9 +35,10 @@ router.get(
 // Delete a recording
 router.delete("/recordings/:recordingId", recordingController.deleteRecording);
 
-// Trigger AI processing for a meeting
+// Trigger AI processing for a meeting — 10/hour to prevent queue/credit abuse
 router.post(
   "/meetings/:meetingId/process-ai",
+  userRateLimit(10, 60 * 60 * 1000),
   recordingController.triggerAIProcessing,
 );
 
@@ -100,25 +102,44 @@ router.patch(
 router.get("/meetings/:meetingId/summary", aiController.getSummary);
 router.post(
   "/meetings/:meetingId/summary/regenerate",
+  userRateLimit(5, 60 * 60 * 1000),
   aiController.regenerateSummary,
 );
 router.post(
   "/meetings/:meetingId/title/regenerate",
+  userRateLimit(5, 60 * 60 * 1000),
   aiController.regenerateTitle,
 );
 
-// Ask AI — streams response via SSE
-router.post("/meetings/:meetingId/ask", aiController.askAI);
+// Ask AI — streams response via SSE (rate limited per user)
+router.post(
+  "/meetings/:meetingId/ask",
+  userRateLimit(20, 60 * 60 * 1000),
+  aiController.askAI,
+);
 
 // AI Content Generation
 router.get("/meetings/:meetingId/generated", aiController.getGeneratedContents);
-router.post("/meetings/:meetingId/generate", aiController.generateContent);
+router.post(
+  "/meetings/:meetingId/generate",
+  userRateLimit(10, 60 * 60 * 1000),
+  aiController.generateContent,
+);
 
 // Tasks routes
+// NOTE: /tasks/reorder must be defined before /tasks/:taskId — Express matches top-to-bottom
+router.get("/tasks", taskController.getAllTasks);
+router.post("/tasks", taskController.createStandaloneTask);
+router.patch("/tasks/reorder", taskController.reorderTasks);
 router.get("/meetings/:meetingId/tasks", taskController.getTasks);
 router.post("/meetings/:meetingId/tasks", taskController.createTask);
 router.patch("/tasks/:taskId", taskController.updateTask);
 router.delete("/tasks/:taskId", taskController.deleteTask);
+router.get("/tasks/:taskId/subtasks", taskController.getSubtasks);
+router.post("/tasks/:taskId/subtasks", taskController.createSubtask);
+router.get("/tasks/:taskId/tags", tagController.getTaskTags);
+router.post("/tasks/:taskId/tags/:tagId", tagController.attachTagToTask);
+router.delete("/tasks/:taskId/tags/:tagId", tagController.detachTagFromTask);
 
 // Notes routes
 router.get("/meetings/:meetingId/notes", aiController.getNotes);

@@ -9,13 +9,16 @@ import {
 } from "../utils/globalErrorHandler";
 import { TokenPayload } from "../types/authTypes";
 import { ZodError } from "zod";
+import { logger } from "../utils/logging/logger";
+import { getRedisClient } from "../config/redisClient";
 
 // Extend Express Request to include authenticated user
 declare module "express" {
   export interface Request {
     user?: TokenPayload;
     sessionId?: string;
-    service?: any; // For internal service tokens
+    service?: Record<string, unknown>; // For internal service tokens
+    rawBody?: Buffer; // Captured by webhook routes for HMAC signature verification
   }
 }
 
@@ -50,7 +53,19 @@ export const verifyJWT = async (
 
     next();
   } catch (error) {
-    console.error("JWT verification error:", error);
+    const isExpectedJwtError =
+      error instanceof Error &&
+      (error.name === "TokenExpiredError" ||
+        error.name === "JsonWebTokenError");
+    if (isExpectedJwtError) {
+      logger.warn("JWT verification failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } else {
+      logger.error("JWT verification error", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     globalErrorHandler(error as BaseError, req, res);
   }
 };
@@ -80,6 +95,18 @@ export const autoRefreshToken = async (
 
     next();
   } catch (error) {
+    // Only swallow JWT-related errors (malformed/expired tokens on unauthenticated requests
+    // are expected). Log unexpected errors as warnings but still fail-open.
+    const isJwtError =
+      error instanceof Error &&
+      (error.name === "JsonWebTokenError" ||
+        error.name === "TokenExpiredError" ||
+        error.name === "NotBeforeError");
+    if (!isJwtError) {
+      logger.warn("autoRefreshToken unexpected error", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     next();
   }
 };
@@ -121,47 +148,52 @@ export const validateRefreshToken = async (
 export const userRateLimit = (
   maxRequests: number = 1000,
   windowMs: number = 60 * 60 * 1000,
+  endpointKey: string = "default",
 ) => {
-  const requestCounts = new Map<string, { count: number; resetTime: Date }>();
+  const windowSeconds = Math.floor(windowMs / 1000);
 
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const identifier = req.user?.userId || req.ip || "anonymous";
-    const now = new Date();
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const identifier = req.user?.userId || req.ip || req.socket.remoteAddress || "unknown";
+    const key = `ratelimit:${endpointKey}:${identifier}`;
 
-    let userLimit = requestCounts.get(identifier);
+    try {
+      const redis = getRedisClient();
+      const count = await redis.incr(key);
 
-    if (!userLimit || now > userLimit.resetTime) {
-      userLimit = {
-        count: 0,
-        resetTime: new Date(now.getTime() + windowMs),
-      };
-    }
+      // Set TTL only on the first increment (avoids overwriting existing TTL)
+      if (count === 1) {
+        await redis.expire(key, windowSeconds);
+      }
 
-    userLimit.count++;
-    requestCounts.set(identifier, userLimit);
+      const ttl = await redis.ttl(key);
+      const resetTime = new Date(Date.now() + Math.max(ttl, 0) * 1000);
 
-    if (userLimit.count > maxRequests) {
       res.setHeader("X-RateLimit-Limit", maxRequests.toString());
-      res.setHeader("X-RateLimit-Remaining", "0");
-      res.setHeader("X-RateLimit-Reset", userLimit.resetTime.toISOString());
-
-      return globalErrorHandler(
-        ErrorFactory.forbidden(
-          `Rate limit exceeded. Try again after ${userLimit.resetTime.toISOString()}`,
-        ),
-        req,
-        res,
+      res.setHeader(
+        "X-RateLimit-Remaining",
+        Math.max(0, maxRequests - count).toString(),
       );
+      res.setHeader("X-RateLimit-Reset", resetTime.toISOString());
+
+      if (count > maxRequests) {
+        res.setHeader("Retry-After", Math.max(ttl, 0).toString());
+        return globalErrorHandler(
+          ErrorFactory.tooManyRequests(
+            `Rate limit exceeded. Try again after ${resetTime.toISOString()}`,
+          ),
+          req,
+          res,
+        );
+      }
+
+      next();
+    } catch (error) {
+      // Fail-open: if Redis is unavailable, allow the request through
+      logger.warn("userRateLimit Redis error — allowing request", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      next();
     }
-
-    res.setHeader("X-RateLimit-Limit", maxRequests.toString());
-    res.setHeader(
-      "X-RateLimit-Remaining",
-      (maxRequests - userLimit.count).toString(),
-    );
-    res.setHeader("X-RateLimit-Reset", userLimit.resetTime.toISOString());
-
-    next();
   };
 };
 

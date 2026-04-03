@@ -1,5 +1,6 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
+import { logger } from "./logging/logger";
 
 export class BaseError extends Error {
   constructor(
@@ -70,7 +71,7 @@ export class DbOperationError extends BaseError {
   }
 }
 export class InternalServerError extends BaseError {
-  constructor(error?: any) {
+  constructor(error?: unknown) {
     super(
       500,
       "INTERNAL_SERVER_ERROR",
@@ -80,12 +81,18 @@ export class InternalServerError extends BaseError {
   }
 }
 
+export class TooManyRequestsError extends BaseError {
+  constructor(message = "Too many requests — please try again later") {
+    super(429, "TOO_MANY_REQUESTS", message);
+  }
+}
+
 export const isBaseError = (error: unknown): error is BaseError => {
   return error instanceof BaseError;
 };
 
 export const handleError = (error: unknown, res: Response): void => {
-  console.error("Error:", error);
+  logger.error("Error", { error });
 
   const baseError = isBaseError(error) ? error : new InternalServerError(error);
 
@@ -95,6 +102,7 @@ export const handleError = (error: unknown, res: Response): void => {
 export const ErrorFactory = {
   unauthorized: (message?: string) => new UnauthorizedError(message),
   forbidden: (message?: string) => new ForbiddenError(message),
+  tooManyRequests: (message?: string) => new TooManyRequestsError(message),
   validation: (errOrMsg: ZodError | string, msg?: string) =>
     typeof errOrMsg === "string"
       ? new ValidationError(errOrMsg)
@@ -109,8 +117,9 @@ export const globalErrorHandler = (
   error: Error | BaseError,
   req: Request,
   res: Response,
+  _next?: NextFunction,
 ): void => {
-  console.error("Error:", {
+  logger.error("Error", {
     name: error.name,
     message: error.message,
     stack: error.stack,

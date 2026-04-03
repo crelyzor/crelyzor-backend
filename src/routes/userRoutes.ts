@@ -6,6 +6,7 @@ const userRouter = Router();
 
 userRouter.use(verifyJWT);
 
+userRouter.get("/search", userController.searchUsers);
 userRouter.patch("/profile", userController.updateProfile);
 
 export default userRouter;

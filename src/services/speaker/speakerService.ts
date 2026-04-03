@@ -6,17 +6,17 @@ import { logger } from "../../utils/logging/logger";
  * Get all speakers for a meeting, ordered by speakerLabel
  */
 export const getSpeakers = async (meetingId: string, userId: string) => {
-  const meeting = await prisma.meeting.findUnique({
-    where: { id: meetingId },
-    select: { createdById: true },
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
   });
 
-  if (!meeting || meeting.createdById !== userId) {
+  if (!meeting) {
     throw new AppError("Meeting not found", 404);
   }
 
   return prisma.meetingSpeaker.findMany({
-    where: { meetingId },
+    where: { meetingId, isDeleted: false },
     orderBy: { speakerLabel: "asc" },
   });
 };
@@ -30,20 +30,20 @@ export const renameSpeaker = async (
   updates: { displayName?: string; role?: string },
   userId: string,
 ) => {
-  const meeting = await prisma.meeting.findUnique({
-    where: { id: meetingId },
-    select: { createdById: true },
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
   });
 
-  if (!meeting || meeting.createdById !== userId) {
+  if (!meeting) {
     throw new AppError("Meeting not found", 404);
   }
 
-  const speaker = await prisma.meetingSpeaker.findUnique({
-    where: { id: speakerId },
+  const speaker = await prisma.meetingSpeaker.findFirst({
+    where: { id: speakerId, meetingId, isDeleted: false },
   });
 
-  if (!speaker || speaker.meetingId !== meetingId) {
+  if (!speaker) {
     throw new AppError("Speaker not found", 404);
   }
 

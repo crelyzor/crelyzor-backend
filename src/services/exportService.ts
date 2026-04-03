@@ -12,9 +12,9 @@ function formatTimestamp(seconds: number): string {
 
 async function buildTranscriptText(meetingId: string): Promise<string> {
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
+    where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
     include: {
-      segments: { orderBy: { startTime: "asc" } },
+      segments: { orderBy: { startTime: "asc" }, take: 5000 },
     },
   });
 
@@ -30,7 +30,7 @@ async function buildTranscriptText(meetingId: string): Promise<string> {
 
 async function buildSummaryText(meetingId: string): Promise<string> {
   const summary = await prisma.meetingAISummary.findFirst({
-    where: { meetingId },
+    where: { meetingId, isDeleted: false },
     select: { summary: true, keyPoints: true },
   });
 

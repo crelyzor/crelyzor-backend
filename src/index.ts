@@ -4,7 +4,7 @@ dotenv.config();
 import app from "./app";
 import { logger } from "./utils/logging/logger";
 import prisma from "./db/prismaClient";
-import { redis } from "./config/redisClient";
+import { getRedisClient } from "./config/redisClient";
 import { initializeQueues, closeQueues } from "./config/queue";
 
 const PORT = process.env.PORT || 3000;
@@ -25,7 +25,7 @@ const startServer = async () => {
 
   // Test Redis connection (Upstash cache)
   try {
-    await redis.ping();
+    await getRedisClient().ping();
     logger.info("✅ Redis cache connected successfully (Upstash)");
   } catch (error) {
     logger.warn("⚠️ Redis cache connection failed (caching disabled):", {
@@ -37,9 +37,17 @@ const startServer = async () => {
   try {
     await initializeQueues();
   } catch (error) {
-    logger.warn("⚠️ Queue initialization failed (job processing disabled):", {
+    logger.error("❌ Queue initialization failed (job processing disabled):", {
       error: error instanceof Error ? error.message : String(error),
     });
+  }
+
+  // Warn about missing optional-but-important env vars
+  if (!process.env.ALLOWED_ORIGINS) {
+    logger.warn("⚠️ ALLOWED_ORIGINS not set — CORS will use defaults");
+  }
+  if (!process.env.RECALL_WEBHOOK_SECRET) {
+    logger.warn("⚠️ RECALL_WEBHOOK_SECRET not set — Recall.ai webhook signature verification is disabled");
   }
 
   // Log configured services

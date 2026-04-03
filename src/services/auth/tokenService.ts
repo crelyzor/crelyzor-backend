@@ -125,7 +125,7 @@ class TokenService {
 
   getTokenExpiration(token: string): Date | null {
     try {
-      const decoded = jwt.decode(token) as any;
+      const decoded = jwt.decode(token) as { exp?: number } | null;
       if (!decoded || !decoded.exp) {
         return null;
       }

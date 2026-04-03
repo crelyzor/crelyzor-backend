@@ -21,3 +21,18 @@ export const createResourceLimiter = createLimiterFactory({
   max: 50,
   message: "Too many creation requests, please try again later.",
 });
+
+// Strict limiter for public booking creation — 10 bookings per hour per IP
+export const bookingLimiter = createLimiterFactory({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  message: "Too many booking attempts. Please try again later.",
+});
+
+// Recall.ai webhook limiter — generous for burst (1–2 events/sec per active bot)
+// but blocks floods from unauthenticated sources
+export const recallWebhookLimiter = createLimiterFactory({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120,
+  message: "Too many webhook requests.",
+});

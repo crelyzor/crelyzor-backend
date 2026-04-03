@@ -30,6 +30,7 @@ export interface AttachmentResponse {
   name: string;
   url?: string | null;
   signedUrl?: string | null;
+  signedUrlError?: boolean;
   mimeType?: string | null;
   size?: number | null;
   createdAt: Date;
@@ -68,6 +69,7 @@ async function toResponse(attachment: {
   updatedAt: Date;
 }): Promise<AttachmentResponse> {
   let signedUrl: string | null = null;
+  let signedUrlError: boolean | undefined;
 
   if (attachment.gcsPath) {
     // Safety guard: only serve paths under our folder
@@ -77,10 +79,11 @@ async function toResponse(attachment: {
           expiresInMinutes: 60,
         });
       } catch (err) {
+        signedUrlError = true;
         logger.warn("Failed to generate signed URL", {
           attachmentId: attachment.id,
           gcsPath: attachment.gcsPath,
-          error: err,
+          error: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -93,6 +96,7 @@ async function toResponse(attachment: {
     name: attachment.name,
     url: attachment.url,
     signedUrl,
+    signedUrlError,
     mimeType: attachment.mimeType,
     size: attachment.size,
     createdAt: attachment.createdAt,
@@ -111,6 +115,7 @@ export async function getAttachments(
   const rows = await prisma.meetingAttachment.findMany({
     where: { meetingId, isDeleted: false },
     orderBy: { createdAt: "asc" },
+    take: 50,
     select: {
       id: true,
       meetingId: true,
@@ -135,7 +140,12 @@ export async function addLink(
 ): Promise<AttachmentResponse> {
   await verifyMeetingOwnership(meetingId, userId);
 
-  const name = data.name?.trim() || new URL(data.url).hostname;
+  let name: string;
+  try {
+    name = data.name?.trim() || new URL(data.url).hostname;
+  } catch {
+    throw new AppError("Invalid URL", 400);
+  }
 
   const attachment = await prisma.meetingAttachment.create({
     data: {

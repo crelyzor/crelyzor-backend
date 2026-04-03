@@ -1,12 +1,21 @@
 import { CorsOptions } from "cors";
 
-const allowedOrigins = [
-  "https://crm-frontend-eight-pink.vercel.app",
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "http://192.168.1.24:5174",
-  "http://localhost:3000",
-];
+const localhostOrigins =
+  process.env.NODE_ENV !== "production"
+    ? [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:3000",
+      ]
+    : [];
+
+const envOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",")
+      .map((o) => o.trim())
+      .filter(Boolean)
+  : [];
+
+const allowedOrigins = [...new Set([...localhostOrigins, ...envOrigins])];
 
 export const corsOptions: CorsOptions = {
   origin: (origin, callback) => {

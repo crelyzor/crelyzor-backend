@@ -10,6 +10,8 @@ import {
   cardIdParamSchema,
   tagMeetingParamSchema,
   tagCardParamSchema,
+  taskIdParamSchema,
+  tagTaskParamSchema,
 } from "../validators/tagSchema";
 import * as tagService from "../services/tagService";
 
@@ -216,5 +218,69 @@ export const detachTagFromCard = async (req: Request, res: Response) => {
   return apiResponse(res, {
     statusCode: 200,
     message: "Tag removed from card",
+  });
+};
+
+// ────────────────────────────────────────────────────────────
+// Task tags
+// ────────────────────────────────────────────────────────────
+
+/**
+ * GET /sma/tasks/:taskId/tags
+ */
+export const getTaskTags = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+
+  const params = taskIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid task ID", 400);
+
+  const tags = await tagService.getTaskTags(userId, params.data.taskId);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Task tags fetched",
+    data: { tags },
+  });
+};
+
+/**
+ * POST /sma/tasks/:taskId/tags/:tagId
+ */
+export const attachTagToTask = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+
+  const params = tagTaskParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid parameters", 400);
+
+  await tagService.attachTagToTask(
+    userId,
+    params.data.taskId,
+    params.data.tagId,
+  );
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Tag attached to task",
+  });
+};
+
+/**
+ * DELETE /sma/tasks/:taskId/tags/:tagId
+ */
+export const detachTagFromTask = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+
+  const params = tagTaskParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid parameters", 400);
+
+  await tagService.detachTagFromTask(
+    userId,
+    params.data.taskId,
+    params.data.tagId,
+  );
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Tag removed from task",
   });
 };

@@ -18,9 +18,9 @@ export async function createOrGetShare(meetingId: string, userId: string) {
     throw new AppError("Meeting not found", 404);
   }
 
-  // Return existing share if it exists
-  const existing = await prisma.meetingShare.findUnique({
-    where: { meetingId },
+  // Return existing share if it exists (exclude soft-deleted shares)
+  const existing = await prisma.meetingShare.findFirst({
+    where: { meetingId, isDeleted: false },
     select: {
       shortId: true,
       isPublic: true,
@@ -76,8 +76,8 @@ export async function updateShare(
     throw new AppError("Meeting not found", 404);
   }
 
-  const existing = await prisma.meetingShare.findUnique({
-    where: { meetingId },
+  const existing = await prisma.meetingShare.findFirst({
+    where: { meetingId, isDeleted: false },
     select: { id: true },
   });
 
@@ -124,6 +124,7 @@ export async function getPublicMeetingByShortId(shortId: string) {
     },
     select: {
       shortId: true,
+      meetingId: true,
       showTranscript: true,
       showSummary: true,
       showTasks: true,
@@ -148,22 +149,24 @@ export async function getPublicMeetingByShortId(shortId: string) {
     showTasks,
     meeting,
     shortId: sid,
+    meetingId,
   } = share;
 
   // Fetch speakers always (needed to resolve speakerLabel → displayName in transcript)
   const speakers = await prisma.meetingSpeaker.findMany({
-    where: { meeting: { share: { shortId } } },
+    where: { meetingId },
     select: {
       speakerLabel: true,
       displayName: true,
     },
+    take: 100,
   });
 
   // Conditional fetches based on owner's field settings
   const [transcriptData, summaryData, tasksData] = await Promise.all([
     showTranscript
       ? prisma.meetingTranscript.findFirst({
-          where: { recording: { meeting: { share: { shortId } } } },
+          where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
           select: {
             segments: {
               select: {
@@ -173,6 +176,7 @@ export async function getPublicMeetingByShortId(shortId: string) {
                 endTime: true,
               },
               orderBy: { startTime: "asc" },
+              take: 2000,
             },
           },
         })
@@ -180,7 +184,7 @@ export async function getPublicMeetingByShortId(shortId: string) {
 
     showSummary
       ? prisma.meetingAISummary.findFirst({
-          where: { meeting: { share: { shortId } } },
+          where: { meetingId, isDeleted: false },
           select: {
             summary: true,
             keyPoints: true,
@@ -192,13 +196,14 @@ export async function getPublicMeetingByShortId(shortId: string) {
       ? prisma.task.findMany({
           where: {
             isDeleted: false,
-            meeting: { share: { shortId } },
+            meetingId,
           },
           select: {
             title: true,
             isCompleted: true,
           },
           orderBy: { createdAt: "asc" },
+          take: 500,
         })
       : Promise.resolve(null),
   ]);

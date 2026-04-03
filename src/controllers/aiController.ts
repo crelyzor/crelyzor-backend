@@ -1,40 +1,48 @@
 import type { Request, Response } from "express";
+import { z } from "zod";
 import prisma from "../db/prismaClient";
 import { aiService } from "../services/ai/aiService";
 import { logger } from "../utils/logging/logger";
 import { AppError } from "../utils/errors/AppError";
 import { askAISchema } from "../validators/askAISchema";
 import { generateContentSchema } from "../validators/generateContentSchema";
+import { noteSchema } from "../validators/noteSchema";
+import { apiResponse } from "../utils/globalResponseHandler";
+
+const notesQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const uuidSchema = z.string().uuid();
 
 /**
  * Get AI summary for a meeting
  */
 export const getSummary = async (req: Request, res: Response) => {
-  try {
-    const meetingId = req.params.meetingId as string;
+  const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  const userId = req.user?.userId;
 
-    const summary = await prisma.meetingAISummary.findUnique({
-      where: { meetingId },
-    });
+  if (!userId) throw new AppError("Unauthorized", 401);
 
-    if (!summary) {
-      res.status(404).json({
-        success: false,
-        message: "No AI summary found for this meeting",
-      });
-      return;
-    }
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
 
-    res.status(200).json({
-      success: true,
-      data: summary,
-    });
-  } catch (error) {
-    logger.error("Error getting summary:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
+  const summary = await prisma.meetingAISummary.findFirst({
+    where: { meetingId, isDeleted: false },
+  });
+
+  if (!summary) throw new AppError("No AI summary found for this meeting", 404);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Summary fetched",
+    data: summary,
+  });
 };
 
 /**
@@ -43,6 +51,7 @@ export const getSummary = async (req: Request, res: Response) => {
  */
 export const regenerateSummary = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -54,21 +63,28 @@ export const regenerateSummary = async (req: Request, res: Response) => {
   if (!meeting) throw new AppError("Meeting not found", 404);
 
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
+    where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
   });
   if (!transcript) {
     throw new AppError(
       "No transcript available. Upload a recording first.",
-      400,
+      422,
     );
   }
 
-  const [summary, keyPoints] = await Promise.all([
-    aiService.generateSummary(meetingId, transcript.fullText),
-    aiService.extractKeyPoints(meetingId, transcript.fullText),
-  ]);
+  // Run sequentially to avoid concurrent upsert race on meetingAISummary row
+  await aiService.generateSummary(meetingId, transcript.fullText);
+  await aiService.extractKeyPoints(meetingId, transcript.fullText);
 
-  res.status(200).json({ success: true, data: { summary, keyPoints } });
+  const updatedSummary = await prisma.meetingAISummary.findFirst({
+    where: { meetingId, isDeleted: false },
+  });
+
+  apiResponse(res, {
+    statusCode: 200,
+    message: "Summary regenerated",
+    data: updatedSummary,
+  });
 };
 
 /**
@@ -77,6 +93,7 @@ export const regenerateSummary = async (req: Request, res: Response) => {
  */
 export const regenerateTitle = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -88,12 +105,12 @@ export const regenerateTitle = async (req: Request, res: Response) => {
   if (!meeting) throw new AppError("Meeting not found", 404);
 
   const transcript = await prisma.meetingTranscript.findFirst({
-    where: { recording: { meetingId } },
+    where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
   });
   if (!transcript) {
     throw new AppError(
       "No transcript available. Upload a recording first.",
-      400,
+      422,
     );
   }
 
@@ -104,70 +121,83 @@ export const regenerateTitle = async (req: Request, res: Response) => {
   if (!title) throw new AppError("Failed to generate title", 500);
 
   logger.info("Title regenerated", { meetingId, userId, title });
-  res.status(200).json({ success: true, data: { title } });
+  apiResponse(res, {
+    statusCode: 200,
+    message: "Title regenerated",
+    data: { title },
+  });
 };
 
 /**
  * Get notes for a meeting
  */
 export const getNotes = async (req: Request, res: Response) => {
-  try {
-    const meetingId = req.params.meetingId as string;
+  const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  const userId = req.user?.userId;
 
-    const notes = await prisma.meetingNote.findMany({
-      where: { meetingId },
+  if (!userId) throw new AppError("Unauthorized", 401);
+
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+
+  const parsedQuery = notesQuerySchema.safeParse(req.query);
+  const { limit, offset } = parsedQuery.success ? parsedQuery.data : { limit: 50, offset: 0 };
+
+  const [notes, total] = await Promise.all([
+    prisma.meetingNote.findMany({
+      where: { meetingId, isDeleted: false },
       orderBy: { createdAt: "desc" },
-    });
+      take: limit,
+      skip: offset,
+    }),
+    prisma.meetingNote.count({ where: { meetingId, isDeleted: false } }),
+  ]);
 
-    res.status(200).json({
-      success: true,
-      data: notes,
-    });
-  } catch (error) {
-    logger.error("Error getting notes:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Notes fetched",
+    data: { notes, pagination: { total, limit, offset } },
+  });
 };
 
 /**
  * Create a note for a meeting
  */
 export const createNote = async (req: Request, res: Response) => {
-  try {
-    const meetingId = req.params.meetingId as string;
-    const { content, timestamp } = req.body;
-    // Get user ID as author
-    const userId = req.user?.userId;
+  const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  const userId = req.user?.userId;
 
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
-      return;
-    }
+  if (!userId) throw new AppError("Unauthorized", 401);
 
-    const note = await prisma.meetingNote.create({
-      data: {
-        meetingId,
-        content,
-        author: userId,
-        timestamp: timestamp ? parseFloat(timestamp) : undefined,
-      },
-    });
+  const parsed = noteSchema.safeParse(req.body);
+  if (!parsed.success)
+    throw new AppError("content is required (max 10000 chars)", 400);
 
-    res.status(201).json({
-      success: true,
-      data: note,
-    });
-  } catch (error) {
-    logger.error("Error creating note:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+
+  const note = await prisma.meetingNote.create({
+    data: {
+      meetingId,
+      content: parsed.data.content,
+      author: userId,
+      timestamp: parsed.data.timestamp,
+    },
+  });
+
+  return apiResponse(res, {
+    statusCode: 201,
+    message: "Note created",
+    data: note,
+  });
 };
 
 /**
@@ -176,6 +206,7 @@ export const createNote = async (req: Request, res: Response) => {
  */
 export const askAI = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) {
@@ -200,6 +231,7 @@ export const askAI = async (req: Request, res: Response) => {
  */
 export const generateContent = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
   if (!userId) throw new AppError("Unauthorized", 401);
 
@@ -214,9 +246,11 @@ export const generateContent = async (req: Request, res: Response) => {
     validated.data.type,
   );
 
-  res
-    .status(200)
-    .json({ success: true, data: { type: validated.data.type, content } });
+  apiResponse(res, {
+    statusCode: 200,
+    message: "Content generated",
+    data: { type: validated.data.type, content },
+  });
 };
 
 /**
@@ -225,32 +259,44 @@ export const generateContent = async (req: Request, res: Response) => {
  */
 export const getGeneratedContents = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
   if (!userId) throw new AppError("Unauthorized", 401);
 
   const contents = await aiService.getGeneratedContents(meetingId, userId);
-  res.status(200).json({ success: true, data: { contents } });
+  apiResponse(res, {
+    statusCode: 200,
+    message: "Generated contents fetched",
+    data: { contents },
+  });
 };
 
 /**
  * Delete a note
  */
 export const deleteNote = async (req: Request, res: Response) => {
-  try {
-    const noteId = req.params.noteId as string;
+  const noteId = req.params.noteId as string;
+  const userId = req.user?.userId;
 
-    await prisma.meetingNote.delete({
-      where: { id: noteId },
-    });
+  if (!userId) throw new AppError("Unauthorized", 401);
 
-    res.status(200).json({
-      success: true,
-      message: "Note deleted successfully",
-    });
-  } catch (error) {
-    logger.error("Error deleting note:", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
+  // Verify the note belongs to a meeting owned by the caller
+  const note = await prisma.meetingNote.findFirst({
+    where: {
+      id: noteId,
+      meeting: { createdById: userId, isDeleted: false },
+    },
+    select: { id: true },
+  });
+  if (!note) throw new AppError("Note not found", 404);
+
+  await prisma.meetingNote.update({
+    where: { id: noteId },
+    data: { isDeleted: true, deletedAt: new Date() },
+  });
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Note deleted successfully",
+  });
 };

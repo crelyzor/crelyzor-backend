@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { z } from "zod";
 import { cardService } from "../services/cardService";
 import { apiResponse } from "../utils/globalResponseHandler";
 import {
@@ -12,6 +13,10 @@ import {
   previewCardSchema,
   submitContactSchema,
   trackViewSchema,
+  duplicateCardSchema,
+  getContactsSchema,
+  updateContactTagsSchema,
+  getCardAnalyticsSchema,
 } from "../validators/cardSchema";
 import crypto from "crypto";
 
@@ -159,13 +164,13 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
-      const { slug } = req.body;
-      if (!slug) throw ErrorFactory.validation("New slug is required");
+      const parsed = duplicateCardSchema.safeParse(req.body);
+      if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
       const card = await cardService.duplicateCard(
         userId,
         req.params.cardId as string,
-        slug,
+        parsed.data.slug,
       );
 
       apiResponse(res, {
@@ -187,14 +192,15 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
-      const { cardId, search, tags, page, limit } = req.query;
+      const parsed = getContactsSchema.safeParse(req.query);
+      if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
       const result = await cardService.getContacts(userId, {
-        cardId: cardId as string,
-        search: search as string,
-        tags: tags ? (tags as string).split(",") : undefined,
-        page: page ? parseInt(page as string) : undefined,
-        limit: limit ? parseInt(limit as string) : undefined,
+        cardId: parsed.data.cardId,
+        search: parsed.data.search,
+        tags: parsed.data.tags ? parsed.data.tags.split(",") : undefined,
+        page: parsed.data.page,
+        limit: parsed.data.limit,
       });
 
       apiResponse(res, {
@@ -212,14 +218,13 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
-      const { tags } = req.body;
-      if (!Array.isArray(tags))
-        throw ErrorFactory.validation("Tags must be an array");
+      const parsed = updateContactTagsSchema.safeParse(req.body);
+      if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
       const contact = await cardService.updateContactTags(
         userId,
         req.params.contactId as string,
-        tags,
+        parsed.data.tags,
       );
 
       apiResponse(res, {
@@ -254,7 +259,10 @@ export const cardController = {
       if (!userId) throw ErrorFactory.unauthorized();
 
       const { cardId } = req.query;
-      const csv = await cardService.exportContacts(userId, cardId as string);
+      if (cardId !== undefined && !z.string().uuid().safeParse(cardId).success) {
+        throw ErrorFactory.validation("Invalid cardId");
+      }
+      const csv = await cardService.exportContacts(userId, cardId as string | undefined);
 
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", "attachment; filename=contacts.csv");
@@ -273,11 +281,13 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
-      const days = req.query.days ? parseInt(req.query.days as string) : 30;
+      const parsed = getCardAnalyticsSchema.safeParse(req.query);
+      if (!parsed.success) throw ErrorFactory.validation(parsed.error);
+
       const analytics = await cardService.getCardAnalytics(
         userId,
         req.params.cardId as string,
-        days,
+        parsed.data.days,
       );
 
       apiResponse(res, {

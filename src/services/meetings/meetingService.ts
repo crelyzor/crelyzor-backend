@@ -7,6 +7,15 @@ import {
   MeetingParticipant,
   Prisma,
 } from "@prisma/client";
+import {
+  createGCalEventForMeeting,
+  updateGCalEventForMeeting,
+  deleteCalendarEvent,
+} from "../googleCalendarService";
+import { getRecallBotQueue, JobNames } from "../../config/queue";
+import { env } from "../../config/environment";
+import { logger } from "../../utils/logging/logger";
+import { isVideoMeetingUrl } from "../../utils/isVideoMeetingUrl";
 
 const meetingInclude = {
   participants: {
@@ -21,13 +30,15 @@ const meetingInclude = {
       },
     },
   },
-  stateHistory: true,
   tags: {
     include: {
       tag: {
         select: { id: true, name: true, color: true },
       },
     },
+  },
+  booking: {
+    select: { id: true, status: true },
   },
 } satisfies Prisma.MeetingInclude;
 
@@ -42,6 +53,7 @@ export interface CreateMeetingDTO {
   location?: string;
   participantUserIds?: string[];
   notes?: string;
+  addToCalendar?: boolean;
 }
 
 export interface UpdateMeetingStatusDTO {
@@ -166,6 +178,66 @@ export const meetingService = {
       throw ErrorFactory.validation("Failed to create meeting");
     }
 
+    // Create Google Calendar event for SCHEDULED meetings when requested.
+    // Includes conference data to generate a Meet URL in a single API call.
+    // Fail-open: GCal failure never prevents the meeting from being created.
+    if (data.addToCalendar === true && isScheduled) {
+      try {
+        const gcalResult = await createGCalEventForMeeting(createdById, {
+          title: meeting.title,
+          startTime: meeting.startTime,
+          endTime: meeting.endTime,
+          timezone: meeting.timezone,
+          location: meeting.location,
+          description: meeting.description,
+          requestMeetLink: true,
+        });
+        if (gcalResult) {
+          return await prisma.meeting.update({
+            where: { id: meeting.id },
+            data: {
+              googleEventId: gcalResult.googleEventId,
+              ...(gcalResult.meetLink ? { meetLink: gcalResult.meetLink } : {}),
+            },
+            include: meetingInclude,
+          });
+        }
+      } catch {
+        // fail-open — meeting is already committed
+      }
+    }
+
+    // Recall bot — queue deploy for SCHEDULED meetings with a video link.
+    // Fail-open: bot deploy failure never blocks meeting creation.
+    if (isScheduled && env.RECALL_API_KEY) {
+      const videoLink = meeting.meetLink ?? meeting.location;
+      if (videoLink && isVideoMeetingUrl(videoLink)) {
+        try {
+          const settings = await prisma.userSettings.findUnique({
+            where: { userId: createdById },
+            select: { recallEnabled: true },
+          });
+
+          if (settings?.recallEnabled) {
+            const deployAt = meeting.startTime.getTime() - 5 * 60 * 1000;
+            const delay = Math.max(0, deployAt - Date.now());
+
+            await getRecallBotQueue().add(
+              JobNames.DEPLOY_RECALL_BOT,
+              { meetingId: meeting.id, hostUserId: createdById },
+              { delay },
+            );
+            logger.info("Recall bot deployment queued for manual meeting", {
+              meetingId: meeting.id,
+              delayMs: delay,
+            });
+          }
+        } catch {
+          // fail-open — meeting is already committed
+        }
+      }
+    }
+
     return meeting;
   },
 
@@ -183,19 +255,22 @@ export const meetingService = {
       notes?: string;
     },
   ): Promise<Meeting> {
-    const meeting = await prisma.meeting.findUnique({
-      where: { id: meetingId },
-      include: { participants: true },
+    const meeting = await prisma.meeting.findFirst({
+      where: { id: meetingId, createdById: updatedByUserId, isDeleted: false },
+      select: {
+        id: true,
+        status: true,
+        startTime: true,
+        endTime: true,
+        timezone: true,
+        createdById: true,
+        googleEventId: true,
+        participants: { select: { userId: true, participantType: true } },
+      },
     });
 
     if (!meeting) {
       throw ErrorFactory.notFound("Meeting");
-    }
-
-    if (meeting.createdById !== updatedByUserId) {
-      throw ErrorFactory.forbidden(
-        "Only meeting creator can update this meeting",
-      );
     }
 
     if (["COMPLETED", "CANCELLED"].includes(meeting.status)) {
@@ -221,21 +296,23 @@ export const meetingService = {
         );
       }
 
-      for (const participant of meeting.participants) {
-        if (participant.userId !== meeting.createdById) {
-          const participantConflicts = await this.detectConflicts({
-            userId: participant.userId,
+      const otherParticipants = meeting.participants.filter(
+        (p) => p.userId !== meeting.createdById,
+      );
+      const participantConflictResults = await Promise.all(
+        otherParticipants.map((p) =>
+          this.detectConflicts({
+            userId: p.userId,
             startTime: newStartTime,
             endTime: newEndTime,
             excludeMeetingId: meetingId,
-          });
-
-          if (participantConflicts.length > 0) {
-            throw ErrorFactory.conflict(
-              "One or more participants has conflicts at the new time",
-            );
-          }
-        }
+          }),
+        ),
+      );
+      if (participantConflictResults.some((r) => r.length > 0)) {
+        throw ErrorFactory.conflict(
+          "One or more participants has conflicts at the new time",
+        );
       }
     }
 
@@ -323,30 +400,35 @@ export const meetingService = {
       throw ErrorFactory.validation("Failed to update meeting");
     }
 
+    // Sync changes to Google Calendar if this meeting has a linked GCal event.
+    // Fail-open: GCal failure never blocks the meeting update response.
+    if (meeting.googleEventId) {
+      await updateGCalEventForMeeting(updatedByUserId, meeting.googleEventId, {
+        title: data.title,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        timezone: data.timezone ?? meeting.timezone,
+        location: data.location,
+        description: data.description,
+      });
+    }
+
     return updatedMeeting;
   },
 
   async cancelMeeting(data: UpdateMeetingStatusDTO): Promise<Meeting> {
     const { meetingId, requesterUserId, reason } = data;
 
-    const meeting = await prisma.meeting.findUnique({
-      where: { id: meetingId },
-      include: { participants: true },
+    const meeting = await prisma.meeting.findFirst({
+      where: { id: meetingId, createdById: requesterUserId, isDeleted: false },
+      select: { id: true, status: true, googleEventId: true },
     });
 
     if (!meeting) {
       throw ErrorFactory.notFound("Meeting");
     }
 
-    const isParticipant = meeting.participants.some(
-      (p) => p.userId === requesterUserId,
-    );
-
-    if (!isParticipant) {
-      throw ErrorFactory.forbidden("You are not a participant in this meeting");
-    }
-
-    return prisma.$transaction(
+    const cancelled = await prisma.$transaction(
       async (tx) => {
         const updated = await tx.meeting.update({
           where: { id: meetingId },
@@ -373,29 +455,34 @@ export const meetingService = {
       },
       { timeout: 15000 },
     );
+
+    // Remove from Google Calendar after DB is committed. Fail-open.
+    await deleteCalendarEvent(requesterUserId, meeting.googleEventId);
+
+    return cancelled;
   },
 
   async completeMeeting(data: UpdateMeetingStatusDTO): Promise<Meeting> {
     const { meetingId, requesterUserId } = data;
 
-    const meeting = await prisma.meeting.findUnique({
-      where: { id: meetingId },
-      include: { participants: true },
+    const meeting = await prisma.meeting.findFirst({
+      where: {
+        id: meetingId,
+        isDeleted: false,
+        OR: [
+          { createdById: requesterUserId },
+          {
+            participants: {
+              some: { userId: requesterUserId, participantType: "ORGANIZER" },
+            },
+          },
+        ],
+      },
+      select: { id: true, status: true },
     });
 
     if (!meeting) {
       throw ErrorFactory.notFound("Meeting");
-    }
-
-    const isCreator = meeting.createdById === requesterUserId;
-    const isOrganizer = meeting.participants.some(
-      (p) => p.userId === requesterUserId && p.participantType === "ORGANIZER",
-    );
-
-    if (!isCreator && !isOrganizer) {
-      throw ErrorFactory.forbidden(
-        "Only the meeting creator can mark it as completed",
-      );
     }
 
     if (meeting.status !== MeetingStatus.CREATED) {
@@ -436,7 +523,10 @@ export const meetingService = {
     endDate?: Date;
     limit?: number;
     offset?: number;
-  }): Promise<(Meeting & { participants: MeetingParticipant[] })[]> {
+  }): Promise<{
+    meetings: (Meeting & { participants: MeetingParticipant[] })[];
+    total: number;
+  }> {
     const {
       userId,
       status,
@@ -456,18 +546,24 @@ export const meetingService = {
     if (type) where.type = type;
 
     if (startDate || endDate) {
-      where.startTime = {};
-      if (startDate) (where.startTime as any).gte = startDate;
-      if (endDate) (where.startTime as any).lte = endDate;
+      where.startTime = {
+        ...(startDate && { gte: startDate }),
+        ...(endDate && { lte: endDate }),
+      };
     }
 
-    return prisma.meeting.findMany({
-      where,
-      include: meetingInclude,
-      orderBy: { createdAt: "desc" },
-      take: limit,
-      skip: offset,
-    }) as any;
+    const [meetings, total] = await Promise.all([
+      prisma.meeting.findMany({
+        where,
+        include: meetingInclude,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        skip: offset,
+      }) as any,
+      prisma.meeting.count({ where }),
+    ]);
+
+    return { meetings, total };
   },
 
   async getMeetingsWithoutPagination(params: {
@@ -476,7 +572,10 @@ export const meetingService = {
     type?: MeetingType;
     startDate?: Date;
     endDate?: Date;
-  }): Promise<(Meeting & { participants: MeetingParticipant[] })[]> {
+  }): Promise<{
+    meetings: (Meeting & { participants: MeetingParticipant[] })[];
+    truncated: boolean;
+  }> {
     const { userId, status, type, startDate, endDate } = params;
 
     const where: Prisma.MeetingWhereInput = {
@@ -488,22 +587,38 @@ export const meetingService = {
     if (type) where.type = type;
 
     if (startDate || endDate) {
-      where.startTime = {};
-      if (startDate) (where.startTime as any).gte = startDate;
-      if (endDate) (where.startTime as any).lte = endDate;
+      where.startTime = {
+        ...(startDate && { gte: startDate }),
+        ...(endDate && { lte: endDate }),
+      };
     }
 
-    return prisma.meeting.findMany({
+    // Default to last 90 days if no date window is provided
+    if (!startDate && !endDate) {
+      where.startTime = {
+        gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+      };
+    }
+
+    const MAX_CALENDAR_MEETINGS = 200;
+    const rows = (await prisma.meeting.findMany({
       where,
       include: meetingInclude,
       orderBy: { createdAt: "desc" },
-      take: 1000,
-    }) as any;
+      take: MAX_CALENDAR_MEETINGS + 1,
+    })) as any[];
+
+    const truncated = rows.length > MAX_CALENDAR_MEETINGS;
+    return {
+      meetings: truncated ? rows.slice(0, MAX_CALENDAR_MEETINGS) : rows,
+      truncated,
+    };
   },
 
   async detectConflicts(params: ConflictDetectionParams): Promise<any[]> {
     const { userId, startTime, endTime, excludeMeetingId } = params;
 
+    const CONFLICT_DETECTION_LIMIT = 20;
     const meetings = await prisma.meeting.findMany({
       where: {
         isDeleted: false,
@@ -513,6 +628,7 @@ export const meetingService = {
         startTime: { lt: endTime },
         endTime: { gt: startTime },
       },
+      take: CONFLICT_DETECTION_LIMIT,
     });
 
     return meetings.map((meeting) => ({
@@ -521,5 +637,28 @@ export const meetingService = {
       endTime: meeting.endTime,
       details: `Meeting "${meeting.title}" at ${meeting.startTime.toLocaleTimeString()} - ${meeting.endTime.toLocaleTimeString()}`,
     }));
+  },
+
+  async deleteMeeting(meetingId: string, userId: string): Promise<void> {
+    const meeting = await prisma.meeting.findFirst({
+      where: { id: meetingId, isDeleted: false, createdById: userId },
+      select: { googleEventId: true },
+    });
+
+    if (!meeting) {
+      throw ErrorFactory.notFound("Meeting");
+    }
+
+    const result = await prisma.meeting.updateMany({
+      where: { id: meetingId, isDeleted: false, createdById: userId },
+      data: { isDeleted: true, deletedAt: new Date(), deletedBy: userId },
+    });
+
+    if (result.count === 0) {
+      throw ErrorFactory.notFound("Meeting");
+    }
+
+    // Remove from Google Calendar after DB is committed. Fail-open.
+    await deleteCalendarEvent(userId, meeting.googleEventId);
   },
 };

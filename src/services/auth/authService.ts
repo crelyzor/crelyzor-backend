@@ -1,9 +1,11 @@
 import { LoginMethod, ProviderEnum } from "@prisma/client";
+import jwt from "jsonwebtoken";
 import type { User } from "@prisma/client";
 import prisma from "../../db/prismaClient";
 import { tokenService } from "./tokenService";
 import { sessionService } from "./sessionService";
 import { ErrorFactory } from "../../utils/globalErrorHandler";
+import { logger } from "../../utils/logging/logger";
 import {
   UserResponse,
   RefreshTokenRequest,
@@ -40,7 +42,13 @@ class AuthService {
           refreshTokenPayload.sessionId,
         );
       } catch (error) {
-        // refresh token invalid or already expired — logout proceeds silently
+        // Only swallow JWT validation errors — token invalid or expired means logout still succeeds
+        if (
+          !(error instanceof jwt.JsonWebTokenError) &&
+          !(error instanceof jwt.TokenExpiredError)
+        ) {
+          throw error;
+        }
       }
       return { message: "Logged out successfully" };
     } else if (currentSessionId) {
@@ -54,6 +62,20 @@ class AuthService {
   async getUserProfile(userId: string): Promise<UserResponse> {
     const user = await prisma.user.findUnique({
       where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        emailVerified: true,
+        name: true,
+        avatarUrl: true,
+        countryCode: true,
+        phoneNumber: true,
+        country: true,
+        state: true,
+        lastLoginAt: true,
+        isActive: true,
+      },
     });
 
     if (!user) {
@@ -131,12 +153,28 @@ class AuthService {
       await tx.session.deleteMany({
         where: { userId },
       });
-    });
+    }, { timeout: 15000 });
 
     return { message: "Account deactivated successfully" };
   }
 
-  private mapUserToResponse(user: User): UserResponse {
+  private mapUserToResponse(
+    user: Pick<
+      User,
+      | "id"
+      | "email"
+      | "username"
+      | "emailVerified"
+      | "name"
+      | "avatarUrl"
+      | "countryCode"
+      | "phoneNumber"
+      | "country"
+      | "state"
+      | "lastLoginAt"
+      | "isActive"
+    >,
+  ): UserResponse {
     return {
       id: user.id,
       email: user.email,
@@ -217,7 +255,9 @@ class AuthService {
         },
       });
     } catch (error) {
-      console.error("[AuthService] Failed to log login history:", error);
+      logger.error("Failed to log login history", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }

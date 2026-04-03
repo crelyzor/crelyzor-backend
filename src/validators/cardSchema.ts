@@ -93,3 +93,31 @@ export const submitContactSchema = z.object({
 export const trackViewSchema = z.object({
   clickedLink: z.string().max(500).optional(),
 });
+
+export const duplicateCardSchema = z.object({
+  slug: z
+    .string()
+    .min(1)
+    .max(50)
+    .regex(
+      /^[a-z0-9][a-z0-9-]*[a-z0-9]$/,
+      "Slug must be lowercase alphanumeric with hyphens",
+    )
+    .regex(/^(?!.*--)/, "No consecutive hyphens"),
+});
+
+export const getContactsSchema = z.object({
+  cardId: z.string().uuid().optional(),
+  search: z.string().max(200).optional(),
+  tags: z.string().optional(),
+  page: z.coerce.number().int().positive().max(1000).default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+});
+
+export const updateContactTagsSchema = z.object({
+  tags: z.array(z.string().max(50)).max(20),
+});
+
+export const getCardAnalyticsSchema = z.object({
+  days: z.coerce.number().int().positive().max(365).default(30),
+});
