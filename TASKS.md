@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-04-02 (Phase 3 complete — Phase 3.2 in progress)
+Last updated: 2026-04-04 (Phase 3.3 product gaps written down)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -394,6 +394,63 @@ Move Recall from per-user BYO-key to platform-level service.
 - [ ] **`PATCH /sma/tasks/:taskId` Zod:** Add `recurringRule?: z.string().optional().nullable()`
 - [ ] **`POST /sma/tasks` Zod:** Add `recurringRule?: z.string().optional()`
 - [ ] Use `rrule` npm package for RRULE parsing/generation (lightweight, no dependencies)
+
+---
+
+## Phase 3.3 — Close the Product Gaps
+
+> Identified via full user-perspective product review (2026-04-04).
+
+---
+
+### P1 — Email Notifications (Resend integration)
+
+**Setup:**
+- [ ] Install `resend` npm package (`pnpm add resend`)
+- [ ] Add `RESEND_API_KEY` to `.env.example` + `environment.ts` Zod schema
+- [ ] Create `src/services/email/emailService.ts` — thin wrapper around Resend client. `sendEmail({ to, subject, html })`. Fail-open: log error, never throw.
+- [ ] Create `src/services/email/templates/` — one file per template (plain string or simple HTML, no heavy templating lib)
+
+**Triggers:**
+- [ ] **Booking received (host)** — in `bookingManagementService.ts` after booking confirmed: `sendBookingReceivedEmail(host, booking, guestName, guestEmail)`
+- [ ] **Booking confirmation (guest)** — same trigger: `sendBookingConfirmationEmail(guest, booking, host)` — include event title, date/time in guest timezone, Google Calendar link, Apple Calendar (.ics attachment), cancel link (`/public/bookings/:id/cancel`)
+- [ ] **Booking reminder** — Bull delayed job scheduled at `booking.startTime - 24h`: send reminder to both host + guest
+- [ ] **Booking cancelled** — in `bookingManagementService.ts` cancel handler: notify both parties
+- [ ] **Meeting AI complete** — in `jobProcessor.ts` after AI processing finishes (transcription status → COMPLETED): `sendMeetingReadyEmail(userId, meetingTitle, meetingId)`. Guard: only if processing succeeded.
+- [ ] **Daily task digest** — new Bull cron job (`DAILY_TASK_DIGEST`) firing at 08:00 UTC. Queries all users with `UserSettings.dailyDigestEnabled === true`. Per user: fetch overdue + today tasks. If none → skip. Send digest email.
+
+**Settings:**
+- [ ] **Schema:** Add to `UserSettings`: `emailNotificationsEnabled Boolean @default(true)`, `bookingEmailsEnabled Boolean @default(true)`, `meetingReadyEmailEnabled Boolean @default(true)`, `dailyDigestEnabled Boolean @default(false)`
+- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
+- [ ] **`PATCH /settings/user`:** Expose new fields in Zod schema + service handler
+
+---
+
+### P2 — Scheduling Completeness
+
+- [ ] **Guest reschedule link** — include a reschedule URL in booking confirmation email. New public endpoint `GET /public/bookings/:id` — returns booking details (no auth). Frontend uses this to pre-populate the date picker.
+- [ ] **Booking cancelled email** — already noted above in P1
+
+> Note: `minNoticeHours`, `bufferBefore`, `bufferAfter`, `maxPerDay` are already on the EventType schema and the slot engine uses them. No backend changes needed — frontend just needs to expose them in the EventType editor UI.
+
+---
+
+### P3 — Meeting ↔ Card Contact Auto-Linking
+
+_(Already in Phase 3.2 P3 — copy here for priority tracking)_
+
+- [ ] **`meetingService.ts`:** After meeting created, query `CardContact` where `email` matches any participant email (same userId). For each match, set `cardId` on `MeetingParticipant`.
+- [ ] **Schema:** Add `cardId UUID?` to `MeetingParticipant` model
+- [ ] **`GET /meetings/:meetingId`:** Include `participants.card { id, displayName, slug }` in response
+- [ ] **New endpoint:** `GET /cards/:cardId/meetings` — list meetings where a card contact participated
+- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
+
+---
+
+### P5 — Data Import
+
+- [ ] **Contact CSV import:** `POST /cards/:cardId/contacts/import` — multipart CSV upload. Parse with `csv-parse`. Validate rows (name required, email or phone required). Bulk-create `CardContact` records in a single transaction. Return `{ created: N, skipped: N, errors: [] }`.
+- [ ] **Calendar .ics import:** `POST /meetings/import/ics` — multipart .ics upload. Parse with `ical.js`. For each VEVENT: create `Meeting` (type: SCHEDULED, skip if already exists by uid). Return count. Does not trigger AI — user can manually trigger from meeting detail.
 
 ---
 
