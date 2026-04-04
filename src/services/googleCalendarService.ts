@@ -553,6 +553,63 @@ export async function deleteCalendarEvent(
   }
 }
 
+// ── Task block (GCal time-block for tasks) ───────────────────────────────────
+
+export interface CreateTaskBlockParams {
+  title: string;
+  scheduledTime: Date;
+  durationMinutes: number;
+}
+
+/**
+ * Creates a Google Calendar time-block event for a scheduled task.
+ *
+ * Returns the Google Calendar event ID to store on the Task row,
+ * or null on any failure (fail-open — the task update is never blocked).
+ *
+ * Requires full calendar write scope.
+ */
+export async function createTaskBlock(
+  userId: string,
+  params: CreateTaskBlockParams,
+): Promise<string | null> {
+  try {
+    const settings = await prisma.userSettings.findUnique({
+      where: { userId },
+      select: { googleCalendarSyncEnabled: true, googleCalendarEmail: true },
+    });
+    if (!settings?.googleCalendarSyncEnabled || !settings.googleCalendarEmail) {
+      return null;
+    }
+
+    const { client } = await getAuthedCalendarClient(userId, true);
+
+    const endTime = new Date(
+      params.scheduledTime.getTime() + params.durationMinutes * 60_000,
+    );
+
+    const calendar = google.calendar({ version: "v3", auth: client });
+    const event = await calendar.events.insert({
+      calendarId: "primary",
+      requestBody: {
+        summary: params.title,
+        start: { dateTime: params.scheduledTime.toISOString(), timeZone: "UTC" },
+        end: { dateTime: endTime.toISOString(), timeZone: "UTC" },
+      },
+    });
+
+    const eventId = event.data.id ?? null;
+    logger.info("GCal task block created", { userId, eventId });
+    return eventId;
+  } catch (err) {
+    logger.warn("createTaskBlock failed — fail-open", {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
 // ── GCal events feed (for dashboard timeline) ─────────────────────────────────
 
 export interface CalendarEvent {

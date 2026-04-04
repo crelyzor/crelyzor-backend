@@ -14,6 +14,7 @@ import schedulingRouter from "./schedulingRoutes";
 import publicSchedulingRouter from "./publicSchedulingRoutes";
 import publicBookingsRouter from "./publicBookingsRoutes";
 import integrationRouter from "./integrationRoutes";
+import searchRouter from "./searchRoutes";
 
 const indexRouter = Router();
 
@@ -71,6 +72,11 @@ indexRouter.use("/tags", tagRouter);
 // 🔗 INTEGRATION ROUTES
 // ========================================
 indexRouter.use("/integrations", integrationRouter);
+
+// ========================================
+// 🔍 SEARCH ROUTES
+// ========================================
+indexRouter.use("/search", searchRouter);
 
 // ========================================
 // 📦 STORAGE ROUTES

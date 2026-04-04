@@ -330,6 +330,8 @@ model Task {
   parentTaskId      String?       @db.Uuid
   cardId            String?       @db.Uuid
   transcriptContext String?       // The transcript sentence that generated this task (AI_EXTRACTED only)
+  durationMinutes   Int?          @default(30) // Task duration in minutes (5–480)
+  googleEventId     String?       // GCal time-block event ID (set when task is blocked in Google Calendar)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -356,6 +358,7 @@ model Task {
   @@index([cardId])
   @@index([userId, status, isDeleted])
   @@index([userId, cardId, isDeleted])
+  @@index([googleEventId])
 }
 
 model TaskTag {

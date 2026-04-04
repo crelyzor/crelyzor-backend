@@ -125,6 +125,27 @@ export async function confirmBooking(userId: string, bookingId: string) {
 
   logger.info("Booking confirmed", { bookingId, userId });
 
+  // Auto-create "Prepare for [meeting]" task — fail-open (task failure must not affect booking)
+  try {
+    await prisma.task.create({
+      data: {
+        userId,
+        meetingId: booking.meetingId ?? null,
+        title: `Prepare for ${booking.eventType.title} with ${booking.guestName}`,
+        source: "MANUAL",
+        dueDate: new Date(booking.startTime.getTime() - 60 * 60 * 1000),
+        isCompleted: false,
+        isDeleted: false,
+      },
+    });
+    logger.info("Prepare task created for confirmed booking", { bookingId, userId });
+  } catch (err) {
+    logger.error("Failed to create prepare task for booking (non-critical)", {
+      bookingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   // Fetch host details for GCal
   const user = await prisma.user.findUnique({
     where: { id: userId },
