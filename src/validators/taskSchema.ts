@@ -33,6 +33,7 @@ export const updateTaskSchema = z.object({
   cardId: z.string().uuid("Invalid cardId").nullable().optional(),
   transcriptContext: z.string().max(2000).nullable().optional(),
   durationMinutes: z.number().int().min(5).max(480).nullable().optional(),
+  blockInCalendar: z.boolean().optional(),
 });
 
 export const listTasksQuerySchema = z.object({

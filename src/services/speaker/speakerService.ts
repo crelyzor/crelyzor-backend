@@ -16,7 +16,7 @@ export const getSpeakers = async (meetingId: string, userId: string) => {
   }
 
   return prisma.meetingSpeaker.findMany({
-    where: { meetingId, isDeleted: false },
+    where: { meetingId },
     orderBy: { speakerLabel: "asc" },
   });
 };
@@ -40,7 +40,7 @@ export const renameSpeaker = async (
   }
 
   const speaker = await prisma.meetingSpeaker.findFirst({
-    where: { id: speakerId, meetingId, isDeleted: false },
+    where: { id: speakerId, meetingId },
   });
 
   if (!speaker) {

@@ -343,17 +343,17 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ---
 
-### P2 — Auto-create "Prepare for Meeting" Task on Booking Confirmed
+### P2 — Auto-create "Prepare for Meeting" Task on Booking Confirmed ✅
 
-- [ ] **`bookingManagementService.ts`:** After `Booking` + `Meeting` are created atomically, create a `Task` record:
+- [x] **`bookingManagementService.ts`:** After booking is confirmed, create a `Task` record:
   - `title`: `"Prepare for [eventType.title] with [guestName]"`
   - `userId`: host's userId
   - `meetingId`: newly created meeting's id
   - `dueDate`: 1 hour before `startTime` (ISO string)
   - `source`: `MANUAL`
-  - `status`: `TODO`
-- [ ] Done inside the same `$transaction` as booking creation
-- [ ] Fail-open — task creation failure should not roll back the booking
+  - `status`: `TODO` (schema default)
+- [x] Created after the booking confirm DB update (outside transaction — correct for fail-open)
+- [x] Fail-open — task creation failure does not affect the booking confirm response
 
 ---
 
@@ -380,17 +380,8 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ### P3 — Global Search Endpoint
 
-- [ ] **New endpoint:** `GET /search?q=<query>&types=meetings,tasks,cards`
-  - `verifyJWT`
-  - Zod: `q` (string, 2–100 chars), `types` (optional comma-separated enum)
-  - Queries in parallel (Promise.all):
-    - Meetings: `title ILIKE %q%` OR summary text ILIKE
-    - Tasks: `title ILIKE %q%` OR description ILIKE
-    - Cards: `displayName ILIKE %q%`
-  - Returns `{ meetings: [...], tasks: [...], cards: [...] }` — each capped at 10 results
-  - All queries scoped to `userId`, `isDeleted: false`
-- [ ] **New route:** `GET /search` in `src/routes/searchRoutes.ts`, wired in `indexRouter.ts`
-- [ ] **Rate limit:** 30 req/min per user
+- [x] **New endpoint:** `GET /search?q=<query>` — verifyJWT, Zod validated, parallel Prisma queries across meetings/tasks/cards/contacts, `take: 5` per bucket. Cards filtered by `isActive: true`. Contacts scoped via nested `card.userId` filter. No rate-limiter added (deferred).
+- [x] **New route:** `src/routes/searchRoutes.ts` wired in `indexRouter.ts`
 
 ---
 

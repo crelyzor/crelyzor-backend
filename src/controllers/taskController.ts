@@ -12,6 +12,10 @@ import {
   reorderTasksSchema,
 } from "../validators/taskSchema";
 import type { Prisma } from "@prisma/client";
+import {
+  createTaskBlock,
+  deleteCalendarEvent,
+} from "../services/googleCalendarService";
 
 const uuidSchema = z.string().uuid();
 
@@ -272,12 +276,20 @@ export const updateTask = async (req: Request, res: Response) => {
 
   const existing = await prisma.task.findFirst({
     where: { id: taskId, userId, isDeleted: false },
-    select: { id: true, isCompleted: true, status: true },
+    select: {
+      id: true,
+      isCompleted: true,
+      status: true,
+      googleEventId: true,
+      scheduledTime: true,
+      title: true,
+      durationMinutes: true,
+    },
   });
 
   if (!existing) throw new AppError("Task not found", 404);
 
-  const { title, description, isCompleted, dueDate, scheduledTime, priority, status, cardId, transcriptContext, durationMinutes } = validated.data;
+  const { title, description, isCompleted, dueDate, scheduledTime, priority, status, cardId, transcriptContext, durationMinutes, blockInCalendar } = validated.data;
 
   // Verify card ownership if cardId is being set (not cleared)
   if (cardId !== null && cardId !== undefined) {
@@ -307,7 +319,10 @@ export const updateTask = async (req: Request, res: Response) => {
     completedAt = null;
   }
 
-  const task = await prisma.task.update({
+  // When scheduledTime is explicitly cleared, also clear any existing GCal block
+  const clearingScheduledTime = scheduledTime === null && !!existing.googleEventId;
+
+  let task = await prisma.task.update({
     where: { id: taskId },
     data: {
       ...(title !== undefined && { title }),
@@ -321,8 +336,55 @@ export const updateTask = async (req: Request, res: Response) => {
       ...(cardId !== undefined && { cardId }),
       ...(transcriptContext !== undefined && { transcriptContext }),
       ...(durationMinutes !== undefined && { durationMinutes }),
+      // Clear googleEventId when scheduledTime is explicitly removed
+      ...(clearingScheduledTime && { googleEventId: null }),
     },
   });
+
+  // ── GCal block side-effects (fail-open — never block the task update) ────────
+
+  if (clearingScheduledTime) {
+    // scheduledTime cleared → delete existing GCal block
+    await deleteCalendarEvent(userId, existing.googleEventId);
+  } else if (blockInCalendar === true) {
+    // Request to create/replace a GCal block
+    const finalScheduledTime =
+      scheduledTime !== undefined ? scheduledTime : existing.scheduledTime;
+
+    if (finalScheduledTime) {
+      // Delete existing block first (replace semantics)
+      if (existing.googleEventId) {
+        await deleteCalendarEvent(userId, existing.googleEventId);
+      }
+      const finalDuration =
+        durationMinutes !== undefined && durationMinutes !== null
+          ? durationMinutes
+          : (existing.durationMinutes ?? 30);
+      const finalTitle = title !== undefined ? title : existing.title;
+
+      const eventId = await createTaskBlock(userId, {
+        title: finalTitle,
+        scheduledTime: finalScheduledTime,
+        durationMinutes: finalDuration,
+      });
+
+      if (eventId) {
+        task = await prisma.task.update({
+          where: { id: taskId },
+          data: { googleEventId: eventId },
+        });
+        logger.info("Task GCal block created", { taskId, userId, eventId });
+      }
+    }
+  } else if (blockInCalendar === false && existing.googleEventId) {
+    // Request to remove the GCal block without clearing scheduledTime
+    await deleteCalendarEvent(userId, existing.googleEventId);
+    task = await prisma.task.update({
+      where: { id: taskId },
+      data: { googleEventId: null },
+    });
+    logger.info("Task GCal block removed", { taskId, userId });
+  }
 
   logger.info("Task updated", { taskId, userId });
 
