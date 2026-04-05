@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-04-04 (Phase 3.3 product gaps written down)
+Last updated: 2026-04-06 (Phase 3.4 — Global Tags planned)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -451,6 +451,73 @@ _(Already in Phase 3.2 P3 — copy here for priority tracking)_
 
 - [ ] **Contact CSV import:** `POST /cards/:cardId/contacts/import` — multipart CSV upload. Parse with `csv-parse`. Validate rows (name required, email or phone required). Bulk-create `CardContact` records in a single transaction. Return `{ created: N, skipped: N, errors: [] }`.
 - [ ] **Calendar .ics import:** `POST /meetings/import/ics` — multipart .ics upload. Parse with `ical.js`. For each VEVENT: create `Meeting` (type: SCHEDULED, skip if already exists by uid). Return count. Does not trigger AI — user can manually trigger from meeting detail.
+
+---
+
+## Phase 3.4 — Global Tags ← next
+
+> Makes tags truly global: contacts get a proper `ContactTag` junction, tag list returns counts, and a new endpoint returns everything tagged with a given tag across all entity types.
+
+---
+
+### P0 — Schema
+
+- [ ] **`ContactTag` junction model** — add to `schema.prisma`:
+  ```prisma
+  model ContactTag {
+    contactId String   @db.Uuid
+    tagId     String   @db.Uuid
+    createdAt DateTime @default(now())
+    contact   CardContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+    tag       Tag         @relation(fields: [tagId],     references: [id], onDelete: Cascade)
+    @@id([contactId, tagId])
+    @@index([contactId])
+    @@index([tagId])
+  }
+  ```
+- [ ] **Add relations** to existing models:
+  - `Tag` model: add `contactTags ContactTag[]`
+  - `CardContact` model: add `tags ContactTag[]`
+- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
+- [ ] **`deleteTag` transaction** in `tagService.ts`: add `tx.contactTag.deleteMany({ where: { tagId } })` alongside existing meeting/card/task cleanup
+
+---
+
+### P1 — Contact Tag Service + Routes
+
+**`tagService.ts` additions:**
+- [ ] `verifyContactOwnership(contactId, userId)` — find `CardContact` where `id = contactId` and `card.userId = userId` (join through `card`). Throw `AppError("Contact not found", 404)` if not found.
+- [ ] `getContactTags(userId, contactId)` — verify ownership, then `contactTag.findMany` with `tag` include (filter `tag.isDeleted: false`), ordered by `tag.name asc`. Return `[{ ...tag, attachedAt }]`
+- [ ] `attachTagToContact(userId, contactId, tagId)` — verify contact + tag ownership, upsert `ContactTag`
+- [ ] `detachTagFromContact(userId, contactId, tagId)` — verify contact + tag ownership, `contactTag.deleteMany`
+
+**Routes** — add to `cardRoutes.ts` (contacts are sub-resources of cards):
+- [ ] `GET  /cards/:cardId/contacts/:contactId/tags` → `tagController.getContactTags`
+- [ ] `POST /cards/:cardId/contacts/:contactId/tags/:tagId` → `tagController.attachTagToContact`
+- [ ] `DELETE /cards/:cardId/contacts/:contactId/tags/:tagId` → `tagController.detachTagFromContact`
+- [ ] All under existing `verifyJWT` router-level middleware
+
+**`tagController.ts` additions:**
+- [ ] `getContactTags`, `attachTagToContact`, `detachTagFromContact` handlers (same shape as meeting/card handlers)
+
+---
+
+### P2 — Tag Items Endpoint + Count on Tag List
+
+**`tagService.ts`:**
+- [ ] `getTagItems(userId, tagId)` — verify tag ownership, then run 4 parallel queries:
+  - `meetingTag.findMany` where `tagId` + `meeting.createdById = userId` + `meeting.isDeleted: false` → return meeting `{ id, title, startTime, type, status }`
+  - `cardTag.findMany` where `tagId` + `card.userId = userId` + `card.isDeleted: false` → return card `{ id, slug, displayName, title, avatarUrl }`
+  - `taskTag.findMany` where `tagId` + `task.userId = userId` + `task.isDeleted: false` → return task `{ id, title, status, priority, dueDate }`
+  - `contactTag.findMany` where `tagId` + `contact.userId = userId` → return contact `{ id, name, email, company, cardId }`
+  - Returns `{ tag, meetings, cards, tasks, contacts, counts: { meetings, cards, tasks, contacts, total } }`
+- [ ] `listTags(userId)` — extend to include `_count: { select: { meetingTags: true, cardTags: true, taskTags: true, contactTags: true } }` on each tag
+
+**`tagRoutes.ts`:**
+- [ ] `GET /tags/:tagId/items` → `tagController.getTagItems`
+
+**`tagController.ts`:**
+- [ ] `getTagItems` handler
 
 ---
 
