@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-04-06 (Phase 3.4 — Global Tags planned)
+Last updated: 2026-04-06 (Phase 3.4 planned + Phase 3.2/3.3 audit)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -357,14 +357,14 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ---
 
-### P3 — Schedule Task → Create GCal Block
+### P3 — Schedule Task → Create GCal Block ✅ Complete
 
-- [ ] **`googleCalendarService.ts`:** Add `createTaskBlock(userId, task)` — inserts a GCal event titled `"🔲 [task.title]"` at `task.scheduledTime` for `task.durationMinutes`. Returns `googleEventId | null`. Fail-open.
-- [ ] **`googleCalendarService.ts`:** Add `deleteTaskBlock(userId, googleEventId)` — deletes the GCal event. Fail-open.
-- [ ] **Schema:** Add `googleEventId String?` to `Task` model (stores the GCal block event id)
-- [ ] **`taskService.ts` → `updateTask`:** When `scheduledTime` is set + user has GCal connected + `blockInCalendar: true` in payload → call `createTaskBlock`, store `googleEventId` on Task. When `scheduledTime` cleared → call `deleteTaskBlock`.
-- [ ] **`PATCH /sma/tasks/:taskId` Zod schema:** Add `blockInCalendar?: z.boolean().optional()`
-- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
+- [x] **`googleCalendarService.ts`:** Add `createTaskBlock(userId, task)` — inserts a GCal event titled `"🔲 [task.title]"` at `task.scheduledTime` for `task.durationMinutes`. Returns `googleEventId | null`. Fail-open.
+- [x] **`googleCalendarService.ts`:** Add `deleteTaskBlock(userId, googleEventId)` — deletes the GCal event. Fail-open.
+- [x] **Schema:** Add `googleEventId String?` to `Task` model (stores the GCal block event id)
+- [x] **`taskService.ts` → `updateTask`:** When `scheduledTime` is set + user has GCal connected + `blockInCalendar: true` in payload → call `createTaskBlock`, store `googleEventId` on Task. When `scheduledTime` cleared → call `deleteTaskBlock`.
+- [x] **`PATCH /sma/tasks/:taskId` Zod schema:** Add `blockInCalendar?: z.boolean().optional()`
+- [x] **Migration:** `pnpm db:push && pnpm db:generate`
 
 ---
 
