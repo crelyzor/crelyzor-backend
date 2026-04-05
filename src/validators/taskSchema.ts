@@ -38,7 +38,7 @@ export const updateTaskSchema = z.object({
 
 export const listTasksQuerySchema = z.object({
   status: z.enum(["all", "completed", "pending"]).default("all"),
-  view: z.enum(["inbox", "today", "upcoming", "all", "from_meetings"]).optional(),
+  view: z.enum(["inbox", "today", "upcoming", "all", "from_meetings", "from_voice_notes"]).optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
   source: z.enum(["AI_EXTRACTED", "MANUAL"]).optional(),
   meetingId: z.string().uuid().optional(),

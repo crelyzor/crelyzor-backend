@@ -80,6 +80,11 @@ export const getAllTasks = async (req: Request, res: Response) => {
         break;
       case "from_meetings":
         where.meetingId = { not: null };
+        where.meeting = { type: { not: "VOICE_NOTE" } };
+        break;
+      case "from_voice_notes":
+        where.meetingId = { not: null };
+        where.meeting = { type: "VOICE_NOTE" };
         break;
       case "all":
       default:
