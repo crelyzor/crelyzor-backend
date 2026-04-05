@@ -49,7 +49,7 @@ export const listTasksQuerySchema = z.object({
     .optional(),
   dueBefore: dateField.optional(),
   dueAfter: dateField.optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  limit: z.coerce.number().int().min(1).max(500).default(50),
   offset: z.coerce.number().int().min(0).default(0),
   sortBy: z.enum(["createdAt", "dueDate", "priority", "sortOrder"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
