@@ -659,7 +659,6 @@ model UserSettings {
 
   // Scheduling
   schedulingEnabled Boolean @default(true)
-  minNoticeHours    Int     @default(24)
   maxWindowDays     Int     @default(60)
   defaultBufferMins Int     @default(15)
 
@@ -702,6 +701,7 @@ model EventType {
   meetingLink  String?      // Zoom/Meet URL — ONLINE only
   bufferBefore Int          @default(0) // minutes
   bufferAfter  Int          @default(0) // minutes
+  minNoticeHours Int        @default(24)// hours
   maxPerDay    Int?         // null = unlimited
   isActive     Boolean      @default(true)
 

@@ -98,7 +98,6 @@ export async function createBooking(data: CreateBookingInput) {
           where: { userId: user.id },
           select: {
             schedulingEnabled: true,
-            minNoticeHours: true,
             maxWindowDays: true,
           },
         });
@@ -121,6 +120,7 @@ export async function createBooking(data: CreateBookingInput) {
             locationType: true,
             bufferBefore: true,
             bufferAfter: true,
+            minNoticeHours: true,
             maxPerDay: true,
             meetingLink: true,
             availabilityScheduleId: true,
@@ -152,11 +152,11 @@ export async function createBooking(data: CreateBookingInput) {
 
         // e. minNoticeHours guard
         const minEarliestStart = new Date(
-          Date.now() + settings.minNoticeHours * 60 * 60 * 1000,
+          Date.now() + eventType.minNoticeHours * 60 * 60 * 1000,
         );
         if (startTime < minEarliestStart) {
           throw new AppError(
-            `Booking requires at least ${settings.minNoticeHours} hours notice`,
+            `Booking requires at least ${eventType.minNoticeHours} hours notice`,
             409,
           );
         }

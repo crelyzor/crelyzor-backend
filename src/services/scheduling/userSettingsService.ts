@@ -8,7 +8,6 @@ const SETTINGS_SELECT = {
   id: true,
   userId: true,
   schedulingEnabled: true,
-  minNoticeHours: true,
   maxWindowDays: true,
   defaultBufferMins: true,
   googleCalendarSyncEnabled: true,

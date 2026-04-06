@@ -80,7 +80,6 @@ export async function getSlots(
     where: { userId: user.id },
     select: {
       schedulingEnabled: true,
-      minNoticeHours: true,
       maxWindowDays: true,
       googleCalendarSyncEnabled: true,
     },
@@ -112,6 +111,7 @@ export async function getSlots(
       duration: true,
       bufferBefore: true,
       bufferAfter: true,
+      minNoticeHours: true,
       maxPerDay: true,
       availabilityScheduleId: true,
     },
@@ -153,7 +153,7 @@ export async function getSlots(
 
   // 9. Apply minNoticeHours
   const minEarliestStart = new Date(
-    Date.now() + settings.minNoticeHours * 60 * 60 * 1000,
+    Date.now() + eventType.minNoticeHours * 60 * 60 * 1000,
   );
 
   // 10. Fetch all busy intervals overlapping this day's full window

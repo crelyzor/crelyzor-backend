@@ -6,7 +6,6 @@ const languageRegex = /^[a-z]{2,3}(-[A-Z]{2,4})?$/;
 export const patchUserSettingsSchema = z
   .object({
     schedulingEnabled: z.boolean().optional(),
-    minNoticeHours: z.number().int().min(0).max(168).optional(),
     maxWindowDays: z.number().int().min(1).max(365).optional(),
     defaultBufferMins: z.number().int().min(0).max(120).optional(),
     googleCalendarSyncEnabled: z.boolean().optional(),
