@@ -607,7 +607,13 @@ export const cardService = {
     }
 
     if (options.tags?.length) {
-      where.tags = { hasSome: options.tags };
+      where.contactTags = {
+        some: {
+          tag: {
+            name: { in: options.tags }
+          }
+        }
+      };
     }
 
     const [contacts, total] = await Promise.all([
