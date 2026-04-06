@@ -1,5 +1,7 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
+import rruleLib from "rrule";
+const { RRule } = rruleLib;
 import prisma from "../db/prismaClient";
 import { logger } from "../utils/logging/logger";
 import { apiResponse } from "../utils/globalResponseHandler";
@@ -289,12 +291,20 @@ export const updateTask = async (req: Request, res: Response) => {
       scheduledTime: true,
       title: true,
       durationMinutes: true,
+      // Recurring task fields
+      recurringRule: true,
+      recurringParentId: true,
+      dueDate: true,
+      description: true,
+      priority: true,
+      meetingId: true,
+      cardId: true,
     },
   });
 
   if (!existing) throw new AppError("Task not found", 404);
 
-  const { title, description, isCompleted, dueDate, scheduledTime, priority, status, cardId, transcriptContext, durationMinutes, blockInCalendar } = validated.data;
+  const { title, description, isCompleted, dueDate, scheduledTime, priority, status, cardId, transcriptContext, durationMinutes, blockInCalendar, recurringRule } = validated.data;
 
   // Verify card ownership if cardId is being set (not cleared)
   if (cardId !== null && cardId !== undefined) {
@@ -341,6 +351,7 @@ export const updateTask = async (req: Request, res: Response) => {
       ...(cardId !== undefined && { cardId }),
       ...(transcriptContext !== undefined && { transcriptContext }),
       ...(durationMinutes !== undefined && { durationMinutes }),
+      ...(recurringRule !== undefined && { recurringRule }),
       // Clear googleEventId when scheduledTime is explicitly removed
       ...(clearingScheduledTime && { googleEventId: null }),
     },
@@ -389,6 +400,43 @@ export const updateTask = async (req: Request, res: Response) => {
       data: { googleEventId: null },
     });
     logger.info("Task GCal block removed", { taskId, userId });
+  }
+
+  // ── Recurring task spawn (fail-open) ─────────────────────────────────────
+  // When a recurring task transitions to DONE for the first time, auto-create
+  // the next occurrence based on the RRULE.
+  const taskRecurringRule = recurringRule !== undefined ? recurringRule : existing.recurringRule;
+  if (resolvedStatus === "DONE" && existing.status !== "DONE" && taskRecurringRule) {
+    try {
+      const rule = RRule.fromString(taskRecurringRule);
+      const baseDueDate = existing.dueDate ?? (() => {
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        return d;
+      })();
+      const nextDate = rule.after(baseDueDate);
+      if (nextDate) {
+        await prisma.task.create({
+          data: {
+            userId,
+            title: existing.title,
+            ...(existing.description && { description: existing.description }),
+            ...(existing.priority && { priority: existing.priority }),
+            ...(existing.meetingId && { meetingId: existing.meetingId }),
+            ...(existing.cardId && { cardId: existing.cardId }),
+            recurringRule: taskRecurringRule,
+            recurringParentId: existing.recurringParentId ?? taskId,
+            dueDate: nextDate,
+            source: "MANUAL",
+            status: "TODO",
+            isCompleted: false,
+          },
+        });
+        logger.info("Recurring task occurrence spawned", { taskId, userId, nextDate });
+      }
+    } catch (err) {
+      logger.error("Failed to spawn recurring task occurrence", { taskId, err });
+    }
   }
 
   logger.info("Task updated", { taskId, userId });

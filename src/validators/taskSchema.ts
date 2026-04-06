@@ -22,6 +22,11 @@ export const createStandaloneTaskSchema = createTaskSchema.extend({
   transcriptContext: z.string().max(2000).optional(),
 });
 
+const recurringRuleField = z
+  .enum(["FREQ=DAILY", "FREQ=WEEKLY", "FREQ=MONTHLY"])
+  .nullable()
+  .optional();
+
 export const updateTaskSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   description: z.string().nullable().optional(),
@@ -34,6 +39,7 @@ export const updateTaskSchema = z.object({
   transcriptContext: z.string().max(2000).nullable().optional(),
   durationMinutes: z.number().int().min(5).max(480).nullable().optional(),
   blockInCalendar: z.boolean().optional(),
+  recurringRule: recurringRuleField,
 });
 
 export const listTasksQuerySchema = z.object({

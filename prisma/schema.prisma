@@ -336,17 +336,23 @@ model Task {
   durationMinutes   Int?          @default(30) // Task duration in minutes (5–480)
   googleEventId     String?       // GCal time-block event ID (set when task is blocked in Google Calendar)
 
+  // Phase 3.2 — Recurring tasks
+  recurringRule     String?       // RRULE string e.g. "FREQ=DAILY", "FREQ=WEEKLY", "FREQ=MONTHLY"
+  recurringParentId String?       @db.Uuid // Points to the root recurring task (never the previous sibling)
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  meeting  Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
-  taskTags TaskTag[]
-  parent   Task?     @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
-  subtasks Task[]    @relation("TaskSubtasks")
-  card     Card?     @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  meeting           Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  taskTags          TaskTag[]
+  parent            Task?     @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  subtasks          Task[]    @relation("TaskSubtasks")
+  card              Card?     @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  recurringParent   Task?     @relation("RecurringTasks", fields: [recurringParentId], references: [id], onDelete: SetNull)
+  recurringChildren Task[]    @relation("RecurringTasks")
 
   @@index([userId])
   @@index([meetingId])
@@ -362,6 +368,7 @@ model Task {
   @@index([userId, status, isDeleted])
   @@index([userId, cardId, isDeleted])
   @@index([googleEventId])
+  @@index([recurringParentId])
 }
 
 model TaskTag {
