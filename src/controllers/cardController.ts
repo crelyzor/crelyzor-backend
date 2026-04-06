@@ -300,6 +300,26 @@ export const cardController = {
     }
   },
 
+  getCardMeetings: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) throw ErrorFactory.unauthorized();
+
+      const meetings = await cardService.getCardMeetings(
+        userId,
+        req.params.cardId as string,
+      );
+
+      apiResponse(res, {
+        statusCode: 200,
+        message: "Card meetings retrieved successfully",
+        data: meetings,
+      });
+    } catch (err) {
+      globalErrorHandler(err as BaseError, req, res);
+    }
+  },
+
   // ========================================
   // PUBLIC ROUTES (no auth needed)
   // ========================================

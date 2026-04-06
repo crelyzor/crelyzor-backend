@@ -199,13 +199,16 @@ model MeetingParticipant {
   userId          String          @db.Uuid
   participantType ParticipantType
   joinedAt        DateTime?
+  cardId          String?         @db.Uuid
 
   meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id])
+  card    Card?   @relation(fields: [cardId], references: [id])
 
   @@unique([meetingId, userId])
   @@index([userId])
   @@index([meetingId])
+  @@index([cardId])
 }
 
 model MeetingStateHistory {
@@ -506,6 +509,7 @@ model Card {
   views    CardView[]
   tags     CardTag[]
   tasks    Task[]
+  meetingParticipants MeetingParticipant[]
 
   @@unique([userId, slug])
   @@index([slug])

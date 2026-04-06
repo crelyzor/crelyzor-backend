@@ -783,4 +783,41 @@ export const cardService = {
       topCountries,
     };
   },
+
+  // ========================================
+  // LINKED MEETINGS (authenticated)
+  // ========================================
+
+  /**
+   * Get meetings linked to a card via participants
+   */
+  async getCardMeetings(userId: string, cardId: string) {
+    const card = await prisma.card.findFirst({
+      where: { id: cardId, userId, isDeleted: false },
+      select: { id: true },
+    });
+    if (!card) {
+      throw ErrorFactory.notFound("Card not found");
+    }
+
+    const meetings = await prisma.meeting.findMany({
+      where: {
+        isDeleted: false,
+        participants: {
+          some: { cardId },
+        },
+      },
+      include: {
+        participants: {
+          include: {
+            user: { select: { id: true, name: true, email: true, avatarUrl: true } },
+            card: { select: { id: true, displayName: true, slug: true } },
+          },
+        },
+      },
+      orderBy: { startTime: "desc" },
+    });
+
+    return meetings;
+  },
 };

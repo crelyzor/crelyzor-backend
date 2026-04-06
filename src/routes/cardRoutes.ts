@@ -43,6 +43,15 @@ cardRouter.post("/:cardId/duplicate", (req, res) =>
 );
 
 // ========================================
+// LINKED ENTITIES
+// ========================================
+
+/** GET /api/v1/cards/:cardId/meetings — Get meetings linked to this card */
+cardRouter.get("/:cardId/meetings", (req, res) =>
+  cardController.getCardMeetings(req, res),
+);
+
+// ========================================
 // ANALYTICS
 // ========================================
 

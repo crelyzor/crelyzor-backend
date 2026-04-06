@@ -28,6 +28,13 @@ const meetingInclude = {
           avatarUrl: true,
         },
       },
+      card: {
+        select: {
+          id: true,
+          displayName: true,
+          slug: true,
+        },
+      },
     },
   },
   tags: {
@@ -156,11 +163,28 @@ export const meetingService = {
           });
 
           if (participantUserIds && participantUserIds.length > 0) {
+            const participantUsers = await tx.user.findMany({
+              where: { id: { in: participantUserIds } },
+              select: { id: true, email: true },
+            });
+            const participantEmails = participantUsers.map(u => u.email).filter(Boolean) as string[];
+
+            const matchedContacts = await tx.cardContact.findMany({
+              where: {
+                card: { userId: createdById },
+                email: { in: participantEmails },
+              },
+              select: { email: true, cardId: true },
+            });
+
+            const emailToCardId = new Map(matchedContacts.map(c => [c.email, c.cardId]));
+
             await tx.meetingParticipant.createMany({
-              data: participantUserIds.map((userId) => ({
+              data: participantUsers.map((u) => ({
                 meetingId: newMeeting.id,
-                userId,
+                userId: u.id,
                 participantType: "ATTENDEE" as const,
+                cardId: u.email && emailToCardId.has(u.email) ? emailToCardId.get(u.email) : null,
               })),
             });
           }
@@ -368,11 +392,28 @@ export const meetingService = {
           }
 
           if (toAdd.length > 0) {
+            const addedUsers = await tx.user.findMany({
+              where: { id: { in: toAdd } },
+              select: { id: true, email: true },
+            });
+            const addedEmails = addedUsers.map(u => u.email).filter(Boolean) as string[];
+
+            const matchedContacts = await tx.cardContact.findMany({
+              where: {
+                card: { userId: updatedByUserId },
+                email: { in: addedEmails },
+              },
+              select: { email: true, cardId: true },
+            });
+
+            const emailToCardId = new Map(matchedContacts.map(c => [c.email, c.cardId]));
+
             await tx.meetingParticipant.createMany({
-              data: toAdd.map((userId) => ({
+              data: addedUsers.map((u) => ({
                 meetingId,
-                userId,
+                userId: u.id,
                 participantType: "ATTENDEE" as const,
+                cardId: u.email && emailToCardId.has(u.email) ? emailToCardId.get(u.email) : null,
               })),
             });
           }

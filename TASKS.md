@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-04-06 (Phase 3.4 planned + Phase 3.2/3.3 audit)
+Last updated: 2026-04-07 (Phase 3.2/3.3 complete, Phase 3.4 next)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -368,13 +368,13 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ---
 
-### P3 — Meeting ↔ Card Contact Auto-Linking
+### P3 — Meeting ↔ Card Contact Auto-Linking ✅ Complete
 
-- [ ] **`meetingService.ts` → `createMeeting`:** After meeting is created, query `Card` + `CardContact` where `cardContact.email` matches any participant email (scoped to same userId). For each match, create a `Task` card link or update meeting metadata. Actually: create a `MeetingContact` junction or store `cardId` on `MeetingParticipant`.
-- [ ] **Schema option:** Add `cardId UUID?` to `MeetingParticipant` model — links a participant slot to a Card contact
-- [ ] **`GET /meetings/:meetingId`:** Include `participants.card { id, displayName, slug }` in response
-- [ ] **New endpoint:** `GET /cards/:cardId/meetings` — list meetings where a card contact participated (join through `MeetingParticipant.cardId`). `verifyJWT`, ownership check.
-- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
+- [x] **`meetingService.ts` → `createMeeting`:** After meeting is created, query `Card` + `CardContact` where `cardContact.email` matches any participant email (scoped to same userId). For each match, create a `Task` card link or update meeting metadata. Actually: create a `MeetingContact` junction or store `cardId` on `MeetingParticipant`.
+- [x] **Schema option:** Add `cardId UUID?` to `MeetingParticipant` model — links a participant slot to a Card contact
+- [x] **`GET /meetings/:meetingId`:** Include `participants.card { id, displayName, slug }` in response
+- [x] **New endpoint:** `GET /cards/:cardId/meetings` — list meetings where a card contact participated (join through `MeetingParticipant.cardId`). `verifyJWT`, ownership check.
+- [x] **Migration:** `pnpm db:push && pnpm db:generate`
 
 ---
 
@@ -435,15 +435,15 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ---
 
-### P3 — Meeting ↔ Card Contact Auto-Linking
+### P3 — Meeting ↔ Card Contact Auto-Linking ✅ Complete
 
 _(Already in Phase 3.2 P3 — copy here for priority tracking)_
 
-- [ ] **`meetingService.ts`:** After meeting created, query `CardContact` where `email` matches any participant email (same userId). For each match, set `cardId` on `MeetingParticipant`.
-- [ ] **Schema:** Add `cardId UUID?` to `MeetingParticipant` model
-- [ ] **`GET /meetings/:meetingId`:** Include `participants.card { id, displayName, slug }` in response
-- [ ] **New endpoint:** `GET /cards/:cardId/meetings` — list meetings where a card contact participated
-- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
+- [x] **`meetingService.ts`:** After meeting created, query `CardContact` where `email` matches any participant email (same userId). For each match, set `cardId` on `MeetingParticipant`.
+- [x] **Schema:** Add `cardId UUID?` to `MeetingParticipant` model
+- [x] **`GET /meetings/:meetingId`:** Include `participants.card { id, displayName, slug }` in response
+- [x] **New endpoint:** `GET /cards/:cardId/meetings` — list meetings where a card contact participated
+- [x] **Migration:** `pnpm db:push && pnpm db:generate`
 
 ---
 
