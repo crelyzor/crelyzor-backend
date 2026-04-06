@@ -673,6 +673,12 @@ model UserSettings {
   autoAIProcess   Boolean @default(true)
   defaultLanguage String  @default("en")
 
+  // Email Notifications (Phase 3.3)
+  emailNotificationsEnabled Boolean @default(true)  // master toggle
+  bookingEmailsEnabled      Boolean @default(true)  // booking received/confirmed/cancelled
+  meetingReadyEmailEnabled  Boolean @default(true)  // AI processing complete
+  dailyDigestEnabled        Boolean @default(false) // 8am daily task digest
+
   // Soft delete
   isDeleted Boolean   @default(false)
   deletedAt DateTime?

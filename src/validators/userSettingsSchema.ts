@@ -17,6 +17,10 @@ export const patchUserSettingsSchema = z
       .string()
       .regex(languageRegex, "Must be a valid BCP-47 language tag (e.g. en, en-US)")
       .optional(),
+    emailNotificationsEnabled: z.boolean().optional(),
+    bookingEmailsEnabled: z.boolean().optional(),
+    meetingReadyEmailEnabled: z.boolean().optional(),
+    dailyDigestEnabled: z.boolean().optional(),
   })
   .strict(); // reject recallApiKey, googleCalendarEmail, userId, etc.
 
