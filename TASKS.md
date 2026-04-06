@@ -461,7 +461,7 @@ _(Already in Phase 3.2 P3 — copy here for priority tracking)_
 
 ### P0 — Schema
 
-- [ ] **`ContactTag` junction model** — add to `schema.prisma`:
+- [x] **`ContactTag` junction model** — add to `schema.prisma`:
   ```prisma
   model ContactTag {
     contactId String   @db.Uuid
@@ -474,30 +474,30 @@ _(Already in Phase 3.2 P3 — copy here for priority tracking)_
     @@index([tagId])
   }
   ```
-- [ ] **Add relations** to existing models:
+- [x] **Add relations** to existing models:
   - `Tag` model: add `contactTags ContactTag[]`
-  - `CardContact` model: add `tags ContactTag[]`
-- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
-- [ ] **`deleteTag` transaction** in `tagService.ts`: add `tx.contactTag.deleteMany({ where: { tagId } })` alongside existing meeting/card/task cleanup
+  - `CardContact` model: add `contactTags ContactTag[]`
+- [x] **Migration:** `pnpm db:push && pnpm db:generate`
+- [x] **`deleteTag` transaction** in `tagService.ts`: add `tx.contactTag.deleteMany({ where: { tagId } })` alongside existing meeting/card/task cleanup
 
 ---
 
 ### P1 — Contact Tag Service + Routes
 
 **`tagService.ts` additions:**
-- [ ] `verifyContactOwnership(contactId, userId)` — find `CardContact` where `id = contactId` and `card.userId = userId` (join through `card`). Throw `AppError("Contact not found", 404)` if not found.
-- [ ] `getContactTags(userId, contactId)` — verify ownership, then `contactTag.findMany` with `tag` include (filter `tag.isDeleted: false`), ordered by `tag.name asc`. Return `[{ ...tag, attachedAt }]`
-- [ ] `attachTagToContact(userId, contactId, tagId)` — verify contact + tag ownership, upsert `ContactTag`
-- [ ] `detachTagFromContact(userId, contactId, tagId)` — verify contact + tag ownership, `contactTag.deleteMany`
+- [x] `verifyContactOwnership(contactId, userId)`
+- [x] `getContactTags(userId, contactId)`
+- [x] `attachTagToContact(userId, contactId, tagId)`
+- [x] `detachTagFromContact(userId, contactId, tagId)`
 
 **Routes** — add to `cardRoutes.ts` (contacts are sub-resources of cards):
-- [ ] `GET  /cards/:cardId/contacts/:contactId/tags` → `tagController.getContactTags`
-- [ ] `POST /cards/:cardId/contacts/:contactId/tags/:tagId` → `tagController.attachTagToContact`
-- [ ] `DELETE /cards/:cardId/contacts/:contactId/tags/:tagId` → `tagController.detachTagFromContact`
-- [ ] All under existing `verifyJWT` router-level middleware
+- [x] `GET  /cards/:cardId/contacts/:contactId/tags` → `tagController.getContactTags`
+- [x] `POST /cards/:cardId/contacts/:contactId/tags/:tagId` → `tagController.attachTagToContact`
+- [x] `DELETE /cards/:cardId/contacts/:contactId/tags/:tagId` → `tagController.detachTagFromContact`
+- [x] All under existing `verifyJWT` router-level middleware
 
 **`tagController.ts` additions:**
-- [ ] `getContactTags`, `attachTagToContact`, `detachTagFromContact` handlers (same shape as meeting/card handlers)
+- [x] `getContactTags`, `attachTagToContact`, `detachTagFromContact` handlers
 
 ---
 

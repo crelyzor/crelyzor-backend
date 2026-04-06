@@ -92,6 +92,7 @@ export async function deleteTag(userId: string, tagId: string) {
       await tx.meetingTag.deleteMany({ where: { tagId } });
       await tx.cardTag.deleteMany({ where: { tagId } });
       await tx.taskTag.deleteMany({ where: { tagId } });
+      await tx.contactTag.deleteMany({ where: { tagId } });
       await tx.tag.update({
         where: { id: tagId },
         data: { isDeleted: true, deletedAt: new Date() },
@@ -279,3 +280,67 @@ export async function detachTagFromTask(
 
   logger.info("Tag detached from task", { taskId, tagId, userId });
 }
+
+// ────────────────────────────────────────────────────────────
+// Contact tags
+// ────────────────────────────────────────────────────────────
+
+async function verifyContactOwnership(contactId: string, userId: string) {
+  const contact = await prisma.cardContact.findFirst({
+    where: { 
+      id: contactId,
+      card: {
+        userId: userId,
+        isDeleted: false,
+      }
+    },
+    select: { id: true },
+  });
+  if (!contact) throw new AppError("Contact not found", 404);
+}
+
+export async function getContactTags(userId: string, contactId: string) {
+  await verifyContactOwnership(contactId, userId);
+
+  const rows = await prisma.contactTag.findMany({
+    where: { contactId, tag: { isDeleted: false } },
+    select: {
+      createdAt: true,
+      tag: { select: TAG_SELECT },
+    },
+    orderBy: { tag: { name: "asc" } },
+  });
+
+  return rows.map((r) => ({ ...r.tag, attachedAt: r.createdAt }));
+}
+
+export async function attachTagToContact(
+  userId: string,
+  contactId: string,
+  tagId: string,
+) {
+  await verifyContactOwnership(contactId, userId);
+  await verifyTagOwnership(tagId, userId);
+
+  await prisma.contactTag.upsert({
+    where: { contactId_tagId: { contactId, tagId } },
+    create: { contactId, tagId },
+    update: {},
+  });
+
+  logger.info("Tag attached to contact", { contactId, tagId, userId });
+}
+
+export async function detachTagFromContact(
+  userId: string,
+  contactId: string,
+  tagId: string,
+) {
+  await verifyContactOwnership(contactId, userId);
+  await verifyTagOwnership(tagId, userId);
+
+  await prisma.contactTag.deleteMany({ where: { contactId, tagId } });
+
+  logger.info("Tag detached from contact", { contactId, tagId, userId });
+}
+

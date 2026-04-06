@@ -545,8 +545,9 @@ model CardContact {
   savedByScanner Boolean  @default(false) // did they also save the card?
 
   // Relations
-  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contactTags ContactTag[]
+  card        Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([cardId])
   @@index([userId, scannedAt])
@@ -626,6 +627,7 @@ model Tag {
   meetingTags MeetingTag[]
   cardTags    CardTag[]
   taskTags    TaskTag[]
+  contactTags ContactTag[]
 
   @@unique([userId, name])
   @@index([userId])
@@ -657,6 +659,20 @@ model CardTag {
 
   @@id([cardId, tagId])
   @@index([cardId])
+  @@index([tagId])
+}
+
+model ContactTag {
+  contactId String @db.Uuid
+  tagId     String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  contact CardContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag     Tag         @relation(fields: [tagId],     references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+  @@index([contactId])
   @@index([tagId])
 }
 

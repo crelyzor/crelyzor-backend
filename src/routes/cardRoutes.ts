@@ -97,4 +97,17 @@ cardRouter.post("/:cardId/tags/:tagId", tagController.attachTagToCard);
 /** DELETE /api/v1/cards/:cardId/tags/:tagId */
 cardRouter.delete("/:cardId/tags/:tagId", tagController.detachTagFromCard);
 
+// ────────────────────────────────────────────────────────────
+// CONTACT TAG SUB-ROUTES
+// ────────────────────────────────────────────────────────────
+
+/** GET /api/v1/cards/:cardId/contacts/:contactId/tags */
+cardRouter.get("/:cardId/contacts/:contactId/tags", tagController.getContactTags);
+
+/** POST /api/v1/cards/:cardId/contacts/:contactId/tags/:tagId */
+cardRouter.post("/:cardId/contacts/:contactId/tags/:tagId", tagController.attachTagToContact);
+
+/** DELETE /api/v1/cards/:cardId/contacts/:contactId/tags/:tagId */
+cardRouter.delete("/:cardId/contacts/:contactId/tags/:tagId", tagController.detachTagFromContact);
+
 export default cardRouter;
