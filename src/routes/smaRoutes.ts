@@ -133,7 +133,7 @@ router.post("/tasks", taskController.createStandaloneTask);
 router.patch("/tasks/reorder", taskController.reorderTasks);
 router.get("/meetings/:meetingId/tasks", taskController.getTasks);
 router.post("/meetings/:meetingId/tasks", taskController.createTask);
-router.patch("/tasks/:taskId", userRateLimit(500, 60 * 60 * 1000), taskController.updateTask);
+router.patch("/tasks/:taskId", userRateLimit(60, 60 * 60 * 1000), taskController.updateTask);
 router.delete("/tasks/:taskId", taskController.deleteTask);
 router.get("/tasks/:taskId/subtasks", taskController.getSubtasks);
 router.post("/tasks/:taskId/subtasks", taskController.createSubtask);
