@@ -434,3 +434,39 @@ export async function cancelBookingAsGuest(bookingId: string, reason?: string) {
 
   return cancelled;
 }
+
+/**
+ * Returns limited public details of a booking, used for the public cancellation/reschedule pages.
+ */
+export async function getPublicBooking(bookingId: string) {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId, isDeleted: false },
+    select: {
+      id: true,
+      startTime: true,
+      endTime: true,
+      status: true,
+      timezone: true,
+      guestName: true,
+      guestEmail: true,
+      eventType: {
+        select: {
+          title: true,
+          duration: true,
+          locationType: true,
+        },
+      },
+      user: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (!booking) {
+    throw new AppError("Booking not found", 404);
+  }
+
+  return booking;
+}

@@ -28,4 +28,15 @@ publicBookingsRouter.patch(
   bookingController.cancelBookingAsGuest,
 );
 
+/**
+ * GET /api/v1/public/bookings/:id
+ *
+ * Fetches public details about a booking. Used by the guest cancellation/reschedule page.
+ */
+publicBookingsRouter.get(
+  "/bookings/:id",
+  bookingLimiter,
+  bookingController.getPublicBookingDetails,
+);
+
 export default publicBookingsRouter;

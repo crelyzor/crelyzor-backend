@@ -52,3 +52,21 @@ export const cancelBookingAsGuest = async (req: Request, res: Response) => {
     data: { booking },
   });
 };
+
+/**
+ * GET /public/bookings/:id
+ *
+ * Returns limited booking details for public display (e.g. for the cancellation page).
+ */
+export const getPublicBookingDetails = async (req: Request, res: Response) => {
+  const params = guestCancelParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid booking ID", 400);
+
+  const booking = await bookingService.getPublicBooking(params.data.id);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Booking details fetched",
+    data: { booking },
+  });
+};
