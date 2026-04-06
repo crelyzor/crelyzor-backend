@@ -385,15 +385,14 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ---
 
-### P4 — Recurring Tasks
+### P4 — Recurring Tasks ✅
 
-- [ ] **Schema:** Add `recurringRule String?` to `Task` (stores RRULE string, e.g. `FREQ=WEEKLY;BYDAY=MO`)
-- [ ] **Schema:** Add `recurringParentId UUID?` → self-referential FK to original Task
-- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
-- [ ] **`taskService.ts` → `updateTask`:** When `isCompleted: true` + task has `recurringRule` → generate next occurrence: parse RRULE, compute next `dueDate`, create new Task (same title/description/priority/cardId/meetingId, `recurringParentId = original.id`)
-- [ ] **`PATCH /sma/tasks/:taskId` Zod:** Add `recurringRule?: z.string().optional().nullable()`
-- [ ] **`POST /sma/tasks` Zod:** Add `recurringRule?: z.string().optional()`
-- [ ] Use `rrule` npm package for RRULE parsing/generation (lightweight, no dependencies)
+- [x] **Schema:** Add `recurringRule String?` to `Task` (stores RRULE string, e.g. `FREQ=WEEKLY;BYDAY=MO`)
+- [x] **Schema:** Add `recurringParentId UUID?` → self-referential FK to original Task + `@@index([recurringParentId])`
+- [x] **Migration:** `pnpm db:push` — synced to Neon
+- [x] **`taskController.ts` → `updateTask`:** When task transitions to DONE + has `recurringRule` → parse RRULE, compute next `dueDate`, spawn new Task (fail-open try/catch)
+- [x] **`PATCH /sma/tasks/:taskId` Zod:** `recurringRule` as `z.enum(["FREQ=DAILY","FREQ=WEEKLY","FREQ=MONTHLY"]).nullable().optional()`
+- [x] Use `rrule` npm package — imported as default export (`import rruleLib from "rrule"; const { RRule } = rruleLib`)
 
 ---
 
