@@ -14,5 +14,6 @@ router.get("/", tagController.listTags);
 router.post("/", tagController.createTag);
 router.patch("/:tagId", tagController.updateTag);
 router.delete("/:tagId", tagController.deleteTag);
+router.get("/:tagId/items", tagController.getTagItems);
 
 export default router;

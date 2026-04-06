@@ -20,7 +20,17 @@ const TAG_SELECT = {
 export async function listTags(userId: string) {
   return prisma.tag.findMany({
     where: { userId, isDeleted: false },
-    select: TAG_SELECT,
+    select: {
+      ...TAG_SELECT,
+      _count: {
+        select: {
+          meetingTags: true,
+          cardTags: true,
+          taskTags: true,
+          contactTags: true,
+        },
+      },
+    },
     orderBy: { name: "asc" },
   });
 }
@@ -100,6 +110,72 @@ export async function deleteTag(userId: string, tagId: string) {
     },
     { timeout: 15000 },
   );
+}
+
+export async function getTagItems(userId: string, tagId: string) {
+  const tag = await prisma.tag.findFirst({
+    where: { id: tagId, userId, isDeleted: false },
+    select: TAG_SELECT,
+  });
+
+  if (!tag) {
+    throw new AppError("Tag not found", 404);
+  }
+
+  const [meetingTags, cardTags, taskTags, contactTags] = await Promise.all([
+    prisma.meetingTag.findMany({
+      where: { tagId, meeting: { createdById: userId, isDeleted: false } },
+      select: {
+        meeting: {
+          select: { id: true, title: true, startTime: true, type: true, status: true },
+        },
+      },
+    }),
+    prisma.cardTag.findMany({
+      where: { tagId, card: { userId: userId, isDeleted: false } },
+      select: {
+        card: {
+          select: { id: true, slug: true, displayName: true, title: true, avatarUrl: true },
+        },
+      },
+    }),
+    prisma.taskTag.findMany({
+      where: { tagId, task: { userId: userId, isDeleted: false } },
+      select: {
+        task: {
+          select: { id: true, title: true, status: true, priority: true, dueDate: true },
+        },
+      },
+    }),
+    prisma.contactTag.findMany({
+      where: { tagId, contact: { userId: userId } },
+      select: {
+        contact: {
+          select: { id: true, name: true, email: true, company: true, cardId: true },
+        },
+      },
+    }),
+  ]);
+
+  const meetings = meetingTags.map((t) => t.meeting);
+  const cards = cardTags.map((t) => t.card);
+  const tasks = taskTags.map((t) => t.task);
+  const contacts = contactTags.map((t) => t.contact);
+
+  return {
+    tag,
+    meetings,
+    cards,
+    tasks,
+    contacts,
+    counts: {
+      meetings: meetings.length,
+      cards: cards.length,
+      tasks: tasks.length,
+      contacts: contacts.length,
+      total: meetings.length + cards.length + tasks.length + contacts.length,
+    },
+  };
 }
 
 // ────────────────────────────────────────────────────────────

@@ -436,19 +436,19 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ### P3 — Meeting ↔ Card Contact Auto-Linking ✅ Complete
 
-_(Already in Phase 3.2 P3 — copy here for priority tracking)_
-
 - [x] **`meetingService.ts`:** After meeting created, query `CardContact` where `email` matches any participant email (same userId). For each match, set `cardId` on `MeetingParticipant`.
 - [x] **Schema:** Add `cardId UUID?` to `MeetingParticipant` model
 - [x] **`GET /meetings/:meetingId`:** Include `participants.card { id, displayName, slug }` in response
 - [x] **New endpoint:** `GET /cards/:cardId/meetings` — list meetings where a card contact participated
+- [x] **New Endpoint**: `GET /tags/:tagId/items` -> `getTagItems` (returns all meetings, cards, tasks, contacts associated with the tag)
+- [x] **Updated Endpoint**: `GET /tags` -> `listTags` now includes counts
 - [x] **Migration:** `pnpm db:push && pnpm db:generate`
 
 ---
 
 ### P5 — Data Import
 
-- [ ] **Contact CSV import:** `POST /cards/:cardId/contacts/import` — multipart CSV upload. Parse with `csv-parse`. Validate rows (name required, email or phone required). Bulk-create `CardContact` records in a single transaction. Return `{ created: N, skipped: N, errors: [] }`.
+- [x] **Contact CSV import:** `POST /cards/:cardId/contacts/import` — multipart CSV upload. Parse with `csv-parse`. Validate rows (name required, email or phone required). Bulk-create `CardContact` records in a single transaction. Return `{ created: N, skipped: N, errors: [] }`.
 - [ ] **Calendar .ics import:** `POST /meetings/import/ics` — multipart .ics upload. Parse with `ical.js`. For each VEVENT: create `Meeting` (type: SCHEDULED, skip if already exists by uid). Return count. Does not trigger AI — user can manually trigger from meeting detail.
 
 ---
@@ -504,19 +504,19 @@ _(Already in Phase 3.2 P3 — copy here for priority tracking)_
 ### P2 — Tag Items Endpoint + Count on Tag List
 
 **`tagService.ts`:**
-- [ ] `getTagItems(userId, tagId)` — verify tag ownership, then run 4 parallel queries:
+- [x] `getTagItems(userId, tagId)` — verify tag ownership, then run 4 parallel queries:
   - `meetingTag.findMany` where `tagId` + `meeting.createdById = userId` + `meeting.isDeleted: false` → return meeting `{ id, title, startTime, type, status }`
   - `cardTag.findMany` where `tagId` + `card.userId = userId` + `card.isDeleted: false` → return card `{ id, slug, displayName, title, avatarUrl }`
   - `taskTag.findMany` where `tagId` + `task.userId = userId` + `task.isDeleted: false` → return task `{ id, title, status, priority, dueDate }`
   - `contactTag.findMany` where `tagId` + `contact.userId = userId` → return contact `{ id, name, email, company, cardId }`
   - Returns `{ tag, meetings, cards, tasks, contacts, counts: { meetings, cards, tasks, contacts, total } }`
-- [ ] `listTags(userId)` — extend to include `_count: { select: { meetingTags: true, cardTags: true, taskTags: true, contactTags: true } }` on each tag
+- [x] `listTags(userId)` — extend to include `_count: { select: { meetingTags: true, cardTags: true, taskTags: true, contactTags: true } }` on each tag
 
 **`tagRoutes.ts`:**
-- [ ] `GET /tags/:tagId/items` → `tagController.getTagItems`
+- [x] `GET /tags/:tagId/items` → `tagController.getTagItems`
 
 **`tagController.ts`:**
-- [ ] `getTagItems` handler
+- [x] `getTagItems` handler
 
 ---
 

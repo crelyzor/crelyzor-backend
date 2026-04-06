@@ -98,6 +98,24 @@ export const deleteTag = async (req: Request, res: Response) => {
   return apiResponse(res, { statusCode: 200, message: "Tag deleted" });
 };
 
+/**
+ * GET /tags/:tagId/items
+ */
+export const getTagItems = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+
+  const params = tagParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid tag ID", 400);
+
+  const items = await tagService.getTagItems(userId, params.data.tagId);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Tag items fetched",
+    data: items,
+  });
+};
+
 // ────────────────────────────────────────────────────────────
 // Meeting tags
 // ────────────────────────────────────────────────────────────
