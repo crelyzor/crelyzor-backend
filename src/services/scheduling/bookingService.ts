@@ -4,6 +4,11 @@ import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
 import type { CreateBookingInput } from "../../validators/bookingSchema";
 import { deleteCalendarEvent } from "../googleCalendarService";
+import { sendEmail } from "../email/emailService";
+import {
+  bookingCancelledEmail,
+  bookingCancelledSubject,
+} from "../email/templates/bookingCancelled";
 
 // ── Timezone helpers ───────────────────────────────────────────────────────────
 
@@ -438,6 +443,21 @@ export async function cancelBookingAsGuest(bookingId: string, reason?: string) {
       meetingId: true,
       userId: true,
       googleEventId: true,
+      guestName: true,
+      guestEmail: true,
+      startTime: true,
+      timezone: true,
+      cancelReason: true,
+      eventType: {
+        select: { title: true },
+      },
+      user: {
+        select: {
+          name: true,
+          email: true,
+          settings: { select: { emailNotificationsEnabled: true, bookingEmailsEnabled: true } },
+        },
+      },
     },
   });
 
@@ -482,6 +502,53 @@ export async function cancelBookingAsGuest(bookingId: string, reason?: string) {
   // Only clean up GCal if the booking was CONFIRMED (had a GCal event)
   if (booking.status === "CONFIRMED") {
     await deleteCalendarEvent(booking.userId, booking.googleEventId);
+  }
+
+  // Email both parties — fail-open
+  try {
+    const emailsEnabled =
+      (booking.user.settings?.emailNotificationsEnabled ?? true) &&
+      (booking.user.settings?.bookingEmailsEnabled ?? true);
+
+    if (emailsEnabled) {
+      const cancelledSubject = bookingCancelledSubject({
+        eventTypeTitle: booking.eventType.title,
+      });
+      const hostName = booking.user.name ?? "the host";
+      const sharedParams = {
+        cancelledByName: booking.guestName, // Cancelled by the guest
+        eventTypeTitle: booking.eventType.title,
+        startTime: booking.startTime,
+        timezone: booking.timezone,
+        cancelReason: cancelled.cancelReason,
+      };
+
+      await Promise.all([
+        booking.user.email
+          ? sendEmail({
+              to: booking.user.email,
+              subject: cancelledSubject,
+              html: bookingCancelledEmail({
+                recipientName: hostName,
+                ...sharedParams,
+              }),
+            })
+          : Promise.resolve(),
+        sendEmail({
+          to: booking.guestEmail,
+          subject: cancelledSubject,
+          html: bookingCancelledEmail({
+            recipientName: booking.guestName,
+            ...sharedParams,
+          }),
+        }),
+      ]);
+    }
+  } catch (err) {
+    logger.error("Failed to send guest-initiated cancelled emails (non-critical)", {
+      bookingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   return cancelled;
