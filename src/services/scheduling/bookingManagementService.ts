@@ -123,6 +123,7 @@ export async function confirmBooking(userId: string, bookingId: string) {
       eventType: {
         select: {
           title: true,
+          slug: true,
           duration: true,
           locationType: true,
           meetingLink: true,
@@ -169,6 +170,7 @@ export async function confirmBooking(userId: string, bookingId: string) {
     where: { id: userId },
     select: {
       name: true,
+      username: true,
       email: true,
       settings: {
         select: {
@@ -277,6 +279,7 @@ export async function confirmBooking(userId: string, bookingId: string) {
           timezone: booking.timezone,
           bookingId,
           cancelUrl: `${PUBLIC_BASE_URL}/bookings/${bookingId}/cancel`,
+          rescheduleUrl: `${PUBLIC_BASE_URL}/schedule/${user?.username}/${booking.eventType.slug}?reschedule=${bookingId}`,
         }),
       });
     } catch (err) {

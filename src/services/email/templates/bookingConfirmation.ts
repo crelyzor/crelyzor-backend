@@ -9,6 +9,7 @@ export interface BookingConfirmationParams {
   timezone: string; // guest's timezone
   bookingId: string;
   cancelUrl: string; // public cancel URL
+  rescheduleUrl: string; // public reschedule URL
 }
 
 /**
@@ -41,7 +42,7 @@ export function bookingConfirmationEmail(p: BookingConfirmationParams): string {
     ${ctaButton("Add to Google Calendar", calLink)}
 
     <p style="margin:28px 0 0;color:#9ca3af;font-size:13px;">
-      Need to cancel? ${secondaryLink("Cancel this booking", p.cancelUrl)}
+      Need to make a change? ${secondaryLink("Reschedule", p.rescheduleUrl)} or ${secondaryLink("Cancel", p.cancelUrl)}
     </p>
   `;
 

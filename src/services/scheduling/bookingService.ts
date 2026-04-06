@@ -293,6 +293,46 @@ export async function createBooking(data: CreateBookingInput) {
           );
         }
 
+        // m2. Handle Rescheduling
+        let oldGoogleEventId: string | null = null;
+        if (data.rescheduleBookingId) {
+          const oldBooking = await tx.booking.findFirst({
+            where: {
+              id: data.rescheduleBookingId,
+              userId: user.id,
+              guestEmail: data.guestEmail,
+              isDeleted: false,
+            },
+            select: { id: true, status: true, meetingId: true, googleEventId: true },
+          });
+
+          if (!oldBooking) {
+            throw new AppError("Original booking not found or email mismatch", 404);
+          }
+
+          if (["CANCELLED", "DECLINED", "NO_SHOW"].includes(oldBooking.status)) {
+            throw new AppError(`Cannot reschedule a booking that is ${oldBooking.status}`, 409);
+          }
+
+          oldGoogleEventId = oldBooking.googleEventId;
+
+          await tx.booking.update({
+            where: { id: oldBooking.id },
+            data: {
+              status: "RESCHEDULED",
+              cancelReason: "Rescheduled by guest",
+              canceledAt: new Date(),
+            },
+          });
+
+          if (oldBooking.meetingId) {
+            await tx.meeting.update({
+              where: { id: oldBooking.meetingId },
+              data: { status: "CANCELLED" },
+            });
+          }
+        }
+
         // n. Create Meeting first
         const meeting = await tx.meeting.create({
           data: {
@@ -326,6 +366,7 @@ export async function createBooking(data: CreateBookingInput) {
         return {
           booking,
           meetingId: meeting.id,
+          oldGoogleEventId,
           eventTypeSummary: {
             title: eventType.title,
             duration: eventType.duration,
@@ -354,7 +395,18 @@ export async function createBooking(data: CreateBookingInput) {
     hostUsername: data.username,
     eventTypeSlug: data.eventTypeSlug,
     startTime: startTime.toISOString(),
+    isReschedule: !!data.rescheduleBookingId,
   });
+
+  if (result.oldGoogleEventId) {
+    // Only fire and forget the GCal cleanup
+    deleteCalendarEvent(user.id, result.oldGoogleEventId).catch((err) => {
+      logger.error("Failed to delete old GCal event during reschedule (non-critical)", {
+        eventId: result.oldGoogleEventId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
 
   return {
     booking: {
