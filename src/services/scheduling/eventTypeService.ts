@@ -85,23 +85,7 @@ export async function updateEventType(
   id: string,
   data: UpdateEventTypeInput,
 ) {
-  const existing = await verifyOwnership(id, userId);
-
-  // Service-level guard: partial updates can leave ONLINE type without a link.
-  // Determine the resulting locationType and meetingLink after the patch.
-  const resultingLocationType = data.locationType ?? existing.locationType;
-  const resultingMeetingLink =
-    data.meetingLink !== undefined ? data.meetingLink : existing.meetingLink;
-
-  if (
-    resultingLocationType === LocationType.ONLINE &&
-    !resultingMeetingLink
-  ) {
-    throw new AppError(
-      "meetingLink is required when locationType is ONLINE",
-      400,
-    );
-  }
+  await verifyOwnership(id, userId);
 
   try {
     const eventType = await prisma.eventType.update({

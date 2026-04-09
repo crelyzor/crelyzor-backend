@@ -183,7 +183,7 @@ export async function confirmBooking(userId: string, bookingId: string) {
   });
 
   // GCal — fail-open
-  const gcalEventId = await insertCalendarEvent(userId, {
+  const gcalResult = await insertCalendarEvent(userId, {
     bookingId,
     startTime: booking.startTime,
     endTime: booking.endTime,
@@ -196,11 +196,21 @@ export async function confirmBooking(userId: string, bookingId: string) {
     meetingLink: booking.eventType.meetingLink,
     hostName: user?.name ?? "",
   });
-  if (gcalEventId) {
+  if (gcalResult?.googleEventId) {
     await prisma.booking.update({
       where: { id: bookingId },
-      data: { googleEventId: gcalEventId },
+      data: { googleEventId: gcalResult.googleEventId },
     });
+
+    if (booking.meetingId && gcalResult.meetLink) {
+      await prisma.meeting.update({
+        where: { id: booking.meetingId },
+        data: {
+          meetLink: gcalResult.meetLink,
+          location: gcalResult.meetLink,
+        },
+      });
+    }
   } else {
     // Fail-open: booking is already confirmed in DB regardless of GCal outcome
     logger.warn("GCal event creation returned no event ID — booking confirmed without calendar event", {

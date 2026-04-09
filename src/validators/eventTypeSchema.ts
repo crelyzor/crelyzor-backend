@@ -42,15 +42,7 @@ export const createEventTypeSchema = z
     isActive: z.boolean().default(true),
     availabilityScheduleId: z.string().uuid().nullable().optional(),
   })
-  .refine(
-    (data) => {
-      if (data.locationType === LocationType.ONLINE) {
-        return !!data.meetingLink;
-      }
-      return true;
-    },
-    { message: "meetingLink is required when locationType is ONLINE", path: ["meetingLink"] },
-  );
+  .strict();
 
 export const updateEventTypeSchema = z
   .object({

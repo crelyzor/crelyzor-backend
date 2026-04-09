@@ -438,6 +438,11 @@ export interface InsertCalendarEventParams {
   hostName: string | null;
 }
 
+export interface InsertCalendarEventResult {
+  googleEventId: string;
+  meetLink: string | null;
+}
+
 /**
  * Inserts a Google Calendar event on the host's primary calendar for a
  * confirmed booking. The guest is added as an attendee.
@@ -450,7 +455,7 @@ export interface InsertCalendarEventParams {
 export async function insertCalendarEvent(
   userId: string,
   params: InsertCalendarEventParams,
-): Promise<string | null> {
+): Promise<InsertCalendarEventResult | null> {
   try {
     // Guard: only run when sync is explicitly enabled and an account is connected
     const settings = await prisma.userSettings.findUnique({
@@ -477,9 +482,13 @@ export async function insertCalendarEvent(
     }
     const description = descriptionParts.join("\n");
 
+    const shouldAutoGenerateMeet =
+      params.locationType === "ONLINE" && !params.meetingLink;
+
     const calendar = google.calendar({ version: "v3", auth: client });
     const event = await calendar.events.insert({
       calendarId: "primary",
+      ...(shouldAutoGenerateMeet ? { conferenceDataVersion: 1 } : {}),
       requestBody: {
         summary: `${params.eventTypeTitle} with ${params.guestName}`,
         description,
@@ -498,12 +507,32 @@ export async function insertCalendarEvent(
         ...(params.locationType === "ONLINE" && params.meetingLink
           ? { location: params.meetingLink }
           : {}),
+        ...(shouldAutoGenerateMeet
+          ? {
+              conferenceData: {
+                createRequest: { requestId: uuidv4() },
+              },
+            }
+          : {}),
       },
     });
 
-    const eventId = event.data.id ?? null;
-    logger.info("Google Calendar event created", { userId, bookingId: params.bookingId, eventId });
-    return eventId;
+    const googleEventId = event.data.id ?? null;
+    if (!googleEventId) return null;
+
+    const meetLink = shouldAutoGenerateMeet
+      ? (event.data.conferenceData?.entryPoints?.find(
+          (ep) => ep.entryPointType === "video",
+        )?.uri ?? event.data.hangoutLink ?? null)
+      : null;
+
+    logger.info("Google Calendar event created", {
+      userId,
+      bookingId: params.bookingId,
+      googleEventId,
+      hasMeetLink: !!meetLink,
+    });
+    return { googleEventId, meetLink };
   } catch (err) {
     logger.warn("Google Calendar event insert failed — fail-open", {
       userId,
