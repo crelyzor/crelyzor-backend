@@ -78,6 +78,12 @@ router.patch(
   transcriptController.patchSegment,
 );
 
+// Merge adjacent transcript segments from the same speaker
+router.post(
+  "/meetings/:meetingId/transcript/segments/merge-consecutive",
+  transcriptController.mergeConsecutiveSegments,
+);
+
 // Edit AI summary / key points / title
 router.patch("/meetings/:meetingId/summary", transcriptController.patchSummary);
 

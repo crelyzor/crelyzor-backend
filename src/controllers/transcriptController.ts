@@ -8,7 +8,11 @@ import {
   patchSummaryBodySchema,
   changeLanguageSchema,
 } from "../validators/transcriptEditSchema";
-import { updateSegment, updateSummary } from "../services/smaEditService";
+import {
+  updateSegment,
+  updateSummary,
+  mergeConsecutiveSpeakerSegments,
+} from "../services/smaEditService";
 import { z } from "zod";
 
 const uuidSchema = z.string().uuid();
@@ -82,6 +86,27 @@ export const patchSummary = async (req: Request, res: Response) => {
   return apiResponse(res, {
     statusCode: 200,
     message: "Summary updated",
+    data: result,
+  });
+};
+
+/**
+ * POST /sma/meetings/:meetingId/transcript/segments/merge-consecutive
+ * Merge adjacent transcript segments from the same speaker.
+ */
+export const mergeConsecutiveSegments = async (req: Request, res: Response) => {
+  const meetingIdResult = uuidSchema.safeParse(req.params.meetingId);
+  if (!meetingIdResult.success) throw new AppError("Invalid meetingId", 400);
+
+  const userId = req.user!.userId;
+  const result = await mergeConsecutiveSpeakerSegments(
+    meetingIdResult.data,
+    userId,
+  );
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Consecutive speaker segments merged",
     data: result,
   });
 };

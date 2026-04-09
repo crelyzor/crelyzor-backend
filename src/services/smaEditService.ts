@@ -121,3 +121,120 @@ export async function updateSummary(
   logger.info("Meeting title updated via summary edit", { meetingId, userId });
   return { summary: summaryData, title: data.title };
 }
+
+/**
+ * Merge only adjacent transcript segments that share the same speaker.
+ * Example merged: S0, S0, S0 -> S0
+ * Example not merged across boundary: S0, S1, S0 (kept as-is)
+ */
+export async function mergeConsecutiveSpeakerSegments(
+  meetingId: string,
+  userId: string,
+) {
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: {
+      id: true,
+      recording: {
+        select: {
+          transcript: {
+            select: {
+              id: true,
+              segments: {
+                select: {
+                  id: true,
+                  speaker: true,
+                  text: true,
+                  startTime: true,
+                  endTime: true,
+                },
+                orderBy: [{ startTime: "asc" }, { id: "asc" }],
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!meeting) {
+    throw new AppError("Meeting not found", 404);
+  }
+
+  const transcript = meeting.recording?.transcript;
+  if (!transcript) {
+    throw new AppError("No transcript found for this meeting", 404);
+  }
+
+  const segments = transcript.segments;
+  if (segments.length < 2) {
+    return {
+      mergedCount: 0,
+      originalCount: segments.length,
+      finalCount: segments.length,
+    };
+  }
+
+  const merged = segments.reduce<
+    Array<{
+      transcriptId: string;
+      speaker: string;
+      text: string;
+      startTime: number;
+      endTime: number;
+    }>
+  >((acc, seg) => {
+    const last = acc[acc.length - 1];
+    if (!last || last.speaker !== seg.speaker) {
+      acc.push({
+        transcriptId: transcript.id,
+        speaker: seg.speaker,
+        text: seg.text.trim(),
+        startTime: seg.startTime,
+        endTime: seg.endTime,
+      });
+      return acc;
+    }
+
+    // Same speaker and adjacent in sequence: merge into previous segment.
+    last.text = `${last.text} ${seg.text}`.trim();
+    last.endTime = Math.max(last.endTime, seg.endTime);
+    return acc;
+  }, []);
+
+  const mergedCount = segments.length - merged.length;
+  if (mergedCount === 0) {
+    return {
+      mergedCount: 0,
+      originalCount: segments.length,
+      finalCount: segments.length,
+    };
+  }
+
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.transcriptSegment.deleteMany({
+        where: { transcriptId: transcript.id },
+      });
+
+      await tx.transcriptSegment.createMany({
+        data: merged,
+      });
+    },
+    { timeout: 15000 },
+  );
+
+  logger.info("Merged consecutive transcript speakers", {
+    meetingId,
+    userId,
+    originalCount: segments.length,
+    finalCount: merged.length,
+    mergedCount,
+  });
+
+  return {
+    mergedCount,
+    originalCount: segments.length,
+    finalCount: merged.length,
+  };
+}
