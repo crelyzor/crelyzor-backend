@@ -17,6 +17,10 @@ import type { Prisma } from "@prisma/client";
 import {
   createTaskBlock,
   deleteCalendarEvent,
+  createGoogleTask,
+  updateGoogleTask,
+  deleteGoogleTask,
+  isGoogleTaskRef,
 } from "../services/googleCalendarService";
 
 const uuidSchema = z.string().uuid();
@@ -217,6 +221,19 @@ export const createTask = async (req: Request, res: Response) => {
         data: { googleEventId: eventId },
       });
     }
+  } else if (task.dueDate) {
+    const taskRef = await createGoogleTask(userId, {
+      title: task.title,
+      dueDate: task.dueDate,
+      notes: task.description,
+    });
+
+    if (taskRef) {
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { googleEventId: taskRef },
+      });
+    }
   }
 
   logger.info("Task created", { taskId: task.id, meetingId, userId });
@@ -293,6 +310,19 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
         data: { googleEventId: eventId },
       });
     }
+  } else if (task.dueDate) {
+    const taskRef = await createGoogleTask(userId, {
+      title: task.title,
+      dueDate: task.dueDate,
+      notes: task.description,
+    });
+
+    if (taskRef) {
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { googleEventId: taskRef },
+      });
+    }
   }
 
   logger.info("Standalone task created", { taskId: task.id, userId });
@@ -334,6 +364,13 @@ export const updateTask = async (req: Request, res: Response) => {
 
   if (!existing) throw new AppError("Task not found", 404);
 
+  const existingGoogleTaskRef = isGoogleTaskRef(existing.googleEventId)
+    ? existing.googleEventId
+    : null;
+  const existingCalendarEventId = existingGoogleTaskRef
+    ? null
+    : existing.googleEventId;
+
   const { title, description, isCompleted, dueDate, scheduledTime, priority, status, cardId, transcriptContext, durationMinutes, blockInCalendar, recurringRule } = validated.data;
 
   // Verify card ownership if cardId is being set (not cleared)
@@ -365,7 +402,7 @@ export const updateTask = async (req: Request, res: Response) => {
   }
 
   // When scheduledTime is explicitly cleared, also clear any existing GCal block
-  const clearingScheduledTime = scheduledTime === null && !!existing.googleEventId;
+  const clearingScheduledTime = scheduledTime === null && !!existingCalendarEventId;
 
   let task = await prisma.task.update({
     where: { id: taskId },
@@ -396,18 +433,27 @@ export const updateTask = async (req: Request, res: Response) => {
       ? durationMinutes
       : (existing.durationMinutes ?? 30);
   const finalTitle = title !== undefined ? title : existing.title;
+  const finalDescription =
+    description !== undefined ? description : existing.description;
+  const finalDueDate = dueDate !== undefined ? dueDate : existing.dueDate;
 
   if (clearingScheduledTime) {
     // scheduledTime cleared → delete existing GCal block
-    await deleteCalendarEvent(userId, existing.googleEventId);
+    await deleteCalendarEvent(userId, existingCalendarEventId);
   } else if (
     finalScheduledTime &&
-    (blockInCalendar === true || blockInCalendar === undefined || !!existing.googleEventId)
+    (blockInCalendar === true ||
+      blockInCalendar === undefined ||
+      !!existingCalendarEventId)
   ) {
     // Request to create/replace a GCal block, or auto-sync a scheduled task.
     // Delete existing block first (replace semantics) so time/duration edits are reflected.
-    if (existing.googleEventId) {
-      await deleteCalendarEvent(userId, existing.googleEventId);
+    if (existingCalendarEventId) {
+      await deleteCalendarEvent(userId, existingCalendarEventId);
+    }
+
+    if (existingGoogleTaskRef) {
+      await deleteGoogleTask(userId, existingGoogleTaskRef);
     }
 
     const eventId = await createTaskBlock(userId, {
@@ -423,14 +469,43 @@ export const updateTask = async (req: Request, res: Response) => {
       });
       logger.info("Task GCal block created", { taskId, userId, eventId });
     }
-  } else if (blockInCalendar === false && existing.googleEventId) {
+  } else if (blockInCalendar === false && existingCalendarEventId) {
     // Request to remove the GCal block without clearing scheduledTime
-    await deleteCalendarEvent(userId, existing.googleEventId);
+    await deleteCalendarEvent(userId, existingCalendarEventId);
     task = await prisma.task.update({
       where: { id: taskId },
       data: { googleEventId: null },
     });
     logger.info("Task GCal block removed", { taskId, userId });
+  } else if (!finalScheduledTime) {
+    if (finalDueDate) {
+      if (existingGoogleTaskRef) {
+        await updateGoogleTask(userId, existingGoogleTaskRef, {
+          title: finalTitle,
+          dueDate: finalDueDate,
+          notes: finalDescription,
+        });
+      } else {
+        const taskRef = await createGoogleTask(userId, {
+          title: finalTitle,
+          dueDate: finalDueDate,
+          notes: finalDescription,
+        });
+
+        if (taskRef) {
+          task = await prisma.task.update({
+            where: { id: taskId },
+            data: { googleEventId: taskRef },
+          });
+        }
+      }
+    } else if (dueDate === null && existingGoogleTaskRef) {
+      await deleteGoogleTask(userId, existingGoogleTaskRef);
+      task = await prisma.task.update({
+        where: { id: taskId },
+        data: { googleEventId: null },
+      });
+    }
   }
 
   // ── Recurring task spawn (fail-open) ─────────────────────────────────────
@@ -486,7 +561,7 @@ export const deleteTask = async (req: Request, res: Response) => {
 
   const existing = await prisma.task.findFirst({
     where: { id: taskId, userId, isDeleted: false },
-    select: { id: true },
+    select: { id: true, googleEventId: true },
   });
 
   if (!existing) throw new AppError("Task not found", 404);
@@ -505,6 +580,12 @@ export const deleteTask = async (req: Request, res: Response) => {
       data: { isDeleted: true, deletedAt: now },
     });
   }, { timeout: 15000 });
+
+  if (isGoogleTaskRef(existing.googleEventId)) {
+    await deleteGoogleTask(userId, existing.googleEventId);
+  } else {
+    await deleteCalendarEvent(userId, existing.googleEventId);
+  }
 
   logger.info("Task deleted", { taskId, userId });
 

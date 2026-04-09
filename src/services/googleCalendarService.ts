@@ -13,6 +13,23 @@ const CACHE_TTL_SECONDS = 300; // 5 minutes
 export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 export const CALENDAR_READONLY_SCOPE =
   "https://www.googleapis.com/auth/calendar.readonly";
+export const TASKS_SCOPE = "https://www.googleapis.com/auth/tasks";
+const GOOGLE_TASK_REF_PREFIX = "gtask:";
+
+export function isGoogleTaskRef(value: string | null | undefined): boolean {
+  return !!value && value.startsWith(GOOGLE_TASK_REF_PREFIX);
+}
+
+export function extractGoogleTaskId(
+  value: string | null | undefined,
+): string | null {
+  if (!isGoogleTaskRef(value)) return null;
+  return value!.slice(GOOGLE_TASK_REF_PREFIX.length);
+}
+
+function toGoogleTaskRef(taskId: string): string {
+  return `${GOOGLE_TASK_REF_PREFIX}${taskId}`;
+}
 
 // ── Shared OAuth client helper ────────────────────────────────────────────────
 
@@ -102,6 +119,15 @@ async function getAuthedCalendarClient(
   }
 
   return { client, providerId: oauthAccount.providerId };
+}
+
+async function hasGoogleTasksScope(userId: string): Promise<boolean> {
+  const oauthAccount = await prisma.oAuthAccount.findFirst({
+    where: { userId, provider: "GOOGLE" },
+    select: { scopes: true },
+  });
+
+  return oauthAccount?.scopes.includes(TASKS_SCOPE) ?? false;
 }
 
 // ── Meet link generation ──────────────────────────────────────────────────────
@@ -643,6 +669,145 @@ export async function createTaskBlock(
   }
 }
 
+export interface CreateGoogleTaskParams {
+  title: string;
+  dueDate: Date;
+  notes?: string | null;
+}
+
+/**
+ * Creates a Google Task in the user's default task list for due-date tasks.
+ * Returns a prefixed task ref (gtask:<id>) or null on failure.
+ */
+export async function createGoogleTask(
+  userId: string,
+  params: CreateGoogleTaskParams,
+): Promise<string | null> {
+  try {
+    const settings = await prisma.userSettings.findUnique({
+      where: { userId },
+      select: { googleCalendarSyncEnabled: true, googleCalendarEmail: true },
+    });
+    if (!settings?.googleCalendarSyncEnabled || !settings.googleCalendarEmail) {
+      return null;
+    }
+
+    const hasTasksScope = await hasGoogleTasksScope(userId);
+    if (!hasTasksScope) {
+      return null;
+    }
+
+    const { client } = await getAuthedCalendarClient(userId, true);
+    const tasks = google.tasks({ version: "v1", auth: client });
+
+    const created = await tasks.tasks.insert({
+      tasklist: "@default",
+      requestBody: {
+        title: params.title,
+        due: params.dueDate.toISOString(),
+        ...(params.notes ? { notes: params.notes } : {}),
+      },
+    });
+
+    const taskId = created.data.id ?? null;
+    if (!taskId) return null;
+
+    const ref = toGoogleTaskRef(taskId);
+    logger.info("Google Task created", { userId, taskId });
+    return ref;
+  } catch (err) {
+    logger.warn("createGoogleTask failed — fail-open", {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+export async function updateGoogleTask(
+  userId: string,
+  googleTaskRef: string | null | undefined,
+  params: CreateGoogleTaskParams,
+): Promise<void> {
+  const taskId = extractGoogleTaskId(googleTaskRef);
+  if (!taskId) return;
+
+  try {
+    const settings = await prisma.userSettings.findUnique({
+      where: { userId },
+      select: { googleCalendarSyncEnabled: true, googleCalendarEmail: true },
+    });
+    if (!settings?.googleCalendarSyncEnabled || !settings.googleCalendarEmail) {
+      return;
+    }
+
+    const hasTasksScope = await hasGoogleTasksScope(userId);
+    if (!hasTasksScope) {
+      return;
+    }
+
+    const { client } = await getAuthedCalendarClient(userId, true);
+    const tasks = google.tasks({ version: "v1", auth: client });
+
+    await tasks.tasks.patch({
+      tasklist: "@default",
+      task: taskId,
+      requestBody: {
+        title: params.title,
+        due: params.dueDate.toISOString(),
+        ...(params.notes ? { notes: params.notes } : {}),
+      },
+    });
+
+    logger.info("Google Task updated", { userId, taskId });
+  } catch (err) {
+    logger.warn("updateGoogleTask failed — fail-open", {
+      userId,
+      taskId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+export async function deleteGoogleTask(
+  userId: string,
+  googleTaskRef: string | null | undefined,
+): Promise<void> {
+  const taskId = extractGoogleTaskId(googleTaskRef);
+  if (!taskId) return;
+
+  try {
+    const settings = await prisma.userSettings.findUnique({
+      where: { userId },
+      select: { googleCalendarSyncEnabled: true, googleCalendarEmail: true },
+    });
+    if (!settings?.googleCalendarSyncEnabled || !settings.googleCalendarEmail) {
+      return;
+    }
+
+    const hasTasksScope = await hasGoogleTasksScope(userId);
+    if (!hasTasksScope) {
+      return;
+    }
+
+    const { client } = await getAuthedCalendarClient(userId, true);
+    const tasks = google.tasks({ version: "v1", auth: client });
+
+    await tasks.tasks.delete({
+      tasklist: "@default",
+      task: taskId,
+    });
+
+    logger.info("Google Task deleted", { userId, taskId });
+  } catch (err) {
+    logger.warn("deleteGoogleTask failed — fail-open", {
+      userId,
+      taskId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 /**
  * Backfills existing Crelyzor meetings and tasks into Google Calendar.
  *
@@ -693,12 +858,17 @@ export async function backfillGoogleCalendarWrites(userId: string): Promise<void
         userId,
         isDeleted: false,
         googleEventId: null,
-        scheduledTime: { not: null },
+        OR: [
+          { scheduledTime: { not: null } },
+          { scheduledTime: null, dueDate: { not: null } },
+        ],
       },
       select: {
         id: true,
         title: true,
         scheduledTime: true,
+        dueDate: true,
+        description: true,
         durationMinutes: true,
       },
       orderBy: { scheduledTime: "asc" },
@@ -748,21 +918,38 @@ export async function backfillGoogleCalendarWrites(userId: string): Promise<void
 
     let taskCount = 0;
     for (const task of tasks) {
-      if (!task.scheduledTime) continue;
+      if (task.scheduledTime) {
+        const eventId = await createTaskBlock(userId, {
+          title: task.title,
+          scheduledTime: task.scheduledTime,
+          durationMinutes: task.durationMinutes ?? 30,
+        });
 
-      const eventId = await createTaskBlock(userId, {
-        title: task.title,
-        scheduledTime: task.scheduledTime,
-        durationMinutes: task.durationMinutes ?? 30,
-      });
+        if (!eventId) continue;
 
-      if (!eventId) continue;
+        await prisma.task.update({
+          where: { id: task.id },
+          data: { googleEventId: eventId },
+        });
+        taskCount += 1;
+        continue;
+      }
 
-      await prisma.task.update({
-        where: { id: task.id },
-        data: { googleEventId: eventId },
-      });
-      taskCount += 1;
+      if (task.dueDate) {
+        const taskRef = await createGoogleTask(userId, {
+          title: task.title,
+          dueDate: task.dueDate,
+          notes: task.description,
+        });
+
+        if (!taskRef) continue;
+
+        await prisma.task.update({
+          where: { id: task.id },
+          data: { googleEventId: taskRef },
+        });
+        taskCount += 1;
+      }
     }
 
     if (meetingCount > 0 || taskCount > 0) {
@@ -1106,7 +1293,10 @@ export async function disconnectGCalendar(userId: string): Promise<void> {
           where: { id: oauthAccount.id },
           data: {
             scopes: oauthAccount.scopes.filter(
-              (s) => s !== CALENDAR_SCOPE && s !== CALENDAR_READONLY_SCOPE,
+              (s) =>
+                s !== CALENDAR_SCOPE &&
+                s !== CALENDAR_READONLY_SCOPE &&
+                s !== TASKS_SCOPE,
             ),
           },
         });
