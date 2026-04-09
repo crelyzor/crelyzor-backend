@@ -281,161 +281,172 @@ export const startWorker = async (): Promise<void> => {
 
   // Email Queue processor
   const emailQueue = getEmailQueue();
-  emailQueue.process(async (job) => {
-    logger.info(`Processing email job: ${job.name}`, { jobId: job.id });
-    
-    if (job.name === JobNames.BOOKING_REMINDER) {
-      const { bookingId } = job.data as BookingReminderJobData;
-      
-      const booking = await prisma.booking.findUnique({
-        where: { id: bookingId },
-        select: {
-          id: true,
-          status: true,
-          startTime: true,
-          endTime: true,
-          timezone: true,
-          guestName: true,
-          guestEmail: true,
-          userId: true,
-          eventType: { select: { title: true } },
-          meeting: { select: { meetLink: true, location: true, booking: { select: { eventType: { select: { meetingLink: true } } } } } }
-        }
-      });
+  emailQueue.process(JobNames.BOOKING_REMINDER, async (job) => {
+    const { bookingId } = job.data as BookingReminderJobData;
+    logger.info("Processing booking reminder email job", { jobId: job.id, bookingId });
 
-      if (!booking || booking.status !== "CONFIRMED") {
-        logger.info("Booking reminder skipped: not found or not confirmed", { bookingId });
-        return { skipped: true };
-      }
-
-      const host = await prisma.user.findUnique({
-        where: { id: booking.userId },
-        select: {
-          name: true,
-          email: true,
-          settings: { select: { emailNotificationsEnabled: true, bookingEmailsEnabled: true } }
-        }
-      });
-      
-      const emailsEnabled = 
-        (host?.settings?.emailNotificationsEnabled ?? true) &&
-        (host?.settings?.bookingEmailsEnabled ?? true);
-        
-      if (!emailsEnabled) {
-        return { skipped: true };
-      }
-
-      const meetingLink = booking.meeting?.booking?.eventType?.meetingLink ?? booking.meeting?.meetLink ?? booking.meeting?.location;
-
-      const sharedParams = {
-        eventTypeTitle: booking.eventType.title,
-        startTime: booking.startTime,
-        endTime: booking.endTime,
-        timezone: booking.timezone,
-        meetingLink,
-      };
-
-      await Promise.all([
-        host?.email ? sendEmail({
-          to: host.email,
-          subject: bookingReminderSubject({ eventTypeTitle: booking.eventType.title, otherPartyName: booking.guestName }),
-          html: bookingReminderEmail({
-            recipientName: host?.name ?? "Host",
-            otherPartyName: booking.guestName,
-            role: "host",
-            ...sharedParams
-          })
-        }) : Promise.resolve(),
-        sendEmail({
-          to: booking.guestEmail,
-          subject: bookingReminderSubject({ eventTypeTitle: booking.eventType.title, otherPartyName: host?.name ?? "Host" }),
-          html: bookingReminderEmail({
-            recipientName: booking.guestName,
-            otherPartyName: host?.name ?? "Host",
-            role: "guest",
-            ...sharedParams
-          })
-        })
-      ]);
-
-      return { success: true };
-    }
-
-    if (job.name === JobNames.DAILY_TASK_DIGEST) {
-      // Fetch users who have daily digest enabled
-      const users = await prisma.user.findMany({
-        where: {
-          isActive: true,
-          isDeleted: false,
-          settings: {
-            emailNotificationsEnabled: true,
-            dailyDigestEnabled: true
-          }
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        id: true,
+        status: true,
+        startTime: true,
+        endTime: true,
+        timezone: true,
+        guestName: true,
+        guestEmail: true,
+        userId: true,
+        eventType: { select: { title: true } },
+        meeting: {
+          select: {
+            meetLink: true,
+            location: true,
+            booking: { select: { eventType: { select: { meetingLink: true } } } },
+          },
         },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          timezone: true,
-          tasks: {
-            where: { isDeleted: false, status: { not: "DONE" } },
-            select: { title: true, priority: true, dueDate: true }
-          }
-        }
-      });
+      },
+    });
 
-      logger.info(`Sending daily digest to \${users.length} users`);
-
-      for (const user of users) {
-        if (!user.email) continue;
-        
-        // Simple approach: grab current date in user timezone
-        const now = new Date();
-        const userNow = new Date(now.toLocaleString("en-US", { timeZone: user.timezone }));
-        userNow.setHours(0,0,0,0);
-        
-        const overdueTasks: any[] = [];
-        const todayTasks: any[] = [];
-
-        user.tasks.forEach(t => {
-          if (!t.dueDate) return;
-          const taskDate = new Date(t.dueDate);
-          const userTaskDate = new Date(taskDate.toLocaleString("en-US", { timeZone: user.timezone }));
-          userTaskDate.setHours(0,0,0,0);
-
-          const isOverdue = userTaskDate < userNow;
-          const isToday = userTaskDate.getTime() === userNow.getTime();
-
-          const digestTask = {
-            title: t.title,
-            priority: t.priority,
-            dueDate: t.dueDate,
-            isOverdue
-          };
-
-          if (isOverdue) overdueTasks.push(digestTask);
-          if (isToday) todayTasks.push(digestTask);
-        });
-
-        if (overdueTasks.length > 0 || todayTasks.length > 0) {
-          await sendEmail({
-            to: user.email,
-            subject: dailyDigestSubject({ overdueTasks, todayTasks }),
-            html: dailyDigestEmail({
-              userName: user.name,
-              overdueTasks,
-              todayTasks,
-              appBaseUrl: APP_BASE_URL
-            })
-          });
-        }
-      }
-
-      return { success: true, count: users.length };
+    if (!booking || booking.status !== "CONFIRMED") {
+      logger.info("Booking reminder skipped: not found or not confirmed", { bookingId });
+      return { skipped: true };
     }
 
-    logger.warn(`Unknown email job type: \${job.name}`);
-    return { skipped: true, reason: "unknown job name" };
+    const host = await prisma.user.findUnique({
+      where: { id: booking.userId },
+      select: {
+        name: true,
+        email: true,
+        settings: { select: { emailNotificationsEnabled: true, bookingEmailsEnabled: true } },
+      },
+    });
+
+    const emailsEnabled =
+      (host?.settings?.emailNotificationsEnabled ?? true) &&
+      (host?.settings?.bookingEmailsEnabled ?? true);
+
+    if (!emailsEnabled) {
+      return { skipped: true };
+    }
+
+    const meetingLink =
+      booking.meeting?.booking?.eventType?.meetingLink ??
+      booking.meeting?.meetLink ??
+      booking.meeting?.location;
+
+    const sharedParams = {
+      eventTypeTitle: booking.eventType.title,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+      timezone: booking.timezone,
+      meetingLink,
+    };
+
+    await Promise.all([
+      host?.email
+        ? sendEmail({
+            to: host.email,
+            subject: bookingReminderSubject({
+              eventTypeTitle: booking.eventType.title,
+              otherPartyName: booking.guestName,
+            }),
+            html: bookingReminderEmail({
+              recipientName: host?.name ?? "Host",
+              otherPartyName: booking.guestName,
+              role: "host",
+              ...sharedParams,
+            }),
+          })
+        : Promise.resolve(),
+      sendEmail({
+        to: booking.guestEmail,
+        subject: bookingReminderSubject({
+          eventTypeTitle: booking.eventType.title,
+          otherPartyName: host?.name ?? "Host",
+        }),
+        html: bookingReminderEmail({
+          recipientName: booking.guestName,
+          otherPartyName: host?.name ?? "Host",
+          role: "guest",
+          ...sharedParams,
+        }),
+      }),
+    ]);
+
+    return { success: true };
+  });
+
+  emailQueue.process(JobNames.DAILY_TASK_DIGEST, async (job) => {
+    logger.info("Processing daily task digest email job", { jobId: job.id });
+
+    const users = await prisma.user.findMany({
+      where: {
+        isActive: true,
+        isDeleted: false,
+        settings: {
+          emailNotificationsEnabled: true,
+          dailyDigestEnabled: true,
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        timezone: true,
+        tasks: {
+          where: { isDeleted: false, status: { not: "DONE" } },
+          select: { title: true, priority: true, dueDate: true },
+        },
+      },
+    });
+
+    logger.info(`Sending daily digest to ${users.length} users`);
+
+    for (const user of users) {
+      if (!user.email) continue;
+
+      const now = new Date();
+      const userNow = new Date(now.toLocaleString("en-US", { timeZone: user.timezone }));
+      userNow.setHours(0, 0, 0, 0);
+
+      const overdueTasks: any[] = [];
+      const todayTasks: any[] = [];
+
+      user.tasks.forEach((task) => {
+        if (!task.dueDate) return;
+        const taskDate = new Date(task.dueDate);
+        const userTaskDate = new Date(taskDate.toLocaleString("en-US", { timeZone: user.timezone }));
+        userTaskDate.setHours(0, 0, 0, 0);
+
+        const isOverdue = userTaskDate < userNow;
+        const isToday = userTaskDate.getTime() === userNow.getTime();
+
+        const digestTask = {
+          title: task.title,
+          priority: task.priority,
+          dueDate: task.dueDate,
+          isOverdue,
+        };
+
+        if (isOverdue) overdueTasks.push(digestTask);
+        if (isToday) todayTasks.push(digestTask);
+      });
+
+      if (overdueTasks.length > 0 || todayTasks.length > 0) {
+        await sendEmail({
+          to: user.email,
+          subject: dailyDigestSubject({ overdueTasks, todayTasks }),
+          html: dailyDigestEmail({
+            userName: user.name,
+            overdueTasks,
+            todayTasks,
+            appBaseUrl: APP_BASE_URL,
+          }),
+        });
+      }
+    }
+
+    return { success: true, count: users.length };
   });
 
   // Schedule daily task digest cron job (08:00 UTC every day)
