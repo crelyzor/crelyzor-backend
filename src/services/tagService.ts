@@ -18,21 +18,72 @@ const TAG_SELECT = {
 // ────────────────────────────────────────────────────────────
 
 export async function listTags(userId: string) {
-  return prisma.tag.findMany({
-    where: { userId, isDeleted: false },
-    select: {
-      ...TAG_SELECT,
-      _count: {
-        select: {
-          meetingTags: true,
-          cardTags: true,
-          taskTags: true,
-          contactTags: true,
+  const [tags, meetingCounts, cardCounts, taskCounts, contactCounts] =
+    await Promise.all([
+      prisma.tag.findMany({
+        where: { userId, isDeleted: false },
+        select: TAG_SELECT,
+        orderBy: { name: "asc" },
+      }),
+      prisma.meetingTag.groupBy({
+        by: ["tagId"],
+        where: {
+          tag: { userId, isDeleted: false },
+          meeting: { createdById: userId, isDeleted: false },
         },
-      },
+        _count: { _all: true },
+      }),
+      prisma.cardTag.groupBy({
+        by: ["tagId"],
+        where: {
+          tag: { userId, isDeleted: false },
+          card: { userId, isDeleted: false },
+        },
+        _count: { _all: true },
+      }),
+      prisma.taskTag.groupBy({
+        by: ["tagId"],
+        where: {
+          tag: { userId, isDeleted: false },
+          task: { userId, isDeleted: false },
+        },
+        _count: { _all: true },
+      }),
+      prisma.contactTag.groupBy({
+        by: ["tagId"],
+        where: {
+          tag: { userId, isDeleted: false },
+          contact: {
+            userId,
+            card: { userId, isDeleted: false },
+          },
+        },
+        _count: { _all: true },
+      }),
+    ]);
+
+  const meetingCountsByTag = new Map(
+    meetingCounts.map((row) => [row.tagId, row._count._all]),
+  );
+  const cardCountsByTag = new Map(
+    cardCounts.map((row) => [row.tagId, row._count._all]),
+  );
+  const taskCountsByTag = new Map(
+    taskCounts.map((row) => [row.tagId, row._count._all]),
+  );
+  const contactCountsByTag = new Map(
+    contactCounts.map((row) => [row.tagId, row._count._all]),
+  );
+
+  return tags.map((tag) => ({
+    ...tag,
+    _count: {
+      meetingTags: meetingCountsByTag.get(tag.id) ?? 0,
+      cardTags: cardCountsByTag.get(tag.id) ?? 0,
+      taskTags: taskCountsByTag.get(tag.id) ?? 0,
+      contactTags: contactCountsByTag.get(tag.id) ?? 0,
     },
-    orderBy: { name: "asc" },
-  });
+  }));
 }
 
 export async function createTag(userId: string, data: CreateTagInput) {
@@ -148,7 +199,10 @@ export async function getTagItems(userId: string, tagId: string) {
       },
     }),
     prisma.contactTag.findMany({
-      where: { tagId, contact: { userId: userId } },
+      where: {
+        tagId,
+        contact: { userId, card: { userId, isDeleted: false } },
+      },
       select: {
         contact: {
           select: { id: true, name: true, email: true, company: true, cardId: true },
@@ -379,7 +433,14 @@ export async function getContactTags(userId: string, contactId: string) {
   await verifyContactOwnership(contactId, userId);
 
   const rows = await prisma.contactTag.findMany({
-    where: { contactId, tag: { isDeleted: false } },
+    where: {
+      contactId,
+      tag: { isDeleted: false },
+      contact: {
+        userId,
+        card: { userId, isDeleted: false },
+      },
+    },
     select: {
       createdAt: true,
       tag: { select: TAG_SELECT },
