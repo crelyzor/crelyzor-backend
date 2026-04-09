@@ -31,7 +31,12 @@ export const attachmentController = {
     if (!params.success) throw new AppError("Invalid meeting ID", 400);
 
     const body = addLinkSchema.safeParse(req.body);
-    if (!body.success) throw new AppError("Validation failed", 400);
+    if (!body.success) {
+      const firstIssue = body.error.issues[0];
+      const path = firstIssue?.path?.join(".");
+      const message = firstIssue?.message ?? "Validation failed";
+      throw new AppError(path ? `${path}: ${message}` : message, 400);
+    }
 
     const attachment = await attachmentService.addLink(
       params.data.meetingId,
