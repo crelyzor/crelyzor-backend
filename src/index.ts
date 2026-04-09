@@ -1,6 +1,5 @@
 import dotenv from "dotenv";
 dotenv.config();
-dotenv.config({ path: ".env.local", override: true });
 
 import app from "./app";
 import { logger } from "./utils/logging/logger";
