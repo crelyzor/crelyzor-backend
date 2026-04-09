@@ -272,6 +272,36 @@ export const cardController = {
     }
   },
 
+  importContacts: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) throw ErrorFactory.unauthorized();
+
+      const cardId = req.params.cardId as string;
+      if (!z.string().uuid().safeParse(cardId).success) {
+        throw ErrorFactory.validation("Invalid cardId");
+      }
+
+      if (!req.file?.buffer) {
+        throw ErrorFactory.validation("CSV file is required");
+      }
+
+      const result = await cardService.importContactsFromCsv(
+        userId,
+        cardId,
+        req.file.buffer,
+      );
+
+      apiResponse(res, {
+        statusCode: 200,
+        message: "Contacts imported successfully",
+        data: result,
+      });
+    } catch (err) {
+      globalErrorHandler(err as BaseError, req, res);
+    }
+  },
+
   // ========================================
   // ANALYTICS (authenticated)
   // ========================================

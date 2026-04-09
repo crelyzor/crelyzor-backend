@@ -12,6 +12,7 @@ import {
   updateGCalEventForMeeting,
   deleteCalendarEvent,
 } from "../googleCalendarService";
+import ICAL from "ical.js";
 import { getRecallBotQueue, JobNames } from "../../config/queue";
 import { env } from "../../config/environment";
 import { logger } from "../../utils/logging/logger";
@@ -701,5 +702,115 @@ export const meetingService = {
 
     // Remove from Google Calendar after DB is committed. Fail-open.
     await deleteCalendarEvent(userId, meeting.googleEventId);
+  },
+
+  async importMeetingsFromIcs(userId: string, fileBuffer: Buffer) {
+    const raw = fileBuffer.toString("utf-8");
+
+    let events: ICAL.Component[] = [];
+    try {
+      const parsed = ICAL.parse(raw);
+      const root = new ICAL.Component(parsed);
+      events = root.getAllSubcomponents("vevent");
+    } catch {
+      throw ErrorFactory.validation("Invalid ICS file");
+    }
+
+    if (events.length === 0) {
+      throw ErrorFactory.validation("No calendar events found in ICS file");
+    }
+
+    let created = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (const component of events) {
+      try {
+        const event = new ICAL.Event(component);
+        const uid = event.uid?.trim();
+        const startTime = event.startDate?.toJSDate();
+
+        if (!startTime) {
+          skipped += 1;
+          errors.push("Skipped event with missing start time");
+          continue;
+        }
+
+        const parsedEnd = event.endDate?.toJSDate();
+        const endTime =
+          parsedEnd && parsedEnd > startTime
+            ? parsedEnd
+            : new Date(startTime.getTime() + 30 * 60 * 1000);
+
+        if (uid) {
+          const existing = await prisma.meeting.findFirst({
+            where: {
+              createdById: userId,
+              googleEventId: uid,
+              isDeleted: false,
+            },
+            select: { id: true },
+          });
+
+          if (existing) {
+            skipped += 1;
+            continue;
+          }
+        }
+
+        const title = event.summary?.trim() || "Imported meeting";
+        const description = event.description?.trim() || undefined;
+        const location = event.location?.trim() || undefined;
+        const timezone = event.startDate?.zone?.tzid || "UTC";
+
+        await prisma.$transaction(
+          async (tx) => {
+            const meeting = await tx.meeting.create({
+              data: {
+                title,
+                description,
+                type: MeetingType.SCHEDULED,
+                startTime,
+                endTime,
+                timezone,
+                status: MeetingStatus.CREATED,
+                location,
+                createdById: userId,
+                ...(uid ? { googleEventId: uid } : {}),
+              },
+            });
+
+            await tx.meetingParticipant.create({
+              data: {
+                meetingId: meeting.id,
+                userId,
+                participantType: "ORGANIZER",
+              },
+            });
+          },
+          { timeout: 15000 },
+        );
+
+        created += 1;
+      } catch (error) {
+        skipped += 1;
+        const message =
+          error instanceof Error ? error.message : "Failed to import event";
+        errors.push(message);
+      }
+    }
+
+    logger.info("ICS import completed", {
+      userId,
+      created,
+      skipped,
+      total: events.length,
+    });
+
+    return {
+      created,
+      skipped,
+      errors: errors.slice(0, 50),
+    };
   },
 };

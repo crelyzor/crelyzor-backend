@@ -198,6 +198,13 @@ export class MeetingController {
                   avatarUrl: true,
                 },
               },
+              card: {
+                select: {
+                  id: true,
+                  displayName: true,
+                  slug: true,
+                },
+              },
             },
           },
           createdBy: {
@@ -240,6 +247,29 @@ export class MeetingController {
       apiResponse(res, {
         statusCode: 200,
         message: "Meeting deleted successfully",
+      });
+    } catch (error) {
+      globalErrorHandler(error as Error, req, res);
+    }
+  }
+
+  async importIcs(req: Request, res: Response): Promise<void> {
+    try {
+      const user = req.user as TokenPayload;
+
+      if (!req.file?.buffer) {
+        throw ErrorFactory.validation("ICS file is required");
+      }
+
+      const result = await meetingService.importMeetingsFromIcs(
+        user.userId,
+        req.file.buffer,
+      );
+
+      apiResponse(res, {
+        statusCode: 200,
+        message: "ICS import completed",
+        data: result,
       });
     } catch (error) {
       globalErrorHandler(error as Error, req, res);

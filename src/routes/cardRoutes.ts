@@ -2,6 +2,7 @@ import { Router } from "express";
 import { verifyJWT } from "../middleware/authMiddleware";
 import { cardController } from "../controllers/cardController";
 import * as tagController from "../controllers/tagController";
+import { singleImportUpload } from "../middleware/importUploadMiddleware";
 
 const cardRouter = Router();
 
@@ -72,6 +73,11 @@ cardRouter.get("/contacts/all", (req, res) =>
 /** GET /api/v1/cards/contacts/export — Export contacts as CSV */
 cardRouter.get("/contacts/export", (req, res) =>
   cardController.exportContacts(req, res),
+);
+
+/** POST /api/v1/cards/:cardId/contacts/import — Import contacts from CSV */
+cardRouter.post("/:cardId/contacts/import", singleImportUpload, (req, res) =>
+  cardController.importContacts(req, res),
 );
 
 /** PATCH /api/v1/cards/contacts/:contactId/tags — Update contact tags */
