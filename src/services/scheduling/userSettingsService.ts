@@ -3,6 +3,7 @@ import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
 import { env } from "../../config/environment";
 import type { PatchUserSettingsInput } from "../../validators/userSettingsSchema";
+import { backfillGoogleCalendarWrites } from "../googleCalendarService";
 
 const SETTINGS_SELECT = {
   id: true,
@@ -132,6 +133,10 @@ export async function updateUserSettings(
     data,
     select: SETTINGS_SELECT,
   });
+
+  if (updated.googleCalendarSyncEnabled) {
+    await backfillGoogleCalendarWrites(userId);
+  }
 
   logger.info("UserSettings updated", { userId });
   return toClientSettings(updated);

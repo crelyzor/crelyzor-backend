@@ -204,6 +204,21 @@ export const createTask = async (req: Request, res: Response) => {
     data: { meetingId, userId, title, description, dueDate, scheduledTime, priority, source: "MANUAL", ...(durationMinutes !== undefined && { durationMinutes }) },
   });
 
+  if (task.scheduledTime) {
+    const eventId = await createTaskBlock(userId, {
+      title: task.title,
+      scheduledTime: task.scheduledTime,
+      durationMinutes: task.durationMinutes ?? 30,
+    });
+
+    if (eventId) {
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { googleEventId: eventId },
+      });
+    }
+  }
+
   logger.info("Task created", { taskId: task.id, meetingId, userId });
 
   return apiResponse(res, { statusCode: 201, message: "Task created", data: { task } });
@@ -264,6 +279,21 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
       ...(durationMinutes !== undefined && { durationMinutes }),
     },
   });
+
+  if (task.scheduledTime) {
+    const eventId = await createTaskBlock(userId, {
+      title: task.title,
+      scheduledTime: task.scheduledTime,
+      durationMinutes: task.durationMinutes ?? 30,
+    });
+
+    if (eventId) {
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { googleEventId: eventId },
+      });
+    }
+  }
 
   logger.info("Standalone task created", { taskId: task.id, userId });
 
@@ -359,38 +389,39 @@ export const updateTask = async (req: Request, res: Response) => {
 
   // ── GCal block side-effects (fail-open — never block the task update) ────────
 
+  const finalScheduledTime =
+    scheduledTime !== undefined ? scheduledTime : existing.scheduledTime;
+  const finalDuration =
+    durationMinutes !== undefined && durationMinutes !== null
+      ? durationMinutes
+      : (existing.durationMinutes ?? 30);
+  const finalTitle = title !== undefined ? title : existing.title;
+
   if (clearingScheduledTime) {
     // scheduledTime cleared → delete existing GCal block
     await deleteCalendarEvent(userId, existing.googleEventId);
-  } else if (blockInCalendar === true) {
-    // Request to create/replace a GCal block
-    const finalScheduledTime =
-      scheduledTime !== undefined ? scheduledTime : existing.scheduledTime;
+  } else if (
+    finalScheduledTime &&
+    (blockInCalendar === true || blockInCalendar === undefined || !!existing.googleEventId)
+  ) {
+    // Request to create/replace a GCal block, or auto-sync a scheduled task.
+    // Delete existing block first (replace semantics) so time/duration edits are reflected.
+    if (existing.googleEventId) {
+      await deleteCalendarEvent(userId, existing.googleEventId);
+    }
 
-    if (finalScheduledTime) {
-      // Delete existing block first (replace semantics)
-      if (existing.googleEventId) {
-        await deleteCalendarEvent(userId, existing.googleEventId);
-      }
-      const finalDuration =
-        durationMinutes !== undefined && durationMinutes !== null
-          ? durationMinutes
-          : (existing.durationMinutes ?? 30);
-      const finalTitle = title !== undefined ? title : existing.title;
+    const eventId = await createTaskBlock(userId, {
+      title: finalTitle,
+      scheduledTime: finalScheduledTime,
+      durationMinutes: finalDuration,
+    });
 
-      const eventId = await createTaskBlock(userId, {
-        title: finalTitle,
-        scheduledTime: finalScheduledTime,
-        durationMinutes: finalDuration,
+    if (eventId) {
+      task = await prisma.task.update({
+        where: { id: taskId },
+        data: { googleEventId: eventId },
       });
-
-      if (eventId) {
-        task = await prisma.task.update({
-          where: { id: taskId },
-          data: { googleEventId: eventId },
-        });
-        logger.info("Task GCal block created", { taskId, userId, eventId });
-      }
+      logger.info("Task GCal block created", { taskId, userId, eventId });
     }
   } else if (blockInCalendar === false && existing.googleEventId) {
     // Request to remove the GCal block without clearing scheduledTime

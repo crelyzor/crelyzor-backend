@@ -206,7 +206,7 @@ export const meetingService = {
     // Create Google Calendar event for SCHEDULED meetings when requested.
     // Includes conference data to generate a Meet URL in a single API call.
     // Fail-open: GCal failure never prevents the meeting from being created.
-    if (data.addToCalendar === true && isScheduled) {
+    if (isScheduled && data.addToCalendar !== false) {
       try {
         const gcalResult = await createGCalEventForMeeting(createdById, {
           title: meeting.title,
@@ -278,6 +278,7 @@ export const meetingService = {
       location?: string;
       participantUserIds?: string[];
       notes?: string;
+      addToCalendar?: boolean;
     },
   ): Promise<Meeting> {
     const meeting = await prisma.meeting.findFirst({
@@ -453,6 +454,30 @@ export const meetingService = {
         location: data.location,
         description: data.description,
       });
+    } else if (meeting.status === MeetingStatus.CREATED && data.addToCalendar !== false) {
+      try {
+        const gcalResult = await createGCalEventForMeeting(updatedByUserId, {
+          title: updatedMeeting.title,
+          startTime: newStartTime,
+          endTime: newEndTime,
+          timezone: data.timezone ?? meeting.timezone,
+          location: data.location,
+          description: data.description,
+          requestMeetLink: true,
+        });
+
+        if (gcalResult) {
+          await prisma.meeting.update({
+            where: { id: meetingId },
+            data: {
+              googleEventId: gcalResult.googleEventId,
+              ...(gcalResult.meetLink ? { meetLink: gcalResult.meetLink } : {}),
+            },
+          });
+        }
+      } catch {
+        // fail-open — meeting update already committed
+      }
     }
 
     return updatedMeeting;

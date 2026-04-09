@@ -610,6 +610,118 @@ export async function createTaskBlock(
   }
 }
 
+/**
+ * Backfills existing Crelyzor meetings and tasks into Google Calendar.
+ *
+ * This is idempotent because it only processes rows without googleEventId.
+ * It is used when Google sync is enabled or when the connection status is
+ * checked, so users don't need to edit each item manually to backfill.
+ */
+export async function backfillGoogleCalendarWrites(userId: string): Promise<void> {
+  try {
+    const settings = await prisma.userSettings.findUnique({
+      where: { userId },
+      select: { googleCalendarSyncEnabled: true, googleCalendarEmail: true },
+    });
+
+    if (!settings?.googleCalendarSyncEnabled || !settings.googleCalendarEmail) {
+      return;
+    }
+
+    const meetings = await prisma.meeting.findMany({
+      where: {
+        createdById: userId,
+        isDeleted: false,
+        type: "SCHEDULED",
+        status: { not: "CANCELLED" },
+        googleEventId: null,
+      },
+      select: {
+        id: true,
+        title: true,
+        startTime: true,
+        endTime: true,
+        timezone: true,
+        location: true,
+        description: true,
+      },
+      orderBy: { startTime: "asc" },
+    });
+
+    const tasks = await prisma.task.findMany({
+      where: {
+        userId,
+        isDeleted: false,
+        googleEventId: null,
+        scheduledTime: { not: null },
+      },
+      select: {
+        id: true,
+        title: true,
+        scheduledTime: true,
+        durationMinutes: true,
+      },
+      orderBy: { scheduledTime: "asc" },
+    });
+
+    let meetingCount = 0;
+    for (const meeting of meetings) {
+      const gcalResult = await createGCalEventForMeeting(userId, {
+        title: meeting.title,
+        startTime: meeting.startTime,
+        endTime: meeting.endTime,
+        timezone: meeting.timezone,
+        location: meeting.location,
+        description: meeting.description,
+        requestMeetLink: true,
+      });
+
+      if (!gcalResult) continue;
+
+      await prisma.meeting.update({
+        where: { id: meeting.id },
+        data: {
+          googleEventId: gcalResult.googleEventId,
+          ...(gcalResult.meetLink ? { meetLink: gcalResult.meetLink } : {}),
+        },
+      });
+      meetingCount += 1;
+    }
+
+    let taskCount = 0;
+    for (const task of tasks) {
+      if (!task.scheduledTime) continue;
+
+      const eventId = await createTaskBlock(userId, {
+        title: task.title,
+        scheduledTime: task.scheduledTime,
+        durationMinutes: task.durationMinutes ?? 30,
+      });
+
+      if (!eventId) continue;
+
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { googleEventId: eventId },
+      });
+      taskCount += 1;
+    }
+
+    if (meetingCount > 0 || taskCount > 0) {
+      logger.info("Google Calendar backfill completed", {
+        userId,
+        meetingCount,
+        taskCount,
+      });
+    }
+  } catch (err) {
+    logger.warn("Google Calendar backfill failed — fail-open", {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 // ── GCal events feed (for dashboard timeline) ─────────────────────────────────
 
 export interface CalendarEvent {
@@ -631,6 +743,162 @@ interface CalendarEventRaw {
   location?: string;
   meetLink?: string;
   source: "GOOGLE";
+}
+
+function normalizeNullableString(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/**
+ * Pull-sync inbound Google changes for meetings that are linked via googleEventId.
+ *
+ * Two-way sync contract:
+ * - Crelyzor writes update Google Calendar immediately (existing behavior).
+ * - On every timeline fetch, we also ingest Google-side edits/cancellations for
+ *   the same linked events so external calendar edits are reflected in Crelyzor.
+ *
+ * This is intentionally fail-open and best-effort:
+ * failures are logged, never thrown, and never block calendar loading.
+ */
+async function syncLinkedMeetingsFromGoogle(
+  userId: string,
+  items: Array<import("googleapis").calendar_v3.Schema$Event>,
+): Promise<void> {
+  try {
+    const activeById = new Map<string, import("googleapis").calendar_v3.Schema$Event>();
+    const cancelledIds = new Set<string>();
+
+    for (const item of items) {
+      if (!item.id) continue;
+
+      if (item.status === "cancelled") {
+        cancelledIds.add(item.id);
+        continue;
+      }
+
+      if (!item.start?.dateTime || !item.end?.dateTime) continue;
+      activeById.set(item.id, item);
+    }
+
+    const relevantIds = [...new Set([...activeById.keys(), ...cancelledIds])];
+    if (relevantIds.length === 0) return;
+
+    const linkedMeetings = await prisma.meeting.findMany({
+      where: {
+        createdById: userId,
+        isDeleted: false,
+        type: { not: "VOICE_NOTE" },
+        googleEventId: { in: relevantIds },
+      },
+      select: {
+        id: true,
+        googleEventId: true,
+        title: true,
+        startTime: true,
+        endTime: true,
+        location: true,
+        meetLink: true,
+        status: true,
+      },
+    });
+
+    if (linkedMeetings.length === 0) return;
+
+    let updatedCount = 0;
+    let cancelledCount = 0;
+
+    await Promise.all(
+      linkedMeetings.map(async (meeting) => {
+        const eventId = meeting.googleEventId;
+        if (!eventId) return;
+
+        if (cancelledIds.has(eventId)) {
+          if (meeting.status !== "CANCELLED") {
+            await prisma.meeting.update({
+              where: { id: meeting.id },
+              data: { status: "CANCELLED" },
+            });
+            cancelledCount += 1;
+          }
+          return;
+        }
+
+        const event = activeById.get(eventId);
+        if (!event) return;
+
+        const data: {
+          title?: string;
+          startTime?: Date;
+          endTime?: Date;
+          location?: string | null;
+          meetLink?: string | null;
+          status?: "CREATED";
+        } = {};
+
+        const nextTitle = normalizeNullableString(event.summary);
+        if (nextTitle && nextTitle !== meeting.title) {
+          data.title = nextTitle;
+        }
+
+        if (event.start?.dateTime) {
+          const nextStart = new Date(event.start.dateTime);
+          if (nextStart.getTime() !== meeting.startTime.getTime()) {
+            data.startTime = nextStart;
+          }
+        }
+
+        if (event.end?.dateTime) {
+          const nextEnd = new Date(event.end.dateTime);
+          if (nextEnd.getTime() !== meeting.endTime.getTime()) {
+            data.endTime = nextEnd;
+          }
+        }
+
+        const nextLocation = normalizeNullableString(event.location);
+        const currentLocation = normalizeNullableString(meeting.location);
+        if (nextLocation !== currentLocation) {
+          data.location = nextLocation;
+        }
+
+        const nextMeetLink = normalizeNullableString(
+          event.hangoutLink ??
+            event.conferenceData?.entryPoints?.find(
+              (entry) => entry.entryPointType === "video",
+            )?.uri,
+        );
+        const currentMeetLink = normalizeNullableString(meeting.meetLink);
+        if (nextMeetLink !== currentMeetLink) {
+          data.meetLink = nextMeetLink;
+        }
+
+        if (meeting.status === "CANCELLED") {
+          data.status = "CREATED";
+        }
+
+        if (Object.keys(data).length === 0) return;
+
+        await prisma.meeting.update({
+          where: { id: meeting.id },
+          data,
+        });
+        updatedCount += 1;
+      }),
+    );
+
+    if (updatedCount > 0 || cancelledCount > 0) {
+      logger.info("Inbound Google Calendar sync applied", {
+        userId,
+        updatedCount,
+        cancelledCount,
+      });
+    }
+  } catch (err) {
+    logger.warn("Inbound Google Calendar sync failed — fail-open", {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /**
@@ -680,10 +948,14 @@ export async function fetchGCalEvents(
       timeMax: end.toISOString(),
       singleEvents: true,
       orderBy: "startTime",
+      showDeleted: true,
     });
 
+    // Two-way pull-sync: ingest Google-side edits/cancellations for linked meetings.
+    await syncLinkedMeetingsFromGoogle(userId, res.data.items ?? []);
+
     const events: CalendarEvent[] = (res.data.items ?? [])
-      .filter((e) => e.id && e.start?.dateTime && e.end?.dateTime)
+      .filter((e) => e.id && e.status !== "cancelled" && e.start?.dateTime && e.end?.dateTime)
       .map((e) => ({
         id: e.id!,
         title: e.summary ?? "",
@@ -737,11 +1009,17 @@ export async function getGCalConnectionStatus(
       (s) => s === CALENDAR_SCOPE || s === CALENDAR_READONLY_SCOPE,
     ) ?? false;
 
-  return {
+  const status = {
     connected: hasCalendarScope && !!settings?.googleCalendarEmail,
     email: settings?.googleCalendarEmail ?? null,
     syncEnabled: settings?.googleCalendarSyncEnabled ?? false,
   };
+
+  if (status.connected && status.syncEnabled) {
+    await backfillGoogleCalendarWrites(userId);
+  }
+
+  return status;
 }
 
 /**
