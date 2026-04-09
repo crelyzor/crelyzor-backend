@@ -186,6 +186,7 @@ export interface CreateGCalEventParams {
   timezone: string;
   location?: string | null;
   description?: string | null;
+  attendees?: Array<{ email: string; displayName?: string }>;
   requestMeetLink?: boolean;
 }
 
@@ -228,6 +229,9 @@ export async function createGCalEventForMeeting(
       requestBody: {
         summary: params.title,
         ...(params.description ? { description: params.description } : {}),
+        ...(params.attendees && params.attendees.length > 0
+          ? { attendees: params.attendees }
+          : {}),
         start: {
           dateTime: params.startTime.toISOString(),
           timeZone: params.timezone,
@@ -644,6 +648,12 @@ export async function backfillGoogleCalendarWrites(userId: string): Promise<void
         timezone: true,
         location: true,
         description: true,
+        participants: {
+          select: {
+            userId: true,
+            user: { select: { email: true, name: true } },
+          },
+        },
       },
       orderBy: { startTime: "asc" },
     });
@@ -673,6 +683,13 @@ export async function backfillGoogleCalendarWrites(userId: string): Promise<void
         timezone: meeting.timezone,
         location: meeting.location,
         description: meeting.description,
+        attendees: meeting.participants
+          .filter((participant) => participant.userId !== userId)
+          .map((participant) => ({
+            email: participant.user.email,
+            displayName: participant.user.name,
+          }))
+          .filter((participant) => !!participant.email),
         requestMeetLink: true,
       });
 

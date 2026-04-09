@@ -203,6 +203,18 @@ export const meetingService = {
       throw ErrorFactory.validation("Failed to create meeting");
     }
 
+    const attendeeEmails = meeting.participants.reduce<
+      Array<{ email: string; displayName?: string }>
+    >((acc, participant) => {
+      if (participant.userId === createdById) return acc;
+      if (!participant.user?.email) return acc;
+      acc.push({
+        email: participant.user.email,
+        ...(participant.user.name ? { displayName: participant.user.name } : {}),
+      });
+      return acc;
+    }, []);
+
     // Create Google Calendar event for SCHEDULED meetings when requested.
     // Includes conference data to generate a Meet URL in a single API call.
     // Fail-open: GCal failure never prevents the meeting from being created.
@@ -215,6 +227,7 @@ export const meetingService = {
           timezone: meeting.timezone,
           location: meeting.location,
           description: meeting.description,
+          attendees: attendeeEmails,
           requestMeetLink: true,
         });
         if (gcalResult) {
