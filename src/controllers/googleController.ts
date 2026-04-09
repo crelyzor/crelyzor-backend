@@ -9,17 +9,16 @@ import { authService } from "../services/auth/authService";
 import { logger } from "../utils/logging/logger";
 import prisma from "../db/prismaClient";
 
-const ALLOWED_REDIRECT_ORIGINS = (
-  process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174"
-)
-  .split(",")
-  .map((o) => o.trim())
-  .filter(Boolean);
-
 function isAllowedRedirectUrl(url: string): boolean {
+  const allowed = (
+    process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174"
+  )
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
   try {
     const { origin } = new URL(url);
-    return ALLOWED_REDIRECT_ORIGINS.includes(origin);
+    return allowed.includes(origin);
   } catch {
     return false;
   }
