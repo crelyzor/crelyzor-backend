@@ -72,9 +72,9 @@ export const regenerateSummary = async (req: Request, res: Response) => {
     );
   }
 
-  // Run sequentially to avoid concurrent upsert race on meetingAISummary row
-  await aiService.generateSummary(meetingId, transcript.fullText);
-  await aiService.extractKeyPoints(meetingId, transcript.fullText);
+  await aiService.generateSummaryAndKeyPoints(meetingId, transcript.fullText, {
+    requireKeyPoints: true,
+  });
 
   const updatedSummary = await prisma.meetingAISummary.findFirst({
     where: { meetingId, isDeleted: false },
