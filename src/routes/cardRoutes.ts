@@ -27,22 +27,6 @@ cardRouter.post("/", (req, res) => cardController.createCard(req, res));
 /** GET /api/v1/cards — Get all user's cards */
 cardRouter.get("/", (req, res) => cardController.getUserCards(req, res));
 
-/** GET /api/v1/cards/:cardId — Get a single card */
-cardRouter.get("/:cardId", (req, res) => cardController.getCardById(req, res));
-
-/** PATCH /api/v1/cards/:cardId — Update a card */
-cardRouter.patch("/:cardId", (req, res) => cardController.updateCard(req, res));
-
-/** DELETE /api/v1/cards/:cardId — Delete a card */
-cardRouter.delete("/:cardId", (req, res) =>
-  cardController.deleteCard(req, res),
-);
-
-/** POST /api/v1/cards/:cardId/duplicate — Duplicate a card */
-cardRouter.post("/:cardId/duplicate", (req, res) =>
-  cardController.duplicateCard(req, res),
-);
-
 // ========================================
 // LINKED ENTITIES
 // ========================================
@@ -88,6 +72,22 @@ cardRouter.patch("/contacts/:contactId/tags", (req, res) =>
 /** DELETE /api/v1/cards/contacts/:contactId — Delete a contact */
 cardRouter.delete("/contacts/:contactId", (req, res) =>
   cardController.deleteContact(req, res),
+);
+
+/** GET /api/v1/cards/:cardId — Get a single card */
+cardRouter.get("/:cardId", (req, res) => cardController.getCardById(req, res));
+
+/** PATCH /api/v1/cards/:cardId — Update a card */
+cardRouter.patch("/:cardId", (req, res) => cardController.updateCard(req, res));
+
+/** DELETE /api/v1/cards/:cardId — Delete a card */
+cardRouter.delete("/:cardId", (req, res) =>
+  cardController.deleteCard(req, res),
+);
+
+/** POST /api/v1/cards/:cardId/duplicate — Duplicate a card */
+cardRouter.post("/:cardId/duplicate", (req, res) =>
+  cardController.duplicateCard(req, res),
 );
 
 // ────────────────────────────────────────────────────────────
