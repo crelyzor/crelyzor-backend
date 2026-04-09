@@ -225,25 +225,6 @@ const deriveKeyPointsFromSummary = (summary: string): string[] => {
     .slice(0, 6);
 };
 
-const deriveTasksFromTranscript = (transcriptText: string): ExtractedTask[] => {
-  const sentences = transcriptText
-    .replace(/\s+/g, " ")
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const candidateSentences = sentences.filter((s) =>
-    /(will|going to|need to|must|should|plan to|todo|to do|next step)/i.test(s),
-  );
-
-  return candidateSentences.slice(0, 5).map((sentence) => ({
-    title:
-      sentence.length > 90
-        ? `${sentence.slice(0, 87).trim()}...`
-        : sentence,
-    description: "Derived from short voice-note transcript.",
-  }));
-};
 
 /**
  * Generate summary + key points in one model call to reduce transcript re-send cost.
@@ -441,17 +422,6 @@ Return ONLY a JSON array, no other text.`;
     description: item.description,
     assigneeHint: item.assigneeHint,
   }));
-
-  if (tasks.length === 0) {
-    const fallbackTasks = deriveTasksFromTranscript(capped);
-    if (fallbackTasks.length > 0) {
-      tasks.push(...fallbackTasks);
-      logger.info("Derived fallback tasks from transcript", {
-        meetingId,
-        count: fallbackTasks.length,
-      });
-    }
-  }
 
   // Save tasks to database in a single transaction
   if (tasks.length > 0) {
