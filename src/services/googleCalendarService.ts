@@ -651,6 +651,7 @@ export async function backfillGoogleCalendarWrites(userId: string): Promise<void
         participants: {
           select: {
             userId: true,
+            guestEmail: true,
             user: { select: { email: true, name: true } },
           },
         },
@@ -685,11 +686,22 @@ export async function backfillGoogleCalendarWrites(userId: string): Promise<void
         description: meeting.description,
         attendees: meeting.participants
           .filter((participant) => participant.userId !== userId)
-          .map((participant) => ({
-            email: participant.user.email,
-            displayName: participant.user.name,
-          }))
-          .filter((participant) => !!participant.email),
+          .map((participant) => {
+            if (participant.guestEmail) {
+              return { email: participant.guestEmail };
+            }
+            if (participant.user?.email) {
+              return {
+                email: participant.user.email,
+                displayName: participant.user?.name,
+              };
+            }
+            return null;
+          })
+          .filter((attendee) => attendee !== null && !!attendee.email) as Array<{
+          email: string;
+          displayName?: string;
+        }>,
         requestMeetLink: true,
       });
 

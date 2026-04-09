@@ -60,6 +60,7 @@ export interface CreateMeetingDTO {
   timezone: string;
   location?: string;
   participantUserIds?: string[];
+  guestEmails?: string[];
   notes?: string;
   addToCalendar?: boolean;
 }
@@ -87,8 +88,11 @@ export const meetingService = {
       timezone,
       location,
       participantUserIds,
+      guestEmails,
       notes,
     } = data;
+
+    const normalizedGuestEmails = [...new Set((guestEmails ?? []).map((email) => email.toLowerCase()))];
 
     const isScheduled = type === MeetingType.SCHEDULED;
 
@@ -189,6 +193,17 @@ export const meetingService = {
               })),
             });
           }
+
+          // Add guest participants (external emails)
+          if (normalizedGuestEmails.length > 0) {
+            await tx.meetingParticipant.createMany({
+              data: normalizedGuestEmails.map((email) => ({
+                meetingId: newMeeting.id,
+                guestEmail: email,
+                participantType: "ATTENDEE" as const,
+              })),
+            });
+          }
         }
 
         return tx.meeting.findUnique({
@@ -203,7 +218,16 @@ export const meetingService = {
       throw ErrorFactory.validation("Failed to create meeting");
     }
 
-    const attendeeEmails = meeting.participants.reduce<
+    const committedMeeting = await prisma.meeting.findUnique({
+      where: { id: meeting.id },
+      include: meetingInclude,
+    });
+
+    if (!committedMeeting) {
+      throw ErrorFactory.validation("Failed to load created meeting");
+    }
+
+    const attendeeEmails = committedMeeting.participants.reduce<
       Array<{ email: string; displayName?: string }>
     >((acc, participant) => {
       if (participant.userId === createdById) return acc;
@@ -215,24 +239,31 @@ export const meetingService = {
       return acc;
     }, []);
 
+    const attendeeSet = new Set(attendeeEmails.map((attendee) => attendee.email.toLowerCase()));
+    for (const guestEmail of normalizedGuestEmails) {
+      if (attendeeSet.has(guestEmail)) continue;
+      attendeeEmails.push({ email: guestEmail });
+      attendeeSet.add(guestEmail);
+    }
+
     // Create Google Calendar event for SCHEDULED meetings when requested.
     // Includes conference data to generate a Meet URL in a single API call.
     // Fail-open: GCal failure never prevents the meeting from being created.
     if (isScheduled && data.addToCalendar !== false) {
       try {
         const gcalResult = await createGCalEventForMeeting(createdById, {
-          title: meeting.title,
-          startTime: meeting.startTime,
-          endTime: meeting.endTime,
-          timezone: meeting.timezone,
-          location: meeting.location,
-          description: meeting.description,
+          title: committedMeeting.title,
+          startTime: committedMeeting.startTime,
+          endTime: committedMeeting.endTime,
+          timezone: committedMeeting.timezone,
+          location: committedMeeting.location,
+          description: committedMeeting.description,
           attendees: attendeeEmails,
           requestMeetLink: true,
         });
         if (gcalResult) {
           return await prisma.meeting.update({
-            where: { id: meeting.id },
+            where: { id: committedMeeting.id },
             data: {
               googleEventId: gcalResult.googleEventId,
               ...(gcalResult.meetLink ? { meetLink: gcalResult.meetLink } : {}),
@@ -248,7 +279,7 @@ export const meetingService = {
     // Recall bot — queue deploy for SCHEDULED meetings with a video link.
     // Fail-open: bot deploy failure never blocks meeting creation.
     if (isScheduled && env.RECALL_API_KEY) {
-      const videoLink = meeting.meetLink ?? meeting.location;
+      const videoLink = committedMeeting.meetLink ?? committedMeeting.location;
       if (videoLink && isVideoMeetingUrl(videoLink)) {
         try {
           const settings = await prisma.userSettings.findUnique({
@@ -257,16 +288,16 @@ export const meetingService = {
           });
 
           if (settings?.recallEnabled) {
-            const deployAt = meeting.startTime.getTime() - 5 * 60 * 1000;
+            const deployAt = committedMeeting.startTime.getTime() - 5 * 60 * 1000;
             const delay = Math.max(0, deployAt - Date.now());
 
             await getRecallBotQueue().add(
               JobNames.DEPLOY_RECALL_BOT,
-              { meetingId: meeting.id, hostUserId: createdById },
+              { meetingId: committedMeeting.id, hostUserId: createdById },
               { delay },
             );
             logger.info("Recall bot deployment queued for manual meeting", {
-              meetingId: meeting.id,
+              meetingId: committedMeeting.id,
               delayMs: delay,
             });
           }
@@ -276,7 +307,7 @@ export const meetingService = {
       }
     }
 
-    return meeting;
+    return committedMeeting;
   },
 
   async updateMeeting(
@@ -336,12 +367,12 @@ export const meetingService = {
       }
 
       const otherParticipants = meeting.participants.filter(
-        (p) => p.userId !== meeting.createdById,
+        (p) => p.userId !== meeting.createdById && p.userId !== null,
       );
       const participantConflictResults = await Promise.all(
         otherParticipants.map((p) =>
           this.detectConflicts({
-            userId: p.userId,
+            userId: p.userId!,
             startTime: newStartTime,
             endTime: newEndTime,
             excludeMeetingId: meetingId,
@@ -390,8 +421,8 @@ export const meetingService = {
 
         if (data.participantUserIds) {
           const currentParticipantIds = meeting.participants
-            .filter((p) => p.userId !== meeting.createdById)
-            .map((p) => p.userId);
+            .filter((p) => p.userId !== meeting.createdById && p.userId !== null)
+            .map((p) => p.userId!);
 
           const toRemove = currentParticipantIds.filter(
             (id) => !data.participantUserIds!.includes(id),

@@ -196,17 +196,19 @@ model Meeting {
 model MeetingParticipant {
   id              String          @id @default(uuid()) @db.Uuid
   meetingId       String          @db.Uuid
-  userId          String          @db.Uuid
+  userId          String?         @db.Uuid
+  guestEmail      String?         // For external (non-Crelyzor) participants
   participantType ParticipantType
   joinedAt        DateTime?
   cardId          String?         @db.Uuid
 
   meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id])
+  user    User?   @relation(fields: [userId], references: [id])
   card    Card?   @relation(fields: [cardId], references: [id])
 
-  @@unique([meetingId, userId])
+  @@unique([meetingId, userId, guestEmail])
   @@index([userId])
+  @@index([guestEmail])
   @@index([meetingId])
   @@index([cardId])
 }
