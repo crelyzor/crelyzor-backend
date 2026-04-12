@@ -94,6 +94,15 @@ export async function cancelBot(botId: string): Promise<void> {
       return;
     }
 
+    // Some bot states cannot receive leave commands and return method/status errors.
+    // In these cases we continue with delete fallback for scheduled bots or no-op.
+    if (leaveRes.status === 404 || leaveRes.status === 405) {
+      logger.info("Recall.ai bot leave_call skipped due to non-actionable status", {
+        status: leaveRes.status,
+        botId,
+      });
+    }
+
     let leaveBodyCode: string | undefined;
     try {
       const leaveBody = (await leaveRes.json()) as { code?: string };
@@ -102,7 +111,7 @@ export async function cancelBot(botId: string): Promise<void> {
       // ignore JSON parse errors and fall through to error handling
     }
 
-    if (leaveBodyCode === "cannot_command_unstarted_bot") {
+    if (leaveBodyCode === "cannot_command_unstarted_bot" || leaveRes.status === 404 || leaveRes.status === 405) {
       const deleteRes = await fetch(`${RECALL_API_BASE}/bot/${botId}/`, {
         method: "DELETE",
         headers: {
@@ -111,6 +120,16 @@ export async function cancelBot(botId: string): Promise<void> {
       });
 
       if (deleteRes.ok) {
+        return;
+      }
+
+      // Bot may already be completed/not deletable depending on Recall state machine.
+      // Treat as non-fatal so meeting reschedule flow can continue cleanly.
+      if (deleteRes.status === 404 || deleteRes.status === 405) {
+        logger.info("Recall.ai bot delete skipped due to terminal/non-deletable state", {
+          status: deleteRes.status,
+          botId,
+        });
         return;
       }
 
