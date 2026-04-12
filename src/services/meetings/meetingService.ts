@@ -12,6 +12,7 @@ import {
   updateGCalEventForMeeting,
   deleteCalendarEvent,
 } from "../googleCalendarService";
+import { cancelBot } from "../recall/recallService";
 import ICAL from "ical.js";
 import { getRecallBotQueue, JobNames } from "../../config/queue";
 import { env } from "../../config/environment";
@@ -526,39 +527,72 @@ export const meetingService = {
       }
     }
 
-    // Recall bot — queue deploy for SCHEDULED meetings with a video link.
-    // If the bot was already deployed, recallBotId will be set and we skip.
-    // Fail-open: bot deploy failure never blocks the meeting update response.
-    if (
-      meeting.status === MeetingStatus.CREATED &&
-      env.RECALL_API_KEY &&
-      !updatedMeeting.recallBotId
-    ) {
-      const videoLink = updatedMeeting.meetLink ?? updatedMeeting.location;
-      if (videoLink && isVideoMeetingUrl(videoLink)) {
-        try {
-          const settings = await prisma.userSettings.findUnique({
-            where: { userId: updatedByUserId },
-            select: { recallEnabled: true },
-          });
+    // Recall bot rescheduling for edited meetings.
+    // If start time or meeting link changes, clear old queue/bot and queue fresh deploy.
+    const shouldRescheduleRecall =
+      data.startTime !== undefined || data.location !== undefined;
 
-          if (settings?.recallEnabled) {
-            const deployAt = updatedMeeting.startTime.getTime() - 5 * 60 * 1000;
-            const delay = Math.max(0, deployAt - Date.now());
+    if (meeting.status === MeetingStatus.CREATED && env.RECALL_API_KEY && shouldRescheduleRecall) {
+      try {
+        await removePendingRecallDeployJob(updatedMeeting.id);
 
-            await getRecallBotQueue().add(
-              JobNames.DEPLOY_RECALL_BOT,
-              { meetingId: updatedMeeting.id, hostUserId: updatedByUserId },
-              { delay, jobId: `recall-bot-${updatedMeeting.id}` },
-            );
-            logger.info("Recall bot deployment queued for updated meeting", {
-              meetingId: updatedMeeting.id,
-              delayMs: delay,
+        const latestMeeting = await prisma.meeting.findUnique({
+          where: { id: updatedMeeting.id },
+          select: {
+            id: true,
+            startTime: true,
+            meetLink: true,
+            location: true,
+            recallBotId: true,
+          },
+        });
+
+        if (!latestMeeting) {
+          return updatedMeeting;
+        }
+
+        if (latestMeeting.recallBotId) {
+          try {
+            await cancelBot(latestMeeting.recallBotId);
+          } catch (err) {
+            logger.warn("Failed to cancel existing Recall bot during meeting edit", {
+              meetingId: latestMeeting.id,
+              botId: latestMeeting.recallBotId,
+              error: err instanceof Error ? err.message : String(err),
             });
           }
-        } catch {
-          // fail-open — meeting update already committed
+
+          await prisma.meeting.update({
+            where: { id: latestMeeting.id },
+            data: { recallBotId: null },
+          });
         }
+
+        const settings = await prisma.userSettings.findUnique({
+          where: { userId: updatedByUserId },
+          select: { recallEnabled: true },
+        });
+
+        const videoLink = latestMeeting.meetLink ?? latestMeeting.location;
+        if (settings?.recallEnabled && videoLink && isVideoMeetingUrl(videoLink)) {
+          const deployAt = latestMeeting.startTime.getTime() - 5 * 60 * 1000;
+          const delay = Math.max(0, deployAt - Date.now());
+
+          await getRecallBotQueue().add(
+            JobNames.DEPLOY_RECALL_BOT,
+            { meetingId: latestMeeting.id, hostUserId: updatedByUserId },
+            { delay, jobId: `recall-bot-${latestMeeting.id}` },
+          );
+          logger.info("Recall bot deployment re-queued for edited meeting", {
+            meetingId: latestMeeting.id,
+            delayMs: delay,
+          });
+        }
+      } catch (err) {
+        logger.warn("Recall bot reschedule on meeting edit failed (fail-open)", {
+          meetingId: updatedMeeting.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
@@ -921,3 +955,19 @@ export const meetingService = {
     };
   },
 };
+
+async function removePendingRecallDeployJob(meetingId: string): Promise<void> {
+  const jobId = `recall-bot-${meetingId}`;
+  const queue = getRecallBotQueue();
+  const existingJob = await queue.getJob(jobId);
+
+  if (!existingJob) {
+    return;
+  }
+
+  const state = await existingJob.getState();
+  if (state === "waiting" || state === "delayed" || state === "paused") {
+    await existingJob.remove();
+    logger.info("Removed existing pending Recall bot deploy job", { meetingId, jobId, state });
+  }
+}

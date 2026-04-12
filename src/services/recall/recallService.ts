@@ -73,6 +73,71 @@ export async function deployBot(
 }
 
 /**
+ * Cancels a Recall.ai bot.
+ * Tries leave_call first (works for active bots), then falls back to delete
+ * for scheduled/unstarted bots.
+ */
+export async function cancelBot(botId: string): Promise<void> {
+  const apiKey = getRecallApiKey();
+
+  try {
+    const leaveRes = await fetch(`${RECALL_API_BASE}/bot/${botId}/leave_call/`, {
+      method: "POST",
+      headers: {
+        Authorization: `Token ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (leaveRes.ok) {
+      return;
+    }
+
+    let leaveBodyCode: string | undefined;
+    try {
+      const leaveBody = (await leaveRes.json()) as { code?: string };
+      leaveBodyCode = leaveBody.code;
+    } catch {
+      // ignore JSON parse errors and fall through to error handling
+    }
+
+    if (leaveBodyCode === "cannot_command_unstarted_bot") {
+      const deleteRes = await fetch(`${RECALL_API_BASE}/bot/${botId}/`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Token ${apiKey}`,
+        },
+      });
+
+      if (deleteRes.ok) {
+        return;
+      }
+
+      logger.error("Recall.ai scheduled bot delete failed", {
+        status: deleteRes.status,
+        botId,
+      });
+      throw new AppError("Failed to cancel scheduled Recall.ai bot", 502);
+    }
+
+    logger.error("Recall.ai bot leave_call failed", {
+      status: leaveRes.status,
+      botId,
+      code: leaveBodyCode,
+    });
+    throw new AppError("Failed to cancel Recall.ai bot", 502);
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    logger.error("Recall.ai cancelBot network error", {
+      error: err instanceof Error ? err.message : String(err),
+      botId,
+    });
+    throw new AppError("Failed to reach Recall.ai API", 502);
+  }
+}
+
+/**
  * Fetches the audio/video download URL for a completed Recall.ai bot recording.
  * Reads RECALL_API_KEY from environment (platform-level key).
  *

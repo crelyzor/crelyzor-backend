@@ -21,30 +21,74 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
   // 1. HMAC signature verification — fail fast before any DB work
   const webhookSecret = process.env.RECALL_WEBHOOK_SECRET;
   if (webhookSecret) {
-    const signature = req.headers["x-recallai-signature"] as string | undefined;
+    const standardWebhookId = req.headers["webhook-id"] as string | undefined;
+    const standardWebhookSignature = req.headers["webhook-signature"] as string | undefined;
+    const standardWebhookTimestamp = req.headers["webhook-timestamp"] as string | undefined;
+
+    const hasStandardHeaders =
+      !!standardWebhookId && !!standardWebhookSignature && !!standardWebhookTimestamp;
+
+    if (hasStandardHeaders) {
+      if (!req.rawBody) {
+        logger.warn("Recall webhook rejected: rawBody not captured");
+        return res.status(400).json({ error: "Could not verify request" });
+      }
+
+      const trusted = verifyStandardWebhookSignature(
+        standardWebhookId,
+        standardWebhookTimestamp,
+        standardWebhookSignature,
+        req.rawBody.toString("utf8"),
+        webhookSecret,
+      );
+
+      if (!trusted) {
+        logger.warn("Recall webhook rejected: invalid standard webhook signature");
+        return res.status(401).json({ error: "Invalid signature" });
+      }
+    } else {
+    const signatureHeader =
+      (req.headers["x-recallai-signature"] as string | undefined) ??
+      (req.headers["x-recall-signature"] as string | undefined) ??
+      (req.headers["x-recall-signature-256"] as string | undefined) ??
+      (req.headers["recall-signature"] as string | undefined);
+
+    const signature = extractHexSignature(signatureHeader);
     if (!signature) {
-      logger.warn("Recall webhook rejected: missing signature header");
-      return res.status(401).json({ error: "Missing signature" });
+      if (process.env.NODE_ENV === "production") {
+        logger.warn("Recall webhook rejected: missing signature header");
+        return res.status(401).json({ error: "Missing signature" });
+      }
+
+      logger.warn("Recall webhook missing signature header — skipping verification in non-production", {
+        headerKeys: Object.keys(req.headers || {}),
+      });
+    } else {
+      if (!req.rawBody) {
+        logger.warn("Recall webhook rejected: rawBody not captured");
+        return res.status(400).json({ error: "Could not verify request" });
+      }
+
+      const expected = crypto
+        .createHmac("sha256", webhookSecret)
+        .update(req.rawBody)
+        .digest("hex");
+
+      if (signature.length !== expected.length) {
+        logger.warn("Recall webhook rejected: invalid signature length");
+        return res.status(401).json({ error: "Invalid signature" });
+      }
+
+      const trusted = crypto.timingSafeEqual(
+        Buffer.from(signature, "hex"),
+        Buffer.from(expected, "hex"),
+      );
+
+      if (!trusted) {
+        logger.warn("Recall webhook rejected: invalid signature");
+        return res.status(401).json({ error: "Invalid signature" });
+      }
     }
-
-    if (!req.rawBody) {
-      logger.warn("Recall webhook rejected: rawBody not captured");
-      return res.status(400).json({ error: "Could not verify request" });
-    }
-
-    const expected = crypto
-      .createHmac("sha256", webhookSecret)
-      .update(req.rawBody)
-      .digest("hex");
-
-    const trusted = crypto.timingSafeEqual(
-      Buffer.from(signature, "hex"),
-      Buffer.from(expected, "hex"),
-    );
-
-    if (!trusted) {
-      logger.warn("Recall webhook rejected: invalid signature");
-      return res.status(401).json({ error: "Invalid signature" });
     }
   }
 
@@ -56,8 +100,13 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
   }
 
   const { event, data } = parsed.data;
-  const botId = data.bot_id;
-  const statusCode = data.status?.code;
+  const botId = data.bot_id ?? data.bot?.id;
+  const statusCode = data.status?.code ?? data.data?.code ?? inferStatusFromEvent(event);
+
+  if (!botId) {
+    logger.warn("Recall webhook rejected: missing bot identifier", { event, body: req.body });
+    return res.status(400).json({ error: "Missing bot id" });
+  }
 
   logger.info("Recall webhook received", { event, botId, statusCode });
 
@@ -93,12 +142,91 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
   }
 
   // 5. Dispatch on event + status
-  if (event === "bot.status_change" && statusCode) {
+  if (statusCode) {
     await handleStatusChange(meeting.id, statusCode, meeting.createdById, botId);
   }
 
   return apiResponse(res, { statusCode: 200, message: "OK" });
 };
+
+function extractHexSignature(signatureHeader?: string): string | undefined {
+  if (!signatureHeader) return undefined;
+
+  // Accept either raw hex signature or kv formats like: t=...,v1=<hex>
+  const v1Match = signatureHeader.match(/(?:^|,)\s*v1=([a-fA-F0-9]+)\s*(?:,|$)/);
+  if (v1Match?.[1]) return v1Match[1].toLowerCase();
+
+  const cleaned = signatureHeader.replace(/^sha256=/i, "").trim();
+  if (/^[a-fA-F0-9]+$/.test(cleaned)) return cleaned.toLowerCase();
+
+  return undefined;
+}
+
+function inferStatusFromEvent(event: string): string | undefined {
+  switch (event) {
+    case "bot.done":
+      return "done";
+    case "bot.call_ended":
+      return "call_ended";
+    case "bot.fatal_error":
+      return "fatal_error";
+    default:
+      return undefined;
+  }
+}
+
+function verifyStandardWebhookSignature(
+  webhookId: string,
+  webhookTimestamp: string,
+  webhookSignatureHeader: string,
+  rawPayload: string,
+  webhookSecret: string,
+): boolean {
+  // Standard Webhooks / Svix style: signed payload is "{id}.{timestamp}.{rawBody}".
+  const signedContent = `${webhookId}.${webhookTimestamp}.${rawPayload}`;
+
+  // Recall-style secret is usually prefixed with "whsec_" and base64-encoded after the prefix.
+  const encodedSecret = webhookSecret.startsWith("whsec_")
+    ? webhookSecret.slice("whsec_".length)
+    : webhookSecret;
+
+  let secretBuffer: Buffer;
+  try {
+    secretBuffer = Buffer.from(encodedSecret, "base64");
+  } catch {
+    return false;
+  }
+
+  if (!secretBuffer.length) {
+    return false;
+  }
+
+  const expectedBase64 = crypto
+    .createHmac("sha256", secretBuffer)
+    .update(signedContent)
+    .digest("base64");
+
+  const signatures = webhookSignatureHeader
+    .split(" ")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const [, value] = part.split(",", 2);
+      return value?.trim();
+    })
+    .filter((value): value is string => !!value);
+
+  return signatures.some((candidate) => {
+    const candidateBuf = Buffer.from(candidate);
+    const expectedBuf = Buffer.from(expectedBase64);
+
+    if (candidateBuf.length !== expectedBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(candidateBuf, expectedBuf);
+  });
+}
 
 // Wrap the webhook handler in a top-level try/catch so unhandled errors
 // still return HTTP 200 to Recall.ai (preventing infinite retries).
