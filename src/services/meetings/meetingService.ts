@@ -534,7 +534,7 @@ export const meetingService = {
 
     if (meeting.status === MeetingStatus.CREATED && env.RECALL_API_KEY && shouldRescheduleRecall) {
       try {
-        await removePendingRecallDeployJob(updatedMeeting.id);
+        await removeExistingRecallDeployJobs(updatedMeeting.id);
 
         const latestMeeting = await prisma.meeting.findUnique({
           where: { id: updatedMeeting.id },
@@ -581,7 +581,7 @@ export const meetingService = {
           await getRecallBotQueue().add(
             JobNames.DEPLOY_RECALL_BOT,
             { meetingId: latestMeeting.id, hostUserId: updatedByUserId },
-            { delay, jobId: `recall-bot-${latestMeeting.id}` },
+            { delay, jobId: `recall-bot-${latestMeeting.id}-${Date.now()}` },
           );
           logger.info("Recall bot deployment re-queued for edited meeting", {
             meetingId: latestMeeting.id,
@@ -956,18 +956,27 @@ export const meetingService = {
   },
 };
 
-async function removePendingRecallDeployJob(meetingId: string): Promise<void> {
-  const jobId = `recall-bot-${meetingId}`;
+async function removeExistingRecallDeployJobs(meetingId: string): Promise<void> {
   const queue = getRecallBotQueue();
-  const existingJob = await queue.getJob(jobId);
+  const jobs = await queue.getJobs([
+    "waiting",
+    "delayed",
+    "paused",
+    "completed",
+    "failed",
+  ]);
 
-  if (!existingJob) {
-    return;
-  }
+  const prefix = `recall-bot-${meetingId}`;
+  for (const job of jobs) {
+    const currentJobId = job.id ? String(job.id) : "";
+    if (!currentJobId.startsWith(prefix)) {
+      continue;
+    }
 
-  const state = await existingJob.getState();
-  if (state === "waiting" || state === "delayed" || state === "paused") {
-    await existingJob.remove();
-    logger.info("Removed existing pending Recall bot deploy job", { meetingId, jobId, state });
+    await job.remove();
+    logger.info("Removed existing Recall bot deploy job before reschedule", {
+      meetingId,
+      jobId: currentJobId,
+    });
   }
 }
