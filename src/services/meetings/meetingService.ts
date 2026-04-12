@@ -218,7 +218,7 @@ export const meetingService = {
       throw ErrorFactory.validation("Failed to create meeting");
     }
 
-    const committedMeeting = await prisma.meeting.findUnique({
+    let committedMeeting = await prisma.meeting.findUnique({
       where: { id: meeting.id },
       include: meetingInclude,
     });
@@ -262,7 +262,7 @@ export const meetingService = {
           requestMeetLink: true,
         });
         if (gcalResult) {
-          return await prisma.meeting.update({
+          const updatedMeeting = await prisma.meeting.update({
             where: { id: committedMeeting.id },
             data: {
               googleEventId: gcalResult.googleEventId,
@@ -270,6 +270,7 @@ export const meetingService = {
             },
             include: meetingInclude,
           });
+          committedMeeting = updatedMeeting;
         }
       } catch {
         // fail-open — meeting is already committed
@@ -294,7 +295,7 @@ export const meetingService = {
             await getRecallBotQueue().add(
               JobNames.DEPLOY_RECALL_BOT,
               { meetingId: committedMeeting.id, hostUserId: createdById },
-              { delay },
+              { delay, jobId: `recall-bot-${committedMeeting.id}` },
             );
             logger.info("Recall bot deployment queued for manual meeting", {
               meetingId: committedMeeting.id,
@@ -335,6 +336,7 @@ export const meetingService = {
         timezone: true,
         createdById: true,
         googleEventId: true,
+        recallBotId: true,
         participants: { select: { userId: true, participantType: true } },
       },
     });
@@ -521,6 +523,42 @@ export const meetingService = {
         }
       } catch {
         // fail-open — meeting update already committed
+      }
+    }
+
+    // Recall bot — queue deploy for SCHEDULED meetings with a video link.
+    // If the bot was already deployed, recallBotId will be set and we skip.
+    // Fail-open: bot deploy failure never blocks the meeting update response.
+    if (
+      meeting.status === MeetingStatus.CREATED &&
+      env.RECALL_API_KEY &&
+      !updatedMeeting.recallBotId
+    ) {
+      const videoLink = updatedMeeting.meetLink ?? updatedMeeting.location;
+      if (videoLink && isVideoMeetingUrl(videoLink)) {
+        try {
+          const settings = await prisma.userSettings.findUnique({
+            where: { userId: updatedByUserId },
+            select: { recallEnabled: true },
+          });
+
+          if (settings?.recallEnabled) {
+            const deployAt = updatedMeeting.startTime.getTime() - 5 * 60 * 1000;
+            const delay = Math.max(0, deployAt - Date.now());
+
+            await getRecallBotQueue().add(
+              JobNames.DEPLOY_RECALL_BOT,
+              { meetingId: updatedMeeting.id, hostUserId: updatedByUserId },
+              { delay, jobId: `recall-bot-${updatedMeeting.id}` },
+            );
+            logger.info("Recall bot deployment queued for updated meeting", {
+              meetingId: updatedMeeting.id,
+              delayMs: delay,
+            });
+          }
+        } catch {
+          // fail-open — meeting update already committed
+        }
       }
     }
 

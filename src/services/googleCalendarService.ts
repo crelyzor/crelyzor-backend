@@ -16,6 +16,10 @@ export const CALENDAR_READONLY_SCOPE =
 export const TASKS_SCOPE = "https://www.googleapis.com/auth/tasks";
 const GOOGLE_TASK_REF_PREFIX = "gtask:";
 
+function hasCalendarWriteScope(scopes: string[] | undefined): boolean {
+  return scopes?.includes(CALENDAR_SCOPE) ?? false;
+}
+
 export function isGoogleTaskRef(value: string | null | undefined): boolean {
   return !!value && value.startsWith(GOOGLE_TASK_REF_PREFIX);
 }
@@ -1226,6 +1230,7 @@ export async function fetchGCalEvents(
 
 export interface GCalConnectionStatus {
   connected: boolean;
+  writable: boolean;
   email: string | null;
   syncEnabled: boolean;
 }
@@ -1253,14 +1258,16 @@ export async function getGCalConnectionStatus(
     oauthAccount?.scopes.some(
       (s) => s === CALENDAR_SCOPE || s === CALENDAR_READONLY_SCOPE,
     ) ?? false;
+  const writable = hasCalendarWriteScope(oauthAccount?.scopes);
 
   const status = {
     connected: hasCalendarScope && !!settings?.googleCalendarEmail,
+    writable,
     email: settings?.googleCalendarEmail ?? null,
     syncEnabled: settings?.googleCalendarSyncEnabled ?? false,
   };
 
-  if (status.connected && status.syncEnabled) {
+  if (status.connected && status.syncEnabled && status.writable) {
     await backfillGoogleCalendarWrites(userId);
   }
 
