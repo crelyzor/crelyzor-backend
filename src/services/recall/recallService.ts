@@ -180,14 +180,27 @@ export async function getRecordingUrl(botId: string): Promise<string> {
 
     const body = (await res.json()) as {
       video_url?: string;
-      recordings?: Array<{ media_shortcuts?: { video?: { url?: string } } }>;
+      recordings?: Array<{
+        url?: string;
+        media_shortcuts?: {
+          video?: { url?: string };
+          video_mixed?: { url?: string };
+        };
+      }>;
     };
 
     const url =
       body.video_url ??
-      body.recordings?.[0]?.media_shortcuts?.video?.url;
+      body.recordings?.[0]?.media_shortcuts?.video?.url ??
+      body.recordings?.[0]?.media_shortcuts?.video_mixed?.url ??
+      body.recordings?.[0]?.url;
 
     if (!url) {
+      logger.warn("Recall.ai recording URL not ready yet", {
+        botId,
+        hasVideoUrl: !!body.video_url,
+        recordingsCount: body.recordings?.length ?? 0,
+      });
       throw new AppError("Recall.ai recording URL not available", 502);
     }
 

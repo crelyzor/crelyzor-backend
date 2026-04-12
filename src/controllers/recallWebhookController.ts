@@ -143,7 +143,7 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
 
   // 5. Dispatch on event + status
   if (statusCode) {
-    await handleStatusChange(meeting.id, statusCode, meeting.createdById, botId);
+    await handleStatusChange(meeting.id, statusCode, meeting.createdById, botId, event);
   }
 
   return apiResponse(res, { statusCode: 200, message: "OK" });
@@ -252,8 +252,10 @@ async function handleStatusChange(
   statusCode: string,
   hostUserId: string,
   botId: string,
+  event: string,
 ) {
   switch (statusCode) {
+    case "joining_call":
     case "in_waiting_room":
     case "in_call_not_recording":
     case "in_call_recording":
@@ -261,20 +263,41 @@ async function handleStatusChange(
       logger.info("Recall bot active in meeting", { meetingId, statusCode });
       break;
 
+    case "processing":
+      logger.info("Recall recording still processing", { meetingId, botId, event });
+      break;
+
     case "done": {
-      // Bot has left and recording is available — queue download + transcription pipeline
+      // Mark as completed when Recall reports done states.
       await prisma.meeting.update({
         where: { id: meetingId },
         data: { status: MeetingStatus.COMPLETED },
       });
 
-      await getRecallRecordingQueue().add(
-        JobNames.FETCH_RECALL_RECORDING,
-        { botId, meetingId, hostUserId },
-        { jobId: `recall-recording-${meetingId}` },
-      );
+      // Queue fetch only when recording is actually reported done (or legacy status_change event).
+      const shouldQueueRecording =
+        event === "recording.done" || event === "bot.status_change";
 
-      logger.info("Meeting COMPLETED, Recall recording fetch queued", { meetingId, botId });
+      if (shouldQueueRecording) {
+        await getRecallRecordingQueue().add(
+          JobNames.FETCH_RECALL_RECORDING,
+          { botId, meetingId, hostUserId },
+          {
+            jobId: `recall-recording-${meetingId}`,
+            attempts: 8,
+            backoff: { type: "exponential", delay: 30000 },
+            delay: 90000, // Wait 90s before first attempt — Recall.ai needs time to make the URL available after recording.done
+          },
+        );
+
+        logger.info("Meeting COMPLETED, Recall recording fetch queued", { meetingId, botId, event });
+      } else {
+        logger.info("Meeting COMPLETED from Recall done event (recording fetch deferred)", {
+          meetingId,
+          botId,
+          event,
+        });
+      }
       break;
     }
 
