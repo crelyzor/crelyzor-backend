@@ -142,6 +142,24 @@ export async function confirmBooking(userId: string, bookingId: string) {
     data: { status: "CONFIRMED" },
   });
 
+  if (booking.meetingId) {
+    await prisma.meetingParticipant.createMany({
+      data: [
+        {
+          meetingId: booking.meetingId,
+          userId,
+          participantType: "ORGANIZER",
+        },
+        {
+          meetingId: booking.meetingId,
+          guestEmail: booking.guestEmail,
+          participantType: "ATTENDEE",
+        },
+      ],
+      skipDuplicates: true,
+    });
+  }
+
   logger.info("Booking confirmed", { bookingId, userId });
 
   // Auto-create "Prepare for [meeting]" task — fail-open (task failure must not affect booking)

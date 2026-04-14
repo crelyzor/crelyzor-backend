@@ -77,6 +77,29 @@ const BOOKING_SELECT = {
   guestNote: true,
 } as const;
 
+async function ensureBookingMeetingParticipants(
+  tx: Prisma.TransactionClient,
+  meetingId: string,
+  hostUserId: string,
+  guestEmail: string,
+) {
+  await tx.meetingParticipant.createMany({
+    data: [
+      {
+        meetingId,
+        userId: hostUserId,
+        participantType: "ORGANIZER",
+      },
+      {
+        meetingId,
+        guestEmail,
+        participantType: "ATTENDEE",
+      },
+    ],
+    skipDuplicates: true,
+  });
+}
+
 /**
  * Creates a PENDING booking for a guest.
  *
@@ -350,6 +373,13 @@ export async function createBooking(data: CreateBookingInput) {
           },
           select: { id: true },
         });
+
+        await ensureBookingMeetingParticipants(
+          tx,
+          meeting.id,
+          user.id,
+          data.guestEmail,
+        );
 
         // o. Create Booking with PENDING status
         const booking = await tx.booking.create({
