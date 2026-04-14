@@ -604,7 +604,12 @@ export const meetingService = {
 
     const meeting = await prisma.meeting.findFirst({
       where: { id: meetingId, createdById: requesterUserId, isDeleted: false },
-      select: { id: true, status: true, googleEventId: true },
+      select: {
+        id: true,
+        status: true,
+        googleEventId: true,
+        booking: { select: { id: true } },
+      },
     });
 
     if (!meeting) {
@@ -623,6 +628,17 @@ export const meetingService = {
           },
           include: meetingInclude,
         });
+
+        if (meeting.booking?.id) {
+          await tx.booking.update({
+            where: { id: meeting.booking.id },
+            data: {
+              status: "CANCELLED",
+              cancelReason: reason || "Meeting cancelled",
+              canceledAt: new Date(),
+            },
+          });
+        }
 
         await tx.meetingStateHistory.create({
           data: {
