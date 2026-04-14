@@ -156,17 +156,6 @@ export async function cancelBot(botId: string): Promise<void> {
   }
 }
 
-export interface RecallTranscriptSegment {
-  words: Array<{
-    text: string;
-    start_timestamp?: { relative: number } | null;
-    end_timestamp?: { relative: number } | null;
-  }>;
-  participant?: { id: number; name: string; is_host: boolean; email?: string | null };
-  start_timestamp?: { relative: number } | null;
-  end_timestamp?: { relative: number } | null;
-}
-
 /**
  * Fetches both the video download URL and the Recall recording ID from bot details.
  * Recording ID is needed to request async transcription via Recall's transcript API.
@@ -227,65 +216,6 @@ export async function getBotRecordingInfo(
     });
     throw new AppError("Failed to reach Recall.ai API", 502);
   }
-}
-
-/**
- * Requests async transcription from Recall.ai using Deepgram.
- * Recall fires a `transcript.done` webhook when complete.
- * The transcript segments will include participant names (unlike raw Deepgram diarization).
- */
-export async function requestTranscript(recallRecordingId: string): Promise<void> {
-  const apiKey = getRecallApiKey();
-
-  const res = await fetch(
-    `${RECALL_API_BASE}/recording/${recallRecordingId}/create_transcript/`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Token ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ provider: { deepgram_async: {} } }),
-    },
-  );
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new AppError(`Recall requestTranscript failed: ${res.status} ${body}`, 502);
-  }
-}
-
-/**
- * Fetches transcript segments from Recall.ai by transcript ID.
- * Each segment includes participant name attribution.
- *
- * @param transcriptId - from `transcript.done` webhook data.transcript.id
- */
-export async function fetchTranscriptSegments(
-  transcriptId: string,
-): Promise<RecallTranscriptSegment[]> {
-  const apiKey = getRecallApiKey();
-
-  const res = await fetch(`${RECALL_API_BASE}/transcript/${transcriptId}/`, {
-    headers: { Authorization: `Token ${apiKey}` },
-  });
-
-  if (!res.ok) {
-    throw new AppError(`Failed to fetch Recall transcript resource: ${res.status}`, 502);
-  }
-
-  const resource = (await res.json()) as { data?: { download_url?: string } };
-
-  if (!resource.data?.download_url) {
-    return [];
-  }
-
-  const segmentsRes = await fetch(resource.data.download_url);
-  if (!segmentsRes.ok) {
-    throw new AppError(`Failed to download Recall transcript segments: ${segmentsRes.status}`, 502);
-  }
-
-  return (await segmentsRes.json()) as RecallTranscriptSegment[];
 }
 
 /**
