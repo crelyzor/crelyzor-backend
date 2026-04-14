@@ -156,12 +156,141 @@ export async function cancelBot(botId: string): Promise<void> {
   }
 }
 
+export interface RecallTranscriptSegment {
+  words: Array<{
+    text: string;
+    start_timestamp?: { relative: number } | null;
+    end_timestamp?: { relative: number } | null;
+  }>;
+  participant?: { id: number; name: string; is_host: boolean; email?: string | null };
+  start_timestamp?: { relative: number } | null;
+  end_timestamp?: { relative: number } | null;
+}
+
+/**
+ * Fetches both the video download URL and the Recall recording ID from bot details.
+ * Recording ID is needed to request async transcription via Recall's transcript API.
+ */
+export async function getBotRecordingInfo(
+  botId: string,
+): Promise<{ url: string; recallRecordingId: string | null }> {
+  const apiKey = getRecallApiKey();
+
+  try {
+    const res = await fetch(`${RECALL_API_BASE}/bot/${botId}/`, {
+      headers: { Authorization: `Token ${apiKey}` },
+    });
+
+    if (!res.ok) {
+      logger.error("Recall.ai bot fetch failed", { status: res.status, botId });
+      throw new AppError("Failed to fetch Recall.ai bot recording", 502);
+    }
+
+    const body = (await res.json()) as {
+      video_url?: string;
+      recordings?: Array<{
+        id?: string;
+        url?: string;
+        media_shortcuts?: {
+          video?: { data?: { download_url?: string }; url?: string };
+          video_mixed?: { data?: { download_url?: string }; url?: string };
+        };
+      }>;
+    };
+
+    const url =
+      body.video_url ??
+      body.recordings?.[0]?.media_shortcuts?.video_mixed?.data?.download_url ??
+      body.recordings?.[0]?.media_shortcuts?.video?.data?.download_url ??
+      body.recordings?.[0]?.media_shortcuts?.video_mixed?.url ??
+      body.recordings?.[0]?.media_shortcuts?.video?.url ??
+      body.recordings?.[0]?.url;
+
+    const recallRecordingId = body.recordings?.[0]?.id ?? null;
+
+    if (!url) {
+      logger.warn("Recall.ai recording URL not ready yet", {
+        botId,
+        hasVideoUrl: !!body.video_url,
+        recordingsCount: body.recordings?.length ?? 0,
+        mediaShortcutKeys: Object.keys(body.recordings?.[0]?.media_shortcuts ?? {}),
+      });
+      throw new AppError("Recall.ai recording URL not available", 502);
+    }
+
+    return { url, recallRecordingId };
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    logger.error("Recall.ai getBotRecordingInfo network error", {
+      error: err instanceof Error ? err.message : String(err),
+      botId,
+    });
+    throw new AppError("Failed to reach Recall.ai API", 502);
+  }
+}
+
+/**
+ * Requests async transcription from Recall.ai using Deepgram.
+ * Recall fires a `transcript.done` webhook when complete.
+ * The transcript segments will include participant names (unlike raw Deepgram diarization).
+ */
+export async function requestTranscript(recallRecordingId: string): Promise<void> {
+  const apiKey = getRecallApiKey();
+
+  const res = await fetch(
+    `${RECALL_API_BASE}/recording/${recallRecordingId}/create_transcript/`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Token ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ provider: { deepgram_async: {} } }),
+    },
+  );
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new AppError(`Recall requestTranscript failed: ${res.status} ${body}`, 502);
+  }
+}
+
+/**
+ * Fetches transcript segments from Recall.ai by transcript ID.
+ * Each segment includes participant name attribution.
+ *
+ * @param transcriptId - from `transcript.done` webhook data.transcript.id
+ */
+export async function fetchTranscriptSegments(
+  transcriptId: string,
+): Promise<RecallTranscriptSegment[]> {
+  const apiKey = getRecallApiKey();
+
+  const res = await fetch(`${RECALL_API_BASE}/transcript/${transcriptId}/`, {
+    headers: { Authorization: `Token ${apiKey}` },
+  });
+
+  if (!res.ok) {
+    throw new AppError(`Failed to fetch Recall transcript resource: ${res.status}`, 502);
+  }
+
+  const resource = (await res.json()) as { data?: { download_url?: string } };
+
+  if (!resource.data?.download_url) {
+    return [];
+  }
+
+  const segmentsRes = await fetch(resource.data.download_url);
+  if (!segmentsRes.ok) {
+    throw new AppError(`Failed to download Recall transcript segments: ${segmentsRes.status}`, 502);
+  }
+
+  return (await segmentsRes.json()) as RecallTranscriptSegment[];
+}
+
 /**
  * Fetches the audio/video download URL for a completed Recall.ai bot recording.
- * Reads RECALL_API_KEY from environment (platform-level key).
- *
- * @returns The download URL for the recording
- * @throws AppError 502 if the recording is not available or the API call fails
+ * @deprecated Use getBotRecordingInfo() to also get the Recall recording ID.
  */
 export async function getRecordingUrl(botId: string): Promise<string> {
   const apiKey = getRecallApiKey();
@@ -183,16 +312,18 @@ export async function getRecordingUrl(botId: string): Promise<string> {
       recordings?: Array<{
         url?: string;
         media_shortcuts?: {
-          video?: { url?: string };
-          video_mixed?: { url?: string };
+          video?: { data?: { download_url?: string }; url?: string };
+          video_mixed?: { data?: { download_url?: string }; url?: string };
         };
       }>;
     };
 
     const url =
       body.video_url ??
-      body.recordings?.[0]?.media_shortcuts?.video?.url ??
+      body.recordings?.[0]?.media_shortcuts?.video_mixed?.data?.download_url ??
+      body.recordings?.[0]?.media_shortcuts?.video?.data?.download_url ??
       body.recordings?.[0]?.media_shortcuts?.video_mixed?.url ??
+      body.recordings?.[0]?.media_shortcuts?.video?.url ??
       body.recordings?.[0]?.url;
 
     if (!url) {
@@ -200,6 +331,7 @@ export async function getRecordingUrl(botId: string): Promise<string> {
         botId,
         hasVideoUrl: !!body.video_url,
         recordingsCount: body.recordings?.length ?? 0,
+        mediaShortcutKeys: Object.keys(body.recordings?.[0]?.media_shortcuts ?? {}),
       });
       throw new AppError("Recall.ai recording URL not available", 502);
     }

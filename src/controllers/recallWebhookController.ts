@@ -5,6 +5,7 @@ import { apiResponse } from "../utils/globalResponseHandler";
 import { logger } from "../utils/logging/logger";
 import { recallWebhookSchema } from "../validators/recallSchema";
 import { getRecallRecordingQueue, JobNames } from "../config/queue";
+import { fetchTranscriptSegments } from "../services/recall/recallService";
 import prisma from "../db/prismaClient";
 
 /**
@@ -142,7 +143,12 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
   }
 
   // 5. Dispatch on event + status
-  if (statusCode) {
+  if (event === "transcript.done") {
+    // Recall.ai sends transcript ID at data.transcript.id in transcript.done events
+    // `data` here is the inner data object (parsed.data.data via Zod destructuring)
+    const transcriptId = (data as Record<string, { id?: string } | undefined>).transcript?.id;
+    await handleTranscriptDone(meeting.id, transcriptId);
+  } else if (statusCode) {
     await handleStatusChange(meeting.id, statusCode, meeting.createdById, botId, event);
   }
 
@@ -274,9 +280,9 @@ async function handleStatusChange(
         data: { status: MeetingStatus.COMPLETED },
       });
 
-      // Queue fetch only when recording is actually reported done (or legacy status_change event).
+      // Queue fetch when recording is reported done, legacy status_change, or bot.done (current Recall.ai event).
       const shouldQueueRecording =
-        event === "recording.done" || event === "bot.status_change";
+        event === "recording.done" || event === "bot.status_change" || event === "bot.done";
 
       if (shouldQueueRecording) {
         await getRecallRecordingQueue().add(
@@ -292,7 +298,7 @@ async function handleStatusChange(
 
         logger.info("Meeting COMPLETED, Recall recording fetch queued", { meetingId, botId, event });
       } else {
-        logger.info("Meeting COMPLETED from Recall done event (recording fetch deferred)", {
+        logger.info("Meeting COMPLETED from Recall done event (recording fetch skipped — unexpected event type)", {
           meetingId,
           botId,
           event,
@@ -315,5 +321,113 @@ async function handleStatusChange(
 
     default:
       logger.info("Recall webhook: unhandled status code", { meetingId, statusCode });
+  }
+}
+
+/**
+ * Handles `transcript.done` webhook from Recall.ai.
+ *
+ * Recall's transcript segments have actual participant names (unlike Deepgram's
+ * numeric diarization). We map participant names onto the Deepgram speaker labels
+ * by computing time overlap between Recall segments and saved TranscriptSegments,
+ * then update MeetingSpeaker.displayName accordingly.
+ *
+ * Fail-open: speaker name enrichment is optional — errors are logged and swallowed.
+ */
+async function handleTranscriptDone(meetingId: string, transcriptId?: string): Promise<void> {
+  if (!transcriptId) {
+    logger.warn("transcript.done fired without transcriptId", { meetingId });
+    return;
+  }
+
+  try {
+    logger.info("Enriching speaker names from Recall transcript", { meetingId, transcriptId });
+
+    // Fetch Recall segments (participant-attributed)
+    const recallSegments = await fetchTranscriptSegments(transcriptId);
+
+    if (!recallSegments.length) {
+      logger.warn("Recall transcript.done but no segments returned", { meetingId, transcriptId });
+      return;
+    }
+
+    // Get Deepgram segments from DB
+    const dbTranscript = await prisma.meetingTranscript.findFirst({
+      where: { recording: { meetingId, isDeleted: false }, isDeleted: false },
+      include: { segments: true },
+    });
+
+    if (!dbTranscript?.segments.length) {
+      logger.warn("Recall transcript.done arrived before Deepgram — skipping name enrichment", {
+        meetingId,
+        transcriptId,
+      });
+      return;
+    }
+
+    // Build overlap scores: speakerLabel → participantName → totalOverlapSeconds
+    const scores = new Map<string, Map<string, number>>();
+
+    for (const recallSeg of recallSegments) {
+      const name = recallSeg.participant?.name;
+      if (!name || name === "Unknown" || name === "Unknown Speaker") continue;
+
+      const rStart = recallSeg.start_timestamp?.relative ?? 0;
+      const rEnd = recallSeg.end_timestamp?.relative ?? 0;
+      if (rEnd <= rStart) continue;
+
+      for (const dbSeg of dbTranscript.segments) {
+        const overlap = Math.min(rEnd, dbSeg.endTime) - Math.max(rStart, dbSeg.startTime);
+        if (overlap <= 0) continue;
+
+        if (!scores.has(dbSeg.speaker)) scores.set(dbSeg.speaker, new Map());
+        const nameMap = scores.get(dbSeg.speaker)!;
+        nameMap.set(name, (nameMap.get(name) ?? 0) + overlap);
+      }
+    }
+
+    // For each speaker label, pick the participant with the most overlapping time
+    const speakerToName = new Map<string, string>();
+    for (const [speakerLabel, nameMap] of scores) {
+      let bestName = "";
+      let bestScore = 0;
+      for (const [name, score] of nameMap) {
+        if (score > bestScore) {
+          bestScore = score;
+          bestName = name;
+        }
+      }
+      if (bestName) speakerToName.set(speakerLabel, bestName);
+    }
+
+    if (!speakerToName.size) {
+      logger.warn("Could not map any Deepgram speaker labels to Recall participant names", {
+        meetingId,
+        recallSegmentCount: recallSegments.length,
+        dbSegmentCount: dbTranscript.segments.length,
+      });
+      return;
+    }
+
+    // Update MeetingSpeaker displayNames
+    await Promise.all(
+      Array.from(speakerToName.entries()).map(([speakerLabel, displayName]) =>
+        prisma.meetingSpeaker.updateMany({
+          where: { meetingId, speakerLabel },
+          data: { displayName },
+        }),
+      ),
+    );
+
+    logger.info("Speaker names enriched from Recall transcript", {
+      meetingId,
+      mappings: Object.fromEntries(speakerToName),
+    });
+  } catch (err) {
+    logger.warn("handleTranscriptDone failed — fail-open", {
+      meetingId,
+      transcriptId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }

@@ -19,7 +19,7 @@ import { sendEmail } from "../services/email/emailService";
 import { meetingReadyEmail, meetingReadySubject } from "../services/email/templates/meetingReady";
 import { bookingReminderEmail, bookingReminderSubject } from "../services/email/templates/bookingReminder";
 import { dailyDigestEmail, dailyDigestSubject } from "../services/email/templates/dailyDigest";
-import { deployBot, getRecordingUrl } from "../services/recall/recallService";
+import { deployBot, getBotRecordingInfo, requestTranscript } from "../services/recall/recallService";
 import { gcsService } from "../services/gcs/gcsService";
 import { logger } from "../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
@@ -212,8 +212,8 @@ export const startWorker = async (): Promise<void> => {
     logger.info("Processing Recall recording fetch job", { meetingId: data.meetingId, botId: data.botId });
 
     try {
-      // Fetch recording download URL from Recall.ai (uses platform key from env)
-      const downloadUrl = await getRecordingUrl(data.botId);
+      // Fetch recording download URL and Recall recording ID from bot details
+      const { url: downloadUrl, recallRecordingId } = await getBotRecordingInfo(data.botId);
 
       // Download the recording bytes
       const response = await fetch(downloadUrl);
@@ -261,6 +261,18 @@ export const startWorker = async (): Promise<void> => {
         { recordingId: recording.id, meetingId: data.meetingId },
         { jobId: `transcribe-${recording.id}` },
       );
+
+      // Request Recall's own transcript (Deepgram async) — fires transcript.done webhook
+      // with participant-attributed segments. Fail-open: speaker names are enrichment only.
+      if (recallRecordingId) {
+        requestTranscript(recallRecordingId).catch((err) => {
+          logger.warn("Failed to request Recall transcript (fail-open)", {
+            meetingId: data.meetingId,
+            recallRecordingId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
 
       logger.info("Recall recording uploaded and transcription queued", {
         meetingId: data.meetingId,
