@@ -13,6 +13,7 @@ import settingsRouter from "./settingsRoutes";
 import schedulingRouter from "./schedulingRoutes";
 import publicSchedulingRouter from "./publicSchedulingRoutes";
 import publicBookingsRouter from "./publicBookingsRoutes";
+import billingRouter from "./billingRoutes";
 import integrationRouter from "./integrationRoutes";
 import searchRouter from "./searchRoutes";
 
@@ -72,6 +73,11 @@ indexRouter.use("/tags", tagRouter);
 // 🔗 INTEGRATION ROUTES
 // ========================================
 indexRouter.use("/integrations", integrationRouter);
+
+// ========================================
+// 💰 BILLING ROUTES
+// ========================================
+indexRouter.use("/billing", billingRouter);
 
 // ========================================
 // 🔍 SEARCH ROUTES

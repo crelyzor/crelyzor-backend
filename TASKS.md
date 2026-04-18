@@ -596,24 +596,26 @@ Full design: `docs/pricing-and-costs.md`
 
 ---
 
-### P4 — Billing Endpoints
+### P4 — Billing Endpoints ✅ Complete
 
-- [ ] `src/routes/billingRoutes.ts` — all under `verifyJWT`
-- [ ] `GET /billing/usage` — returns `{ plan, usage: { transcriptionMinutes, recallHours, aiCredits, storageGb }, limits, resetAt }`
-- [ ] `POST /billing/checkout` — **stub for now** (payment gateway deferred). Returns `{ message: "Payment gateway coming soon" }`. Plan upgrades done manually via DB.
-- [ ] `src/routes/webhookRoutes.ts`:
-  - `POST /webhooks/razorpay` — **stub handler** (wired but no-ops until gateway is live)
-- [ ] Add to `.env.example`: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_PRO_PLAN_ID` (commented out, for future use)
+- [x] `src/routes/billingRoutes.ts` — all under `verifyJWT`
+- [x] `GET /billing/usage` — returns `{ plan, usage: { transcriptionMinutes, recallHours, aiCredits, storageGb }, limits, resetAt }`
+- [x] `POST /billing/checkout` — **stub for now**. Returns `{ message: "Payment gateway coming soon" }`. Plan upgrades done manually via DB.
+- [x] `POST /billing/portal` — **stub for now**.
+- [x] `src/routes/webhookRoutes.ts`:
+  - Razorpay webhook stub deferred (no-op until gateway live)
+- [x] Add to `.env.example`: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_PRO_PLAN_ID` (commented out, for future use)
 
 > **Note:** Payment gateway (Razorpay) is deferred. Early paid users are upgraded manually via Prisma Studio (`user.plan = PRO`). All enforcement, usage tracking, and UI are fully built — only payment collection is missing.
 
 ---
 
-### P5 — Enforcement Layer
+### P5 — Enforcement Layer ✅ Complete
 
-- [ ] On limit exceeded → `throw new AppError("TRANSCRIPTION_LIMIT_REACHED", 402)` etc.
-- [ ] Error codes: `TRANSCRIPTION_LIMIT_REACHED`, `RECALL_LIMIT_REACHED`, `AI_CREDITS_EXHAUSTED`, `STORAGE_LIMIT_REACHED`
-- [ ] Global error handler: format 402 as `{ success: false, code, message, currentUsage, limit, upgradeUrl: "/pricing" }`
+- [x] On limit exceeded → `throw new AppError("TRANSCRIPTION_LIMIT_REACHED", 402)` etc. (done in `usageService.ts`)
+- [x] Error codes: `TRANSCRIPTION_LIMIT_REACHED`, `RECALL_LIMIT_REACHED`, `AI_CREDITS_EXHAUSTED`, `STORAGE_LIMIT_REACHED`
+- [x] Global error handler (`app.ts`): formats 402 as `{ status: "error", code, message, details: { upgradeUrl: "/pricing" } }`
+- [x] `PaymentRequiredError` class added to `globalErrorHandler.ts` + `ErrorFactory.paymentRequired()`
 
 ---
 

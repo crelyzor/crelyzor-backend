@@ -87,6 +87,31 @@ export class TooManyRequestsError extends BaseError {
   }
 }
 
+/**
+ * Thrown when a user hits a plan usage limit (transcription, Recall, AI credits).
+ * Carries extra billing context so the frontend can show the right upgrade prompt.
+ */
+export class PaymentRequiredError extends BaseError {
+  constructor(
+    code: string, // e.g. "TRANSCRIPTION_LIMIT_REACHED"
+    details?: {
+      currentUsage?: number;
+      limit?: number;
+      upgradeUrl?: string;
+    },
+  ) {
+    super(
+      402,
+      code,
+      "Plan limit reached — upgrade to continue",
+      {
+        ...(details ?? {}),
+        upgradeUrl: details?.upgradeUrl ?? "/pricing",
+      },
+    );
+  }
+}
+
 export const isBaseError = (error: unknown): error is BaseError => {
   return error instanceof BaseError;
 };
@@ -111,6 +136,10 @@ export const ErrorFactory = {
   conflict: (message: string) => new ConflictError(message),
   internal: (error?: unknown) => new InternalServerError(error),
   dbOperation: (message: string) => new DbOperationError(message),
+  paymentRequired: (
+    code: string,
+    details?: { currentUsage?: number; limit?: number; upgradeUrl?: string },
+  ) => new PaymentRequiredError(code, details),
 };
 
 export const globalErrorHandler = (

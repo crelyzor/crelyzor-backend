@@ -35,6 +35,14 @@ app.use((req: Request, res: Response) => {
   });
 });
 
+// Known billing limit codes emitted by usageService as AppError(code, 402)
+const BILLING_LIMIT_CODES = new Set([
+  "TRANSCRIPTION_LIMIT_REACHED",
+  "RECALL_LIMIT_REACHED",
+  "AI_CREDITS_EXHAUSTED",
+  "STORAGE_LIMIT_REACHED",
+]);
+
 app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
   const err = error instanceof Error ? error : new Error(String(error));
   const status =
@@ -43,12 +51,28 @@ app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
       : typeof (error as { status?: unknown }).status === "number"
         ? (error as { status: number }).status
         : 500;
+
   logger.error("Unhandled error", {
     message: err.message,
     status,
     stack: err.stack,
     path: req.originalUrl,
   });
+
+  // 402 billing errors from usageService use AppError(code, 402).
+  // Reformat as a rich billing response so the frontend can trigger the upgrade modal.
+  if (status === 402 && BILLING_LIMIT_CODES.has(err.message)) {
+    res.status(402).json({
+      status: "error",
+      code: err.message, // e.g. "TRANSCRIPTION_LIMIT_REACHED"
+      message: "Plan limit reached — upgrade to continue",
+      details: {
+        upgradeUrl: "/pricing",
+      },
+    });
+    return;
+  }
+
   apiResponse(res, {
     statusCode: status,
     message: err.message || "Internal server error",
