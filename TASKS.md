@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-04-07 (Phase 3.2/3.3 complete, Phase 3.4 next)
+Last updated: 2026-04-19 (Phase 4 P0–P3 complete, P4 Stripe next)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -561,9 +561,9 @@ Full design: `docs/pricing-and-costs.md`
 
 ---
 
-### P1 — Usage Service
+### P1 — Usage Service ✅ Complete
 
-- [ ] `src/services/billing/usageService.ts`:
+- [x] `src/services/billing/usageService.ts`:
   - `getUserUsage(userId)` — fetch or create `UserUsage` for current period
   - `checkTranscription(userId, minutes)` — throws 402 if over limit
   - `deductTranscription(userId, minutes)` — increments `transcriptionMinutesUsed`
@@ -571,28 +571,28 @@ Full design: `docs/pricing-and-costs.md`
   - `deductRecall(userId, hours)` — increments `recallHoursUsed`
   - `checkAndDeductCredits(userId, inputTokens, outputTokens)` — calculates credits from tokens, checks limit, deducts
   - `getLimitsForPlan(plan)` — returns `{ transcriptionMinutes, recallHours, aiCredits, storageGb }` per plan
-- [ ] Credit formula: `credits = ceil((inputTokens × 0.00075) + (outputTokens × 0.0045))`
-- [ ] Plan limits:
+- [x] Credit formula: `credits = ceil((inputTokens × 0.00075) + (outputTokens × 0.0045))`
+- [x] Plan limits:
   - FREE: 120 min, 0 hrs Recall, 50 credits, 2 GB
   - PRO: 600 min, 5 hrs Recall, 1000 credits, 20 GB
   - BUSINESS: unlimited (configurable per deal)
 
 ---
 
-### P2 — Wire Usage Into Existing Services
+### P2 — Wire Usage Into Existing Services ✅ Complete
 
-- [ ] `transcriptionService.ts` — call `checkTranscription` before Deepgram call, `deductTranscription` after success
-- [ ] `recallService.ts` — call `checkRecall` before bot deploy
-- [ ] `aiService.ts` — call `checkAndDeductCredits` after each `askAI` + `generateContent` call using `response.usage.prompt_tokens` + `response.usage.completion_tokens`
-- [ ] Meeting pipeline (summary/tasks/title) — does NOT check credits, fires automatically
+- [x] `transcriptionService.ts` — `checkTranscription` before Deepgram call, `deductTranscription` after success
+- [x] `jobProcessor.ts` (DEPLOY_RECALL_BOT) — `checkRecall` before bot deploy, `deductRecall` after recording download
+- [x] `aiService.ts` — `checkAndDeductCredits` after each `askAI` + `generateContent` call using `response.usage.prompt_tokens` + `response.usage.completion_tokens`
+- [x] Meeting pipeline (summary/tasks/title) — does NOT check credits, fires automatically
 
 ---
 
-### P3 — Monthly Reset Cron Job
+### P3 — Monthly Reset Cron Job ✅ Complete
 
-- [ ] Add `MONTHLY_USAGE_RESET` job to Bull queue
-- [ ] Cron: `0 0 1 * *` (midnight on 1st of every month)
-- [ ] Job: reset all `UserUsage` records — zero out counters, set new `periodStart` + `resetAt`
+- [x] `MONTHLY_USAGE_RESET` job added to `queue.ts`
+- [x] Cron: `0 0 1 * *` (midnight on 1st of every month)
+- [x] `jobProcessor.ts`: calls `runMonthlyReset()` — resets all `UserUsage` rows where `resetAt <= now`
 
 ---
 
@@ -626,4 +626,4 @@ Requires separate infrastructure. Do not start. Phase 4 must be complete first.
 - [ ] Vector embeddings pipeline
 - [ ] RAG query endpoint (global Ask AI)
 - [ ] Full two-way GCal sync — Google Calendar push webhooks
-- [ ] Model upgrades: `nova-2` → `nova-3`, `gpt-4o-mini` → `gpt-5.4-mini` (see `docs/pricing-and-costs.md`)
+- [x] ~~Model upgrades: `nova-2` → `nova-3`, `gpt-4o-mini` → `gpt-5.4-mini`~~ — done early at Phase 4 start

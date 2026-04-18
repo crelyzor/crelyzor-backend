@@ -8,6 +8,7 @@ import prisma from "../../db/prismaClient";
 import { logger } from "../../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
 import { AppError } from "../../utils/errors/AppError";
+import { checkTranscription, deductTranscription } from "../billing/usageService";
 
 const DEEPGRAM_MODEL = "nova-3"; // Upgraded to nova-3 (multilingual) at Phase 4 start — better accuracy, 45+ languages
 
@@ -50,6 +51,11 @@ export const transcribeRecording = async (
   if (!recording || recording.meeting.isDeleted) {
     throw new AppError(`Recording not found: ${recordingId}`, 404);
   }
+
+  // Usage check — throws 402 if user is over their transcription limit.
+  // We estimate 60 min as a conservative default; actual deduction uses real duration.
+  const ESTIMATE_MINUTES = 60;
+  await checkTranscription(recording.meeting.createdById, ESTIMATE_MINUTES);
 
   // Update status to processing
   await prisma.meeting.update({
@@ -224,6 +230,10 @@ export const transcribeRecording = async (
       `Created ${distinctSpeakers.length} speaker records for meeting ${recording.meetingId}`,
     );
     logger.info(`Transcription completed for recording ${recordingId}`);
+
+    // Deduct actual transcription minutes (fail-open)
+    const actualMinutes = (result.metadata?.duration ?? 0) / 60;
+    await deductTranscription(recording.meeting.createdById, actualMinutes);
 
     return {
       transcriptId: transcript.id,

@@ -5,6 +5,7 @@ import { getOpenAIClient } from "../../config/openai";
 import { logger } from "../../utils/logging/logger";
 import { AppError } from "../../utils/errors/AppError";
 import { getRedisClient } from "../../config/redisClient";
+import { checkAndDeductCredits } from "../billing/usageService";
 
 const OPENAI_MODEL = "gpt-5.4-mini"; // Upgraded to gpt-5.4-mini at Phase 4 start — better summaries, task extraction, Ask AI quality
 const MAX_PIPELINE_CHARS = 30000; // ~7.5k tokens — balances quality and cost
@@ -862,6 +863,11 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
       streamed: true,
     });
 
+    // Deduct AI credits based on estimated token usage (streamed — no exact counts)
+    const estimatedInputTokens = Math.ceil(askAIPromptChars / 4);
+    const estimatedOutputTokens = Math.ceil(streamedCompletionChars / 4);
+    await checkAndDeductCredits(userId, estimatedInputTokens, estimatedOutputTokens);
+
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
 
@@ -959,6 +965,13 @@ export const generateContent = async (
     completionChars: content.length,
     usage: response.usage,
   });
+
+  // Deduct AI credits using actual token counts from OpenAI response
+  await checkAndDeductCredits(
+    userId,
+    response.usage?.prompt_tokens ?? Math.ceil((systemContent.length + prompt.length) / 4),
+    response.usage?.completion_tokens ?? Math.ceil(content.length / 4),
+  );
 
   await prisma.meetingAIContent.upsert({
     where: { meetingId_type: { meetingId, type } },

@@ -12,6 +12,7 @@ import {
   RecallRecordingJobData,
   BookingReminderJobData,
   DailyDigestJobData,
+  MonthlyUsageResetJobData,
 } from "../config/queue";
 import { transcriptionService } from "../services/transcription/transcriptionService";
 import { aiService } from "../services/ai/aiService";
@@ -20,6 +21,7 @@ import { meetingReadyEmail, meetingReadySubject } from "../services/email/templa
 import { bookingReminderEmail, bookingReminderSubject } from "../services/email/templates/bookingReminder";
 import { dailyDigestEmail, dailyDigestSubject } from "../services/email/templates/dailyDigest";
 import { deployBot, getBotRecordingInfo } from "../services/recall/recallService";
+import { checkRecall, deductRecall, runMonthlyReset } from "../services/billing/usageService";
 import { gcsService } from "../services/gcs/gcsService";
 import { logger } from "../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
@@ -184,6 +186,20 @@ export const startWorker = async (): Promise<void> => {
       // Join 5 minutes before start
       const joinAt = new Date(meeting.startTime.getTime() - 5 * 60 * 1000).toISOString();
 
+      // Recall usage check — estimate 1 hr per session. Throws 402 if over limit.
+      // Fail-open: if check itself errors unexpectedly, let the job continue.
+      try {
+        await checkRecall(data.hostUserId, 1);
+      } catch (usageErr: unknown) {
+        if (usageErr instanceof Error && usageErr.message === "RECALL_LIMIT_REACHED") {
+          logger.warn("Recall limit reached — skipping bot deploy", { meetingId: data.meetingId, hostUserId: data.hostUserId });
+          return { skipped: true, reason: "recall_limit_reached" };
+        }
+        logger.error("Recall usage check error (non-fatal, continuing deploy)", {
+          error: usageErr instanceof Error ? usageErr.message : String(usageErr),
+        });
+      }
+
       const { botId } = await deployBot(meetingLink, joinAt);
 
       // Store botId on the meeting for webhook correlation
@@ -266,6 +282,12 @@ export const startWorker = async (): Promise<void> => {
         meetingId: data.meetingId,
         recordingId: recording.id,
       });
+
+      // Deduct Recall hours based on actual recording duration (fail-open).
+      // Duration is unknown at this stage; use 1 hr as a conservative deduction.
+      // TODO Phase 5: use actual bot duration from Recall API when available.
+      await deductRecall(data.hostUserId, 1);
+
       return { success: true, recordingId: recording.id };
     } catch (err) {
       logger.error("Recall recording fetch job failed", {
@@ -460,6 +482,35 @@ export const startWorker = async (): Promise<void> => {
   } catch (err) {
     logger.error("Failed to schedule daily task digest cron", { 
       error: err instanceof Error ? err.message : String(err) 
+    });
+  }
+
+  // Monthly usage reset processor
+  emailQueue.process(JobNames.MONTHLY_USAGE_RESET, async (job) => {
+    const data = job.data as MonthlyUsageResetJobData;
+    logger.info("Processing monthly usage reset job", { triggeredAt: data.triggeredAt });
+    try {
+      const count = await runMonthlyReset();
+      return { success: true, usersReset: count };
+    } catch (err) {
+      logger.error("Monthly usage reset job failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+  });
+
+  // Schedule monthly usage reset cron (midnight on 1st of every month UTC)
+  try {
+    await emailQueue.add(
+      JobNames.MONTHLY_USAGE_RESET,
+      { triggeredAt: new Date().toISOString() },
+      { repeat: { cron: "0 0 1 * *" }, jobId: "monthly-usage-reset-cron" }
+    );
+    logger.info("Monthly usage reset cron scheduled for 00:00 UTC on 1st of each month");
+  } catch (err) {
+    logger.error("Failed to schedule monthly usage reset cron", {
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 

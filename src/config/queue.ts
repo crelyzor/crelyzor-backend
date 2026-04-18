@@ -23,6 +23,7 @@ export const JobNames = {
   FETCH_RECALL_RECORDING: "fetch-recording",
   BOOKING_REMINDER: "booking-reminder",
   DAILY_TASK_DIGEST: "daily-task-digest",
+  MONTHLY_USAGE_RESET: "monthly-usage-reset",
 } as const;
 
 // Job data interfaces
@@ -59,6 +60,12 @@ export interface BookingReminderJobData {
 /** Job data for daily task digest (repeating cron). */
 export interface DailyDigestJobData {
   /** Unused — cron job processes all opted-in users each time. */
+  triggeredAt: string;
+}
+
+/** Job data for monthly usage reset cron. */
+export interface MonthlyUsageResetJobData {
+  /** Unused — cron job resets all users whose resetAt has passed. */
   triggeredAt: string;
 }
 
