@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-04-19 (Phase 4 P0–P3 complete, P4 Stripe next)
+Last updated: 2026-04-19 (Phase 4 complete ✅ — P0 schema, P1 usageService, P2 wiring, P3 cron, P4 endpoints, P5 enforcement. P6 payment gateway blocked.)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
