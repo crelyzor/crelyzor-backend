@@ -617,14 +617,16 @@ Full design: `docs/pricing-and-costs.md`
 
 ---
 
-### P6 — Payment Gateway ⏸ DEFERRED
+### P6 — Payment Gateway ⛔ NOT DOING NOW
 
-Wire actual payment collection once Razorpay account is unblocked (or switch to Cashfree/PayU/Stripe).
+> **Do not build this.** Razorpay account is blocked. Payment collection is not part of the current build.
+> Early paid users are upgraded manually via Prisma Studio (`user.plan = PRO`).
+> Revisit when account is unblocked or a new gateway (Cashfree / PayU) is set up.
 
-- [ ] `src/services/billing/razorpayService.ts` — create subscription, verify webhook HMAC signature
-- [ ] Wire `POST /billing/checkout` — create Razorpay subscription, return `{ subscriptionId, keyId }`
-- [ ] `POST /webhooks/razorpay` — verify + handle `subscription.activated / charged / cancelled / halted`
-- [ ] Frontend: open Razorpay checkout sheet on upgrade click
+- [ ] `src/services/billing/razorpayService.ts`
+- [ ] Wire `POST /billing/checkout` with actual payment
+- [ ] `POST /webhooks/razorpay` — verify + handle events
+- [ ] Frontend checkout sheet
 
 ---
 
