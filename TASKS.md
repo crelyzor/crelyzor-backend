@@ -600,15 +600,12 @@ Full design: `docs/pricing-and-costs.md`
 
 - [ ] `src/routes/billingRoutes.ts` — all under `verifyJWT`
 - [ ] `GET /billing/usage` — returns `{ plan, usage: { transcriptionMinutes, recallHours, aiCredits, storageGb }, limits, resetAt }`
-- [ ] `POST /billing/checkout` — creates Razorpay subscription for Pro plan, returns `{ subscriptionId, keyId }` (frontend opens Razorpay checkout with these)
-- [ ] `POST /billing/portal` — returns portal URL or account management info
+- [ ] `POST /billing/checkout` — **stub for now** (payment gateway deferred). Returns `{ message: "Payment gateway coming soon" }`. Plan upgrades done manually via DB.
 - [ ] `src/routes/webhookRoutes.ts`:
-  - `POST /webhooks/razorpay` — raw body, verify HMAC signature with `RAZORPAY_WEBHOOK_SECRET`
-  - Handle: `subscription.activated` → set plan to PRO
-  - Handle: `subscription.charged` → sync status + `currentPeriodEnd`
-  - Handle: `subscription.cancelled` → downgrade to FREE
-  - Handle: `subscription.halted` → mark status as `halted`
-- [ ] Add to `.env.example`: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_PRO_PLAN_ID`
+  - `POST /webhooks/razorpay` — **stub handler** (wired but no-ops until gateway is live)
+- [ ] Add to `.env.example`: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_PRO_PLAN_ID` (commented out, for future use)
+
+> **Note:** Payment gateway (Razorpay) is deferred. Early paid users are upgraded manually via Prisma Studio (`user.plan = PRO`). All enforcement, usage tracking, and UI are fully built — only payment collection is missing.
 
 ---
 
@@ -617,6 +614,17 @@ Full design: `docs/pricing-and-costs.md`
 - [ ] On limit exceeded → `throw new AppError("TRANSCRIPTION_LIMIT_REACHED", 402)` etc.
 - [ ] Error codes: `TRANSCRIPTION_LIMIT_REACHED`, `RECALL_LIMIT_REACHED`, `AI_CREDITS_EXHAUSTED`, `STORAGE_LIMIT_REACHED`
 - [ ] Global error handler: format 402 as `{ success: false, code, message, currentUsage, limit, upgradeUrl: "/pricing" }`
+
+---
+
+### P6 — Payment Gateway ⏸ DEFERRED
+
+Wire actual payment collection once Razorpay account is unblocked (or switch to Cashfree/PayU/Stripe).
+
+- [ ] `src/services/billing/razorpayService.ts` — create subscription, verify webhook HMAC signature
+- [ ] Wire `POST /billing/checkout` — create Razorpay subscription, return `{ subscriptionId, keyId }`
+- [ ] `POST /webhooks/razorpay` — verify + handle `subscription.activated / charged / cancelled / halted`
+- [ ] Frontend: open Razorpay checkout sheet on upgrade click
 
 ---
 
