@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-04-19 (Phase 4 complete ✅ — P0 schema, P1 usageService, P2 wiring, P3 cron, P4 endpoints, P5 enforcement. P6 payment gateway blocked.)
+Last updated: 2026-04-19 (Phase 4.1 complete ✅ — Phase 4.2 has no backend tasks)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -520,7 +520,7 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ---
 
-## Phase 4 — Billing & Monetization
+## Phase 4.1 — Billing & Monetization ✅ Complete
 
 Full design: `docs/pricing-and-costs.md`
 
@@ -632,9 +632,16 @@ Full design: `docs/pricing-and-costs.md`
 
 ---
 
+## Phase 4.2 — Ask AI Persistence
+
+> **No backend tasks.** Ask AI history is persisted in `localStorage` on the frontend only.
+> If Phase 5 Big Brain requires server-side conversation history, a `AskAIMessage` model will be added then.
+
+---
+
 ## Phase 5 — Big Brain ⛔ BLOCKED
 
-Requires separate infrastructure. Do not start. Phase 4 must be complete first.
+Requires separate infrastructure. Do not start. Phase 4.1 + 4.2 must be complete first.
 
 - [ ] Vector embeddings pipeline
 - [ ] RAG query endpoint (global Ask AI)

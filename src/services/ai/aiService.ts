@@ -100,7 +100,7 @@ Provide a summary in 2-3 paragraphs.`;
       { role: "system", content: systemContent },
       { role: "user", content: prompt },
     ],
-    max_tokens: 1000,
+    max_completion_tokens: 1000,
     temperature: 0.3,
   });
 
@@ -168,7 +168,7 @@ Return ONLY a JSON array, no other text.`;
       },
       { role: "user", content: prompt },
     ],
-    max_tokens: 1000,
+    max_completion_tokens: 1000,
     temperature: 0.3,
   });
 
@@ -275,7 +275,7 @@ ${capped}`;
       },
       { role: "user", content: prompt },
     ],
-    max_tokens: 1300,
+    max_completion_tokens: 1300,
     temperature: 0.3,
   });
 
@@ -389,7 +389,7 @@ Return ONLY a JSON array, no other text.`;
       },
       { role: "user", content: prompt },
     ],
-    max_tokens: 1500,
+    max_completion_tokens: 1500,
     temperature: 0.3,
   });
 
@@ -478,7 +478,7 @@ ${transcriptText.slice(0, 2000)}`;
         },
         { role: "user", content: prompt },
       ],
-      max_tokens: 30,
+      max_completion_tokens: 30,
       temperature: 0.4,
     });
 
@@ -842,7 +842,7 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage },
       ],
-      max_tokens: 900,
+      max_completion_tokens: 900,
       temperature: 0.5,
       stream: true,
     });
@@ -949,7 +949,7 @@ export const generateContent = async (
       },
       { role: "user", content: prompt },
     ],
-    max_tokens: type === "TWEET" ? 100 : 1500,
+    max_completion_tokens: type === "TWEET" ? 100 : 1500,
     temperature: 0.6,
   });
 
