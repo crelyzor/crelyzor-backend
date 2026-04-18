@@ -894,13 +894,13 @@ model Subscription {
   id     String @id @default(uuid()) @db.Uuid
   userId String @unique @db.Uuid
 
-  // Stripe identifiers
-  stripeCustomerId     String  @unique
-  stripeSubscriptionId String? @unique
+  // Razorpay identifiers
+  razorpayCustomerId     String  @unique
+  razorpaySubscriptionId String? @unique
 
   // Plan state
-  plan             Plan    @default(FREE)
-  status           String  @default("active") // Stripe subscription status: active | past_due | canceled | etc.
+  plan             Plan      @default(FREE)
+  status           String    @default("active") // Razorpay subscription status: created | authenticated | active | pending | halted | cancelled | completed | expired
   currentPeriodEnd DateTime?
 
   createdAt DateTime @default(now())
@@ -909,7 +909,7 @@ model Subscription {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([stripeCustomerId])
+  @@index([razorpayCustomerId])
   @@index([plan])
 }
 

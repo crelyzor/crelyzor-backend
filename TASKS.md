@@ -545,16 +545,16 @@ Full design: `docs/pricing-and-costs.md`
 - [x] New `Subscription` model:
   ```prisma
   model Subscription {
-    id                   String   @id @default(uuid()) @db.Uuid
-    userId               String   @unique @db.Uuid
-    user                 User     @relation(fields: [userId], references: [id])
-    stripeCustomerId     String   @unique
-    stripeSubscriptionId String?  @unique
-    plan                 Plan     @default(FREE)
-    status               String   @default("active")
-    currentPeriodEnd     DateTime?
-    createdAt            DateTime @default(now())
-    updatedAt            DateTime @updatedAt
+    id                      String   @id @default(uuid()) @db.Uuid
+    userId                  String   @unique @db.Uuid
+    user                    User     @relation(fields: [userId], references: [id])
+    razorpayCustomerId      String   @unique
+    razorpaySubscriptionId  String?  @unique
+    plan                    Plan     @default(FREE)
+    status                  String   @default("active")
+    currentPeriodEnd        DateTime?
+    createdAt               DateTime @default(now())
+    updatedAt               DateTime @updatedAt
   }
   ```
 - [x] Migration: `pnpm db:push && pnpm db:generate`
@@ -600,14 +600,15 @@ Full design: `docs/pricing-and-costs.md`
 
 - [ ] `src/routes/billingRoutes.ts` — all under `verifyJWT`
 - [ ] `GET /billing/usage` — returns `{ plan, usage: { transcriptionMinutes, recallHours, aiCredits, storageGb }, limits, resetAt }`
-- [ ] `POST /billing/checkout` — creates Stripe checkout session for Pro plan, returns `{ url }`
-- [ ] `POST /billing/portal` — creates Stripe billing portal session, returns `{ url }`
+- [ ] `POST /billing/checkout` — creates Razorpay subscription for Pro plan, returns `{ subscriptionId, keyId }` (frontend opens Razorpay checkout with these)
+- [ ] `POST /billing/portal` — returns portal URL or account management info
 - [ ] `src/routes/webhookRoutes.ts`:
-  - `POST /webhooks/stripe` — raw body, verify signature with `STRIPE_WEBHOOK_SECRET`
-  - Handle: `customer.subscription.created` → set plan to PRO
-  - Handle: `customer.subscription.updated` → sync plan + status
-  - Handle: `customer.subscription.deleted` → downgrade to FREE
-- [ ] Add to `.env.example`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`
+  - `POST /webhooks/razorpay` — raw body, verify HMAC signature with `RAZORPAY_WEBHOOK_SECRET`
+  - Handle: `subscription.activated` → set plan to PRO
+  - Handle: `subscription.charged` → sync status + `currentPeriodEnd`
+  - Handle: `subscription.cancelled` → downgrade to FREE
+  - Handle: `subscription.halted` → mark status as `halted`
+- [ ] Add to `.env.example`: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_PRO_PLAN_ID`
 
 ---
 
