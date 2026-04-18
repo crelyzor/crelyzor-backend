@@ -322,13 +322,13 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ### P4 — Quick Add + Integrations
 - [x] Global quick-add Cmd+K with natural language parsing
-- [ ] Auto-create "Prepare" task on booking confirmed (bookingManagementService.ts)
-- [ ] Contact-linked tasks on Card detail page
+- [x] Auto-create "Prepare" task on booking confirmed (bookingManagementService.ts)
+- [x] Contact-linked tasks on Card detail page
 
 ### P5 — Calendar View
-- [ ] /calendar page (week/day, GCal + meetings + tasks unified)
-- [ ] All-day task markers for dueDate-only tasks
-- [ ] Drag task to time slot → sets scheduledTime
+- [x] /calendar page (week/day, GCal + meetings + tasks unified)
+- [x] All-day task markers for dueDate-only tasks
+- [x] Drag task to time slot → sets scheduledTime
 
 ---
 
