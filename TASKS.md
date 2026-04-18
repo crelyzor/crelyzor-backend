@@ -526,8 +526,8 @@ Full design: `docs/pricing-and-costs.md`
 
 ### P0 — Schema + Migration
 
-- [ ] Add `plan` enum to `User` model: `FREE | PRO | BUSINESS` (default `FREE`)
-- [ ] New `UserUsage` model:
+- [x] Add `plan` enum to `User` model: `FREE | PRO | BUSINESS` (default `FREE`)
+- [x] New `UserUsage` model:
   ```prisma
   model UserUsage {
     id                      String   @id @default(uuid()) @db.Uuid
@@ -542,7 +542,7 @@ Full design: `docs/pricing-and-costs.md`
     updatedAt               DateTime @updatedAt
   }
   ```
-- [ ] New `Subscription` model:
+- [x] New `Subscription` model:
   ```prisma
   model Subscription {
     id                   String   @id @default(uuid()) @db.Uuid
@@ -557,7 +557,7 @@ Full design: `docs/pricing-and-costs.md`
     updatedAt            DateTime @updatedAt
   }
   ```
-- [ ] Migration: `pnpm db:migrate && pnpm db:generate`
+- [x] Migration: `pnpm db:push && pnpm db:generate`
 
 ---
 

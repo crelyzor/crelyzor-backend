@@ -36,6 +36,9 @@ model User {
   state   String?
   city    String?
 
+  // Billing (Phase 4)
+  plan Plan @default(FREE)
+
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -66,8 +69,13 @@ model User {
   availabilitySchedules  AvailabilitySchedule[]
   bookings               Booking[]
 
+  // Billing (Phase 4)
+  usage        UserUsage?
+  subscription Subscription?
+
   @@index([activeSessionId])
   @@index([createdAt])
+  @@index([plan])
 }
 
 model Session {
@@ -857,6 +865,55 @@ model Booking {
 }
 
 // ================================
+// BILLING (Phase 4)
+// ================================
+
+model UserUsage {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+
+  // Usage counters — reset monthly by cron job
+  transcriptionMinutesUsed Int   @default(0)
+  recallHoursUsed          Float @default(0)
+  aiCreditsUsed            Int   @default(0)
+  storageGbUsed            Float @default(0)
+
+  // Period tracking
+  periodStart DateTime @default(now())
+  resetAt     DateTime // set to first day of next month on creation + after each reset
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([resetAt]) // cron job queries by resetAt to find users to reset
+}
+
+model Subscription {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+
+  // Stripe identifiers
+  stripeCustomerId     String  @unique
+  stripeSubscriptionId String? @unique
+
+  // Plan state
+  plan             Plan    @default(FREE)
+  status           String  @default("active") // Stripe subscription status: active | past_due | canceled | etc.
+  currentPeriodEnd DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([stripeCustomerId])
+  @@index([plan])
+}
+
+// ================================
 // ENUMS
 // ================================
 
@@ -936,4 +993,10 @@ enum BookingStatus {
   CANCELLED
   RESCHEDULED
   NO_SHOW
+}
+
+enum Plan {
+  FREE
+  PRO
+  BUSINESS
 }

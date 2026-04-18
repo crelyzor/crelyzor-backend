@@ -9,7 +9,7 @@ import { logger } from "../../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
 import { AppError } from "../../utils/errors/AppError";
 
-const DEEPGRAM_MODEL = "nova-2";
+const DEEPGRAM_MODEL = "nova-3"; // Upgraded to nova-3 (multilingual) at Phase 4 start — better accuracy, 45+ languages
 
 export interface TranscriptionResult {
   transcriptId: string;

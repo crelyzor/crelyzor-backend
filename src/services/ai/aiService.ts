@@ -6,7 +6,7 @@ import { logger } from "../../utils/logging/logger";
 import { AppError } from "../../utils/errors/AppError";
 import { getRedisClient } from "../../config/redisClient";
 
-const OPENAI_MODEL = "gpt-4o-mini";
+const OPENAI_MODEL = "gpt-5.4-mini"; // Upgraded to gpt-5.4-mini at Phase 4 start — better summaries, task extraction, Ask AI quality
 const MAX_PIPELINE_CHARS = 30000; // ~7.5k tokens — balances quality and cost
 
 type OpenAIUsageStats = {
