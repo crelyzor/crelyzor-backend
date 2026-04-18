@@ -520,10 +520,110 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ---
 
-## Phase 4 — Big Brain ⛔ BLOCKED
+## Phase 4 — Billing & Monetization
 
-Requires separate infrastructure. Do not start.
+Full design: `docs/pricing-and-costs.md`
+
+### P0 — Schema + Migration
+
+- [ ] Add `plan` enum to `User` model: `FREE | PRO | BUSINESS` (default `FREE`)
+- [ ] New `UserUsage` model:
+  ```prisma
+  model UserUsage {
+    id                      String   @id @default(uuid()) @db.Uuid
+    userId                  String   @unique @db.Uuid
+    user                    User     @relation(fields: [userId], references: [id])
+    transcriptionMinutesUsed Int     @default(0)
+    recallHoursUsed         Float    @default(0)
+    aiCreditsUsed           Int      @default(0)
+    storageGbUsed           Float    @default(0)
+    periodStart             DateTime @default(now())
+    resetAt                 DateTime
+    updatedAt               DateTime @updatedAt
+  }
+  ```
+- [ ] New `Subscription` model:
+  ```prisma
+  model Subscription {
+    id                   String   @id @default(uuid()) @db.Uuid
+    userId               String   @unique @db.Uuid
+    user                 User     @relation(fields: [userId], references: [id])
+    stripeCustomerId     String   @unique
+    stripeSubscriptionId String?  @unique
+    plan                 Plan     @default(FREE)
+    status               String   @default("active")
+    currentPeriodEnd     DateTime?
+    createdAt            DateTime @default(now())
+    updatedAt            DateTime @updatedAt
+  }
+  ```
+- [ ] Migration: `pnpm db:migrate && pnpm db:generate`
+
+---
+
+### P1 — Usage Service
+
+- [ ] `src/services/billing/usageService.ts`:
+  - `getUserUsage(userId)` — fetch or create `UserUsage` for current period
+  - `checkTranscription(userId, minutes)` — throws 402 if over limit
+  - `deductTranscription(userId, minutes)` — increments `transcriptionMinutesUsed`
+  - `checkRecall(userId, hours)` — throws 402 if over limit
+  - `deductRecall(userId, hours)` — increments `recallHoursUsed`
+  - `checkAndDeductCredits(userId, inputTokens, outputTokens)` — calculates credits from tokens, checks limit, deducts
+  - `getLimitsForPlan(plan)` — returns `{ transcriptionMinutes, recallHours, aiCredits, storageGb }` per plan
+- [ ] Credit formula: `credits = ceil((inputTokens × 0.00075) + (outputTokens × 0.0045))`
+- [ ] Plan limits:
+  - FREE: 120 min, 0 hrs Recall, 50 credits, 2 GB
+  - PRO: 600 min, 5 hrs Recall, 1000 credits, 20 GB
+  - BUSINESS: unlimited (configurable per deal)
+
+---
+
+### P2 — Wire Usage Into Existing Services
+
+- [ ] `transcriptionService.ts` — call `checkTranscription` before Deepgram call, `deductTranscription` after success
+- [ ] `recallService.ts` — call `checkRecall` before bot deploy
+- [ ] `aiService.ts` — call `checkAndDeductCredits` after each `askAI` + `generateContent` call using `response.usage.prompt_tokens` + `response.usage.completion_tokens`
+- [ ] Meeting pipeline (summary/tasks/title) — does NOT check credits, fires automatically
+
+---
+
+### P3 — Monthly Reset Cron Job
+
+- [ ] Add `MONTHLY_USAGE_RESET` job to Bull queue
+- [ ] Cron: `0 0 1 * *` (midnight on 1st of every month)
+- [ ] Job: reset all `UserUsage` records — zero out counters, set new `periodStart` + `resetAt`
+
+---
+
+### P4 — Billing Endpoints
+
+- [ ] `src/routes/billingRoutes.ts` — all under `verifyJWT`
+- [ ] `GET /billing/usage` — returns `{ plan, usage: { transcriptionMinutes, recallHours, aiCredits, storageGb }, limits, resetAt }`
+- [ ] `POST /billing/checkout` — creates Stripe checkout session for Pro plan, returns `{ url }`
+- [ ] `POST /billing/portal` — creates Stripe billing portal session, returns `{ url }`
+- [ ] `src/routes/webhookRoutes.ts`:
+  - `POST /webhooks/stripe` — raw body, verify signature with `STRIPE_WEBHOOK_SECRET`
+  - Handle: `customer.subscription.created` → set plan to PRO
+  - Handle: `customer.subscription.updated` → sync plan + status
+  - Handle: `customer.subscription.deleted` → downgrade to FREE
+- [ ] Add to `.env.example`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`
+
+---
+
+### P5 — Enforcement Layer
+
+- [ ] On limit exceeded → `throw new AppError("TRANSCRIPTION_LIMIT_REACHED", 402)` etc.
+- [ ] Error codes: `TRANSCRIPTION_LIMIT_REACHED`, `RECALL_LIMIT_REACHED`, `AI_CREDITS_EXHAUSTED`, `STORAGE_LIMIT_REACHED`
+- [ ] Global error handler: format 402 as `{ success: false, code, message, currentUsage, limit, upgradeUrl: "/pricing" }`
+
+---
+
+## Phase 5 — Big Brain ⛔ BLOCKED
+
+Requires separate infrastructure. Do not start. Phase 4 must be complete first.
 
 - [ ] Vector embeddings pipeline
 - [ ] RAG query endpoint (global Ask AI)
 - [ ] Full two-way GCal sync — Google Calendar push webhooks
+- [ ] Model upgrades: `nova-2` → `nova-3`, `gpt-4o-mini` → `gpt-5.4-mini` (see `docs/pricing-and-costs.md`)
