@@ -13,6 +13,8 @@ import {
   BookingReminderJobData,
   DailyDigestJobData,
   MonthlyUsageResetJobData,
+  GCalPushSyncJobData,
+  GCalPushRenewalJobData,
 } from "../config/queue";
 import { transcriptionService } from "../services/transcription/transcriptionService";
 import { aiService } from "../services/ai/aiService";
@@ -27,6 +29,10 @@ import { logger } from "../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
 import prisma from "../db/prismaClient";
 import { isVideoMeetingUrl } from "../utils/isVideoMeetingUrl";
+import {
+  processIncomingNotification,
+  renewExpiringChannels,
+} from "../services/googleCalendarPushService";
 
 /** Base URL for the dashboard app — used in email CTAs */
 const APP_BASE_URL = process.env.FRONTEND_URL ?? "https://app.crelyzor.com";
@@ -510,6 +516,51 @@ export const startWorker = async (): Promise<void> => {
     logger.info("Monthly usage reset cron scheduled for 00:00 UTC on 1st of each month");
   } catch (err) {
     logger.error("Failed to schedule monthly usage reset cron", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // ── GCal Push Sync job (Phase 4.3) ────────────────────────────────────────────
+  emailQueue.process(JobNames.GCAL_PUSH_SYNC, async (job) => {
+    const data = job.data as GCalPushSyncJobData;
+    logger.info("Processing GCal push sync job", { channelId: data.channelId });
+    try {
+      await processIncomingNotification(data.channelId);
+      return { success: true };
+    } catch (err) {
+      // Fail-open — Google will retry on next change anyway
+      logger.error("GCal push sync job failed", {
+        channelId: data.channelId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { success: false };
+    }
+  });
+
+  // GCal channel renewal cron (daily at 02:00 UTC)
+  emailQueue.process(JobNames.GCAL_PUSH_SYNC + ":renewal", async (job) => {
+    const data = job.data as GCalPushRenewalJobData;
+    logger.info("Processing GCal channel renewal job", { triggeredAt: data.triggeredAt });
+    try {
+      const renewed = await renewExpiringChannels();
+      return { success: true, renewed };
+    } catch (err) {
+      logger.error("GCal channel renewal job failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+  });
+
+  try {
+    await emailQueue.add(
+      JobNames.GCAL_PUSH_SYNC + ":renewal",
+      { triggeredAt: new Date().toISOString() },
+      { repeat: { cron: "0 2 * * *" }, jobId: "gcal-channel-renewal-cron" },
+    );
+    logger.info("GCal channel renewal cron scheduled for 02:00 UTC daily");
+  } catch (err) {
+    logger.error("Failed to schedule GCal channel renewal cron", {
       error: err instanceof Error ? err.message : String(err),
     });
   }

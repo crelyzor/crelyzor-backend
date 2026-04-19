@@ -16,6 +16,7 @@ import publicBookingsRouter from "./publicBookingsRoutes";
 import billingRouter from "./billingRoutes";
 import integrationRouter from "./integrationRoutes";
 import searchRouter from "./searchRoutes";
+import googleWebhookRouter from "./googleWebhookRoutes";
 
 const indexRouter = Router();
 
@@ -88,5 +89,10 @@ indexRouter.use("/search", searchRouter);
 // 📦 STORAGE ROUTES
 // ========================================
 indexRouter.use("/storage", storageRouter);
+
+// ========================================
+// 🔔 WEBHOOK ROUTES (public — no JWT)
+// ========================================
+indexRouter.use("/webhooks", googleWebhookRouter);
 
 export default indexRouter;

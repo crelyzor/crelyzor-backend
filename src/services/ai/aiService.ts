@@ -919,7 +919,7 @@ const CONTENT_PROMPTS: Record<AIContentType, (transcript: string) => string> = {
     `Based on this meeting transcript, write a formal meeting report/minutes document. Include: Participants (from who's speaking), Key Discussion Points, Decisions Made, and Action Items. Format it professionally with clear sections.\n\nTranscript:\n${t}\n\nMeeting Report:`,
 
   TWEET: (t) =>
-    `Write a single tweet (under 280 characters) that captures the main outcome or topic of this meeting. Be engaging and professional.\n\nTranscript excerpt:\n${t.slice(0, 3000)}\n\nTweet:`,
+    `Write a short social media post (under 280 characters) that captures the main outcome or topic of this meeting. Be engaging and professional.\n\nTranscript excerpt:\n${t.slice(0, 3000)}\n\nSocial Media Post:`,
 
   BLOG_POST: (t) =>
     `Write a 300-400 word blog post about the topic discussed in this meeting. Give it a compelling title. Make it engaging and informative for a professional audience.\n\nTranscript:\n${t}\n\nBlog Post:`,

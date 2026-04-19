@@ -76,6 +76,9 @@ model User {
   // AI Conversations (Phase 4.2)
   askAIConversations AskAIConversation[]
 
+  // Google Calendar Push Sync (Phase 4.3)
+  gcalSyncState GCalSyncState?
+
   @@index([activeSessionId])
   @@index([createdAt])
   @@index([plan])
@@ -489,6 +492,28 @@ model AskAIMessage {
 
   @@index([conversationId])
   @@index([conversationId, createdAt])
+}
+
+// ================================
+// GOOGLE CALENDAR PUSH SYNC (Phase 4.3)
+// ================================
+
+model GCalSyncState {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @unique @db.Uuid
+
+  channelId  String   @unique          // UUID we generate — used as channel identifier with Google
+  resourceId String?                   // Returned by Google after watch() — needed to stop channel
+  expiration DateTime                  // When Google expires this channel (max 30 days)
+  syncToken  String?                   // Incremental sync token from last successful events.list call
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiration])
+  @@index([channelId])
 }
 
 model MeetingShare {

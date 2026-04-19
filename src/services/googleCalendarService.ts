@@ -56,7 +56,7 @@ interface AuthedCalendarClient {
  * calls may both detect expiry and refresh simultaneously). Last-write-wins on
  * the DB update; Google ignores duplicate refreshes. Acceptable for MVP.
  */
-async function getAuthedCalendarClient(
+export async function getAuthedCalendarClient(
   userId: string,
   requireWriteScope: boolean,
 ): Promise<AuthedCalendarClient> {
@@ -1233,6 +1233,7 @@ export interface GCalConnectionStatus {
   writable: boolean;
   email: string | null;
   syncEnabled: boolean;
+  pushEnabled: boolean;  // Phase 4.3: true when a valid push watch channel is registered
 }
 
 /**
@@ -1243,7 +1244,7 @@ export interface GCalConnectionStatus {
 export async function getGCalConnectionStatus(
   userId: string,
 ): Promise<GCalConnectionStatus> {
-  const [oauthAccount, settings] = await Promise.all([
+  const [oauthAccount, settings, gcalSyncState] = await Promise.all([
     prisma.oAuthAccount.findFirst({
       where: { userId, provider: "GOOGLE" },
       select: { scopes: true },
@@ -1251,6 +1252,10 @@ export async function getGCalConnectionStatus(
     prisma.userSettings.findUnique({
       where: { userId },
       select: { googleCalendarEmail: true, googleCalendarSyncEnabled: true },
+    }),
+    prisma.gCalSyncState.findUnique({
+      where: { userId },
+      select: { expiration: true },
     }),
   ]);
 
@@ -1260,11 +1265,14 @@ export async function getGCalConnectionStatus(
     ) ?? false;
   const writable = hasCalendarWriteScope(oauthAccount?.scopes);
 
+  const pushEnabled = !!gcalSyncState && gcalSyncState.expiration > new Date();
+
   const status = {
     connected: hasCalendarScope && !!settings?.googleCalendarEmail,
     writable,
     email: settings?.googleCalendarEmail ?? null,
     syncEnabled: settings?.googleCalendarSyncEnabled ?? false,
+    pushEnabled,
   };
 
   if (status.connected && status.syncEnabled && status.writable) {
@@ -1314,3 +1322,9 @@ export async function disconnectGCalendar(userId: string): Promise<void> {
 
   logger.info("Google Calendar disconnected", { userId });
 }
+
+/**
+ * Public alias for use by googleCalendarPushService (Phase 4.3).
+ * Passes push-received changed events through the same inbound sync logic.
+ */
+export { syncLinkedMeetingsFromGoogle as syncLinkedMeetingsFromGooglePush };

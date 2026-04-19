@@ -24,6 +24,7 @@ export const JobNames = {
   BOOKING_REMINDER: "booking-reminder",
   DAILY_TASK_DIGEST: "daily-task-digest",
   MONTHLY_USAGE_RESET: "monthly-usage-reset",
+  GCAL_PUSH_SYNC: "gcal-push-sync",
 } as const;
 
 // Job data interfaces
@@ -69,12 +70,23 @@ export interface MonthlyUsageResetJobData {
   triggeredAt: string;
 }
 
+/** Job data for GCal push-notification channel renewal cron. */
+export interface GCalPushRenewalJobData {
+  /** Unused — cron job processes all users with expiring channels. */
+  triggeredAt: string;
+}
+
+/** Job data for a single GCal push-notification — queued by the webhook handler. */
+export interface GCalPushSyncJobData {
+  channelId: string;
+}
+
 // Queue instances
 let transcriptionQueue: Bull.Queue<TranscriptionJobData> | null = null;
 let aiProcessingQueue: Bull.Queue<AIProcessingJobData> | null = null;
 let recallBotQueue: Bull.Queue<RecallBotJobData> | null = null;
 let recallRecordingQueue: Bull.Queue<RecallRecordingJobData> | null = null;
-let emailQueue: Bull.Queue<BookingReminderJobData | DailyDigestJobData> | null = null;
+let emailQueue: Bull.Queue<BookingReminderJobData | DailyDigestJobData | MonthlyUsageResetJobData | GCalPushSyncJobData | GCalPushRenewalJobData> | null = null;
 
 // Redis config optimized for Upstash
 const getRedisConfig = () => ({
@@ -300,7 +312,7 @@ export const getRecallRecordingQueue = (): Bull.Queue<RecallRecordingJobData> =>
   return recallRecordingQueue;
 };
 
-export const getEmailQueue = (): Bull.Queue<BookingReminderJobData | DailyDigestJobData> => {
+export const getEmailQueue = (): Bull.Queue<BookingReminderJobData | DailyDigestJobData | MonthlyUsageResetJobData | GCalPushSyncJobData | GCalPushRenewalJobData> => {
   if (!emailQueue) {
     throw new Error(
       "Email queue not initialized. Call initializeQueues() first.",

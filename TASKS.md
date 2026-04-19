@@ -644,11 +644,70 @@ Full design: `docs/pricing-and-costs.md`
 
 ---
 
+## Phase 4.3 — Two-way GCal Push Webhooks ✅ Complete
+
+> Pull-based sync already existed. Phase 4.3 adds real-time push delivery via Google Calendar watch channels.
+> All operations are fail-open — pull-based sync continues working even if push is unavailable.
+
+### What was built
+
+**P0 — Schema**
+- [x] `GCalSyncState` model added to `schema.prisma` (`channelId @unique`, `resourceId`, `expiration`, `syncToken`)
+- [x] `gcalSyncState GCalSyncState?` relation on `User`
+- [x] `pnpm db:push` — database is in sync ✅
+
+**P1 — Push Service** (`src/services/googleCalendarPushService.ts`)
+- [x] `registerWatchChannel(userId)` — calls `calendar.events.watch()`, stores channelId/resourceId/expiry in GCalSyncState (upsert)
+- [x] `stopWatchChannel(userId)` — calls `calendar.channels.stop()` + deletes GCalSyncState row
+- [x] `refreshSyncToken(userId)` — fetches updated syncToken; handles 410 Gone with full re-sync
+- [x] `processIncomingNotification(channelId)` — looks up userId by channelId, calls events.list(syncToken), passes to `syncLinkedMeetingsFromGooglePush`, updates syncToken
+- [x] `renewExpiringChannels()` — finds GCalSyncState rows expiring in <5 days, stop+re-register
+
+**P2 — Webhook Endpoint** (`src/routes/googleWebhookRoutes.ts`)
+- [x] `POST /webhooks/google/calendar` — validates X-Goog-Channel-Token, ignores `state=sync` handshake, queues `gcal-push-sync` job, always 200
+- [x] Rate-limited 60/min per IP
+- [x] Registered in `indexRouter.ts` under `/webhooks`
+
+**P3 — Bull Job**
+- [x] `gcal-push-sync` job name added to `JobNames` + `GCalPushSyncJobData` interface
+- [x] Job handler in `jobProcessor.ts` → calls `processIncomingNotification(channelId)`, fail-open (no retry)
+
+**P4 — Connect/Disconnect Wiring**
+- [x] `googleService.handleCalendarConnectCallback()` → calls `registerWatchChannel(userId)` after OAuth (fail-open)
+- [x] `integrationController.disconnectGoogleCalendar()` → calls `stopWatchChannel(userId)` (fail-open)
+
+**P5 — Channel Renewal Cron**
+- [x] Daily cron at 02:00 UTC — calls `renewExpiringChannels()` via `gcal-push-sync:renewal` job
+
+**P6 — Backfill for Existing Users**
+- [x] `POST /integrations/google/calendar/push/register` (verifyJWT, 5/hr) → calls `registerWatchChannel`; returns `{ pushEnabled }`
+- [x] Frontend auto-calls this on Settings > Integrations mount if `connected && !pushEnabled`
+
+**Frontend**
+- [x] `pushEnabled: boolean` added to `GCalConnectionStatus` type in `integrationsService.ts`
+- [x] `registerGCalPushChannel()` API method added
+- [x] `useRegisterGCalPushChannel()` mutation hook — fail-open (no error toast)
+- [x] Settings > Integrations: auto-registers on mount + shows **"Real-time sync active"** badge when `pushEnabled === true`
+
+---
+
+## Phase 4.4 — Polish & First-Run Experience
+
+> Scope defined after Phase 4.3 ships and a fresh product audit is done.
+> Will cover: empty state improvements, first-run onboarding gaps, any UX rough edges.
+
+---
+
+## Phase 4.5 — Razorpay ⛔ BLOCKED
+
+Account blocked. Env vars already in `.env.example` (commented out). Do not start.
+
+---
+
 ## Phase 5 — Big Brain ⛔ BLOCKED
 
-Requires separate infrastructure. Do not start. Phase 4.1 + 4.2 must be complete first.
+Requires separate infrastructure. Do not start. Phase 4.x must be complete first.
 
 - [ ] Vector embeddings pipeline
 - [ ] RAG query endpoint (global Ask AI)
-- [ ] Full two-way GCal sync — Google Calendar push webhooks
 - [x] ~~Model upgrades: `nova-2` → `nova-3`, `gpt-4o-mini` → `gpt-5.4-mini`~~ — done early at Phase 4 start
