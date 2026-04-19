@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-04-19 (Phase 4.1 complete ✅ — Phase 4.2 has no backend tasks)
+Last updated: 2026-04-19 (Phase 4.2 complete ✅ — Ask AI Persistence shipped)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -632,42 +632,15 @@ Full design: `docs/pricing-and-costs.md`
 
 ---
 
-## Phase 4.2 — Ask AI Persistence
+## Phase 4.2 — Ask AI Persistence ✅ Complete
 
-> Ask AI conversations stored in PostgreSQL. Two new models: `AskAIConversation` (one per user per meeting) + `AskAIMessage` (each turn). History fetched on tab open, messages appended after each stream completes.
+> Ask AI conversations persisted in PostgreSQL. History loaded on tab open, last 6 messages (3 exchanges) injected as OpenAI context for follow-up awareness. Clear endpoint wipes all messages.
 
----
-
-### P0 — Schema + Migration
-
-- [x] Add to `prisma/schema.prisma` — `AskAIConversation` + `AskAIMessage` models
-- [x] `pnpm db:push` (run when DB is awake — Neon autosuspend P1001 in dev)
-- [x] Add `User` → `AskAIConversation` relation on `User` model
-
----
-
-### P1 — Service
-
-- [x] `src/services/ai/askAIConversationService.ts`:
-  - `getOrCreateConversation(userId, meetingId)` — upsert on `@@unique([meetingId, userId])`
-  - `getMessages(userId, meetingId)` — fetch conversation messages ordered by `createdAt ASC`
-  - `appendMessage(conversationId, role, content)` — `prisma.askAIMessage.create`
-  - `clearMessages(userId, meetingId)` — `prisma.askAIMessage.deleteMany` where `conversationId`
-
----
-
-### P2 — Endpoints
-
-- [x] `GET /sma/meetings/:meetingId/ask/history` (verifyJWT) → calls `getMessages`
-- [x] `DELETE /sma/meetings/:meetingId/ask/history` (verifyJWT) → calls `clearMessages`
-- [x] Update `POST /sma/meetings/:meetingId/ask` — persist user + assistant messages around stream
-
----
-
-### P3 — Controller + Routes
-
-- [x] `aiController.ts` — added `getAskAIHistory` + `clearAskAIHistory` handlers
-- [x] `smaRoutes.ts` — wired `GET` + `DELETE /sma/meetings/:meetingId/ask/history`
+- [x] `AskAIConversation` + `AskAIMessage` models added to `schema.prisma`, `pnpm db:push` run
+- [x] `src/services/ai/askAIConversationService.ts` — `getOrCreateConversation`, `getMessages`, `appendMessage`, `clearMessages`
+- [x] `GET /sma/meetings/:meetingId/ask/history` — returns messages array
+- [x] `DELETE /sma/meetings/:meetingId/ask/history` — wipes conversation
+- [x] `POST /sma/meetings/:meetingId/ask` — appends user message before stream, assistant message after; injects last 6 persisted messages as OpenAI conversation context
 
 ---
 
