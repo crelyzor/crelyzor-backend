@@ -824,13 +824,22 @@ Answer the user's questions based solely on the transcript content.
 Be concise, accurate, and helpful. If the answer isn't in the transcript, say so clearly.`;
 
   const userMessage = `Transcript:\n${transcriptContext}\n\nQuestion: ${question}`;
-  const askAIPromptChars = systemPrompt.length + userMessage.length;
 
   // Persist the conversation + user message BEFORE streaming
   const conversationId = await conversationService.getOrCreateConversation(
     userId,
     meetingId,
   );
+
+  // Fetch last 6 messages (3 exchanges) for conversational context
+  const priorMessages = await conversationService.getMessages(userId, meetingId);
+  const historyMessages = priorMessages
+    .slice(-6)
+    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+  const historyChars = historyMessages.reduce((acc, m) => acc + m.content.length, 0);
+  const askAIPromptChars = systemPrompt.length + userMessage.length + historyChars;
+
   await conversationService.appendMessage(conversationId, "user", question);
 
   // Stream SSE headers
@@ -849,6 +858,7 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
       model: OPENAI_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
+        ...historyMessages,
         { role: "user", content: userMessage },
       ],
       max_completion_tokens: 900,
