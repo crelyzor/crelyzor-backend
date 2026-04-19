@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-04-19 (Phase 4.2 complete ✅ — Ask AI Persistence shipped)
+Last updated: 2026-04-19 (Phase 4.3 complete ✅ — Two-way GCal Push Webhooks shipped)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -693,8 +693,14 @@ Full design: `docs/pricing-and-costs.md`
 
 ## Phase 4.4 — Polish & First-Run Experience
 
-> Scope defined after Phase 4.3 ships and a fresh product audit is done.
-> Will cover: empty state improvements, first-run onboarding gaps, any UX rough edges.
+> **Goal:** Backend tasks that unblock or support 4.4 frontend polish. Based on full product audit (2026-04-19).
+
+### P0 — Schema fix
+
+- [x] Add `isDeleted Boolean @default(false)` and `deletedAt DateTime?` to `CardContact` model
+- [x] Run `pnpm db:push`
+- [x] Update `cardService.ts` contact delete (`deleteContact`) to soft delete — set `isDeleted=true`, `deletedAt=now()` instead of `prisma.cardContact.delete()`
+- [x] Update `cardService.ts` contact queries to filter `isDeleted: false`
 
 ---
 

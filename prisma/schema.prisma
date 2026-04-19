@@ -619,6 +619,10 @@ model CardContact {
   scannedAt      DateTime @default(now())
   savedByScanner Boolean  @default(false) // did they also save the card?
 
+  // Soft delete (Phase 4.4)
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
   // Relations
   contactTags ContactTag[]
   card        Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
@@ -627,6 +631,7 @@ model CardContact {
   @@index([cardId])
   @@index([userId, scannedAt])
   @@index([email])
+  @@index([userId, isDeleted])
 }
 
 model CardView {

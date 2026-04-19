@@ -595,7 +595,7 @@ export const cardService = {
     const limit = options.limit || 20;
     const skip = (page - 1) * limit;
 
-    const where: Record<string, unknown> = { userId };
+    const where: Record<string, unknown> = { userId, isDeleted: false };
 
     if (options.cardId) where.cardId = options.cardId;
 
@@ -644,7 +644,7 @@ export const cardService = {
    */
   async updateContactTags(userId: string, contactId: string, tags: string[]) {
     const contact = await prisma.cardContact.findFirst({
-      where: { id: contactId, userId },
+      where: { id: contactId, userId, isDeleted: false },
     });
     if (!contact) {
       throw ErrorFactory.notFound("Contact not found");
@@ -661,22 +661,24 @@ export const cardService = {
    */
   async deleteContact(userId: string, contactId: string) {
     const contact = await prisma.cardContact.findFirst({
-      where: { id: contactId, userId },
+      where: { id: contactId, userId, isDeleted: false },
     });
     if (!contact) {
       throw ErrorFactory.notFound("Contact not found");
     }
 
-    // TODO: Soft delete blocked — CardContact has no isDeleted field in schema.
-    // Add CardContact.isDeleted + CardContact.deletedAt migration before switching.
-    await prisma.cardContact.delete({ where: { id: contactId } });
+    // Phase 4.4: soft delete — preserve data for audit trail
+    await prisma.cardContact.update({
+      where: { id: contactId },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
   },
 
   /**
    * Export contacts as CSV
    */
   async exportContacts(userId: string, cardId?: string) {
-    const where: Record<string, unknown> = { userId };
+    const where: Record<string, unknown> = { userId, isDeleted: false };
     if (cardId) where.cardId = cardId;
 
     const contacts = await prisma.cardContact.findMany({
@@ -826,7 +828,7 @@ export const cardService = {
           distinct: ["ipHash"],
         }),
         prisma.cardContact.count({
-          where: { cardId, scannedAt: { gte: since } },
+          where: { cardId, isDeleted: false, scannedAt: { gte: since } },
         }),
         prisma.cardView.groupBy({
           by: ["clickedLink"],
