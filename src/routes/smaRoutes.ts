@@ -124,6 +124,10 @@ router.post(
   aiController.askAI,
 );
 
+// Ask AI history — fetch + clear persisted conversation
+router.get("/meetings/:meetingId/ask/history", aiController.getAskAIHistory);
+router.delete("/meetings/:meetingId/ask/history", aiController.clearAskAIHistory);
+
 // AI Content Generation
 router.get("/meetings/:meetingId/generated", aiController.getGeneratedContents);
 router.post(

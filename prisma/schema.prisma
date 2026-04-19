@@ -73,6 +73,9 @@ model User {
   usage        UserUsage?
   subscription Subscription?
 
+  // AI Conversations (Phase 4.2)
+  askAIConversations AskAIConversation[]
+
   @@index([activeSessionId])
   @@index([createdAt])
   @@index([plan])
@@ -191,6 +194,7 @@ model Meeting {
   tags         MeetingTag[]
   attachments  MeetingAttachment[]
   booking      Booking?
+  askAIConversations AskAIConversation[]
 
   @@index([createdById])
   @@index([createdAt])
@@ -449,6 +453,42 @@ model MeetingAIContent {
 
   @@unique([meetingId, type])
   @@index([meetingId])
+}
+
+// ================================
+// ASK AI CONVERSATIONS (Phase 4.2)
+// ================================
+
+model AskAIConversation {
+  id        String         @id @default(uuid()) @db.Uuid
+  meetingId String         @db.Uuid
+  userId    String         @db.Uuid
+
+  meeting  Meeting        @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AskAIMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([meetingId, userId])
+  @@index([meetingId])
+  @@index([userId])
+}
+
+model AskAIMessage {
+  id             String            @id @default(uuid()) @db.Uuid
+  conversationId String            @db.Uuid
+
+  role    String // "user" | "assistant"
+  content String @db.Text
+
+  conversation AskAIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
 }
 
 model MeetingShare {

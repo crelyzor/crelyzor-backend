@@ -8,6 +8,7 @@ import { askAISchema } from "../validators/askAISchema";
 import { generateContentSchema } from "../validators/generateContentSchema";
 import { noteSchema } from "../validators/noteSchema";
 import { apiResponse } from "../utils/globalResponseHandler";
+import * as conversationService from "../services/ai/askAIConversationService";
 
 const notesQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -298,5 +299,55 @@ export const deleteNote = async (req: Request, res: Response) => {
   return apiResponse(res, {
     statusCode: 200,
     message: "Note deleted successfully",
+  });
+};
+
+/**
+ * GET /sma/meetings/:meetingId/ask/history
+ * Return all persisted Ask AI messages for this meeting (oldest → newest).
+ */
+export const getAskAIHistory = async (req: Request, res: Response) => {
+  const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  const userId = req.user?.userId;
+  if (!userId) throw new AppError("Unauthorized", 401);
+
+  // Verify the meeting belongs to the caller
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+
+  const messages = await conversationService.getMessages(userId, meetingId);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Ask AI history fetched",
+    data: { messages },
+  });
+};
+
+/**
+ * DELETE /sma/meetings/:meetingId/ask/history
+ * Clear all Ask AI messages for this meeting.
+ */
+export const clearAskAIHistory = async (req: Request, res: Response) => {
+  const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  const userId = req.user?.userId;
+  if (!userId) throw new AppError("Unauthorized", 401);
+
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+
+  await conversationService.clearMessages(userId, meetingId);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Ask AI history cleared",
   });
 };

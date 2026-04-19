@@ -6,6 +6,7 @@ import { logger } from "../../utils/logging/logger";
 import { AppError } from "../../utils/errors/AppError";
 import { getRedisClient } from "../../config/redisClient";
 import { checkAndDeductCredits } from "../billing/usageService";
+import * as conversationService from "./askAIConversationService";
 
 const OPENAI_MODEL = "gpt-5.4-mini"; // Upgraded to gpt-5.4-mini at Phase 4 start — better summaries, task extraction, Ask AI quality
 const MAX_PIPELINE_CHARS = 30000; // ~7.5k tokens — balances quality and cost
@@ -825,6 +826,13 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
   const userMessage = `Transcript:\n${transcriptContext}\n\nQuestion: ${question}`;
   const askAIPromptChars = systemPrompt.length + userMessage.length;
 
+  // Persist the conversation + user message BEFORE streaming
+  const conversationId = await conversationService.getOrCreateConversation(
+    userId,
+    meetingId,
+  );
+  await conversationService.appendMessage(conversationId, "user", question);
+
   // Stream SSE headers
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -836,6 +844,7 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
 
   try {
     let streamedCompletionChars = 0;
+    let fullAssistantResponse = "";
     const stream = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages: [
@@ -851,6 +860,7 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
       const delta = chunk.choices[0]?.delta?.content;
       if (delta) {
         streamedCompletionChars += delta.length;
+        fullAssistantResponse += delta;
         res.write(`data: ${JSON.stringify({ token: delta })}\n\n`);
       }
     }
@@ -867,6 +877,15 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
     const estimatedInputTokens = Math.ceil(askAIPromptChars / 4);
     const estimatedOutputTokens = Math.ceil(streamedCompletionChars / 4);
     await checkAndDeductCredits(userId, estimatedInputTokens, estimatedOutputTokens);
+
+    // Persist the assistant response
+    if (fullAssistantResponse) {
+      await conversationService.appendMessage(
+        conversationId,
+        "assistant",
+        fullAssistantResponse,
+      );
+    }
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();

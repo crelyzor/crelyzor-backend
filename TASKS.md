@@ -640,40 +640,15 @@ Full design: `docs/pricing-and-costs.md`
 
 ### P0 — Schema + Migration
 
-- [ ] Add to `prisma/schema.prisma`:
-
-  ```prisma
-  model AskAIConversation {
-    id        String         @id @default(uuid()) @db.Uuid
-    meetingId String         @db.Uuid
-    userId    String         @db.Uuid
-    meeting   Meeting        @relation(fields: [meetingId], references: [id])
-    user      User           @relation(fields: [userId], references: [id])
-    messages  AskAIMessage[]
-    createdAt DateTime       @default(now())
-    updatedAt DateTime       @updatedAt
-
-    @@unique([meetingId, userId])
-  }
-
-  model AskAIMessage {
-    id             String            @id @default(uuid()) @db.Uuid
-    conversationId String            @db.Uuid
-    conversation   AskAIConversation @relation(fields: [conversationId], references: [id])
-    role           String            // "user" | "assistant"
-    content        String
-    createdAt      DateTime          @default(now())
-  }
-  ```
-
-- [ ] `pnpm db:migrate` + `pnpm db:generate`
-- [ ] Add `User` → `AskAIConversation` relation on `User` model
+- [x] Add to `prisma/schema.prisma` — `AskAIConversation` + `AskAIMessage` models
+- [x] `pnpm db:push` (run when DB is awake — Neon autosuspend P1001 in dev)
+- [x] Add `User` → `AskAIConversation` relation on `User` model
 
 ---
 
 ### P1 — Service
 
-- [ ] `src/services/ai/askAIConversationService.ts`:
+- [x] `src/services/ai/askAIConversationService.ts`:
   - `getOrCreateConversation(userId, meetingId)` — upsert on `@@unique([meetingId, userId])`
   - `getMessages(userId, meetingId)` — fetch conversation messages ordered by `createdAt ASC`
   - `appendMessage(conversationId, role, content)` — `prisma.askAIMessage.create`
@@ -683,19 +658,16 @@ Full design: `docs/pricing-and-costs.md`
 
 ### P2 — Endpoints
 
-- [ ] `GET /sma/meetings/:meetingId/ask/history` (verifyJWT) → calls `getMessages`, returns `{ messages: [{ role, content, createdAt }] }`
-- [ ] `DELETE /sma/meetings/:meetingId/ask/history` (verifyJWT) → calls `clearMessages`, returns 200
-- [ ] Update `POST /sma/meetings/:meetingId/ask`:
-  - Before streaming: `getOrCreateConversation` + `appendMessage(conversationId, 'user', question)`
-  - In `onDone` (after full response assembled): `appendMessage(conversationId, 'assistant', fullResponse)`
-  - Pass `conversationId` through the streaming closure so `onDone` can use it
+- [x] `GET /sma/meetings/:meetingId/ask/history` (verifyJWT) → calls `getMessages`
+- [x] `DELETE /sma/meetings/:meetingId/ask/history` (verifyJWT) → calls `clearMessages`
+- [x] Update `POST /sma/meetings/:meetingId/ask` — persist user + assistant messages around stream
 
 ---
 
 ### P3 — Controller + Routes
 
-- [ ] `smaController.ts` — add `getAskAIHistory` + `clearAskAIHistory` handlers
-- [ ] `smaRoutes.ts` — wire `GET` + `DELETE /sma/meetings/:meetingId/ask/history`
+- [x] `aiController.ts` — added `getAskAIHistory` + `clearAskAIHistory` handlers
+- [x] `smaRoutes.ts` — wired `GET` + `DELETE /sma/meetings/:meetingId/ask/history`
 
 ---
 
