@@ -77,7 +77,7 @@ export const transcribeRecording = async (
         diarize: true,
         punctuate: true,
         utterances: true,
-        language: language ?? "en",
+        language: language ?? "multi",
       },
     );
 
@@ -341,7 +341,7 @@ export const regenerateTranscript = async (
   );
 
   logger.info(`Regenerate transcript queued for meeting ${meetingId}`, {
-    language: language ?? "en",
+    language: language ?? "multi",
   });
 };
 
