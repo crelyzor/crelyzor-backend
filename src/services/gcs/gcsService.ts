@@ -18,9 +18,7 @@ const getStorage = (): Storage => {
     const projectId = process.env.GCS_PROJECT_ID;
     if (projectId) options.projectId = projectId;
 
-    const keyFile = process.env.GCS_KEY_FILE;
-    if (keyFile) options.keyFilename = keyFile;
-
+    // Auth via Application Default Credentials (gcloud ADC on local, VM identity on GCE)
     storage = new Storage(options);
   }
   return storage;
