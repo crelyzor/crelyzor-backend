@@ -3,21 +3,41 @@ import {
   getAIProcessingQueue,
   getRecallBotQueue,
   getRecallRecordingQueue,
+  getEmailQueue,
   closeQueues,
   JobNames,
   TranscriptionJobData,
   AIProcessingJobData,
   RecallBotJobData,
   RecallRecordingJobData,
+  BookingReminderJobData,
+  DailyDigestJobData,
+  MonthlyUsageResetJobData,
+  GCalPushSyncJobData,
+  GCalPushRenewalJobData,
 } from "../config/queue";
 import { transcriptionService } from "../services/transcription/transcriptionService";
 import { aiService } from "../services/ai/aiService";
-import { deployBot, getRecordingUrl } from "../services/recall/recallService";
+import { sendEmail } from "../services/email/emailService";
+import { meetingReadyEmail, meetingReadySubject } from "../services/email/templates/meetingReady";
+import { bookingReminderEmail, bookingReminderSubject } from "../services/email/templates/bookingReminder";
+import { dailyDigestEmail, dailyDigestSubject } from "../services/email/templates/dailyDigest";
+import { deployBot, getBotRecordingInfo } from "../services/recall/recallService";
+import { checkRecall, deductRecall, runMonthlyReset } from "../services/billing/usageService";
 import { gcsService } from "../services/gcs/gcsService";
 import { logger } from "../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
 import prisma from "../db/prismaClient";
 import { isVideoMeetingUrl } from "../utils/isVideoMeetingUrl";
+import {
+  processIncomingNotification,
+  renewExpiringChannels,
+} from "../services/googleCalendarPushService";
+
+/** Base URL for the dashboard app — used in email CTAs */
+const APP_BASE_URL = process.env.FRONTEND_URL ?? "https://app.crelyzor.com";
+/** Base URL for public-facing links */
+const PUBLIC_BASE_URL = process.env.PUBLIC_URL ?? "https://crelyzor.com";
 
 /**
  * Initialize and start all queue processors
@@ -81,6 +101,32 @@ export const startWorker = async (): Promise<void> => {
         data.meetingId,
         data.ownerId,
       );
+
+      // Email notification: Meeting Ready
+      const [meeting, user] = await Promise.all([
+        prisma.meeting.findUnique({ where: { id: data.meetingId }, select: { title: true } }),
+        prisma.user.findUnique({
+          where: { id: data.ownerId },
+          select: { name: true, email: true, settings: { select: { emailNotificationsEnabled: true, meetingReadyEmailEnabled: true } } }
+        }),
+      ]);
+
+      const emailsEnabled =
+        (user?.settings?.emailNotificationsEnabled ?? true) &&
+        (user?.settings?.meetingReadyEmailEnabled ?? true);
+
+      if (emailsEnabled && user?.email && meeting?.title) {
+        await sendEmail({
+          to: user.email,
+          subject: meetingReadySubject({ meetingTitle: meeting.title }),
+          html: meetingReadyEmail({
+            userName: user.name ?? "there",
+            meetingTitle: meeting.title,
+            meetingId: data.meetingId,
+            appBaseUrl: APP_BASE_URL,
+          }),
+        });
+      }
 
       return { success: true, result };
     } catch (error) {
@@ -146,6 +192,20 @@ export const startWorker = async (): Promise<void> => {
       // Join 5 minutes before start
       const joinAt = new Date(meeting.startTime.getTime() - 5 * 60 * 1000).toISOString();
 
+      // Recall usage check — estimate 1 hr per session. Throws 402 if over limit.
+      // Fail-open: if check itself errors unexpectedly, let the job continue.
+      try {
+        await checkRecall(data.hostUserId, 1);
+      } catch (usageErr: unknown) {
+        if (usageErr instanceof Error && usageErr.message === "RECALL_LIMIT_REACHED") {
+          logger.warn("Recall limit reached — skipping bot deploy", { meetingId: data.meetingId, hostUserId: data.hostUserId });
+          return { skipped: true, reason: "recall_limit_reached" };
+        }
+        logger.error("Recall usage check error (non-fatal, continuing deploy)", {
+          error: usageErr instanceof Error ? usageErr.message : String(usageErr),
+        });
+      }
+
       const { botId } = await deployBot(meetingLink, joinAt);
 
       // Store botId on the meeting for webhook correlation
@@ -174,8 +234,8 @@ export const startWorker = async (): Promise<void> => {
     logger.info("Processing Recall recording fetch job", { meetingId: data.meetingId, botId: data.botId });
 
     try {
-      // Fetch recording download URL from Recall.ai (uses platform key from env)
-      const downloadUrl = await getRecordingUrl(data.botId);
+      // Fetch recording download URL from bot details
+      const { url: downloadUrl } = await getBotRecordingInfo(data.botId);
 
       // Download the recording bytes
       const response = await fetch(downloadUrl);
@@ -228,6 +288,12 @@ export const startWorker = async (): Promise<void> => {
         meetingId: data.meetingId,
         recordingId: recording.id,
       });
+
+      // Deduct Recall hours based on actual recording duration (fail-open).
+      // Duration is unknown at this stage; use 1 hr as a conservative deduction.
+      // TODO Phase 5: use actual bot duration from Recall API when available.
+      await deductRecall(data.hostUserId, 1);
+
       return { success: true, recordingId: recording.id };
     } catch (err) {
       logger.error("Recall recording fetch job failed", {
@@ -240,6 +306,264 @@ export const startWorker = async (): Promise<void> => {
       throw err; // re-throw so Bull marks the job as failed
     }
   });
+
+  // Email Queue processor
+  const emailQueue = getEmailQueue();
+  emailQueue.process(JobNames.BOOKING_REMINDER, async (job) => {
+    const { bookingId } = job.data as BookingReminderJobData;
+    logger.info("Processing booking reminder email job", { jobId: job.id, bookingId });
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        id: true,
+        status: true,
+        startTime: true,
+        endTime: true,
+        timezone: true,
+        guestName: true,
+        guestEmail: true,
+        userId: true,
+        eventType: { select: { title: true } },
+        meeting: {
+          select: {
+            meetLink: true,
+            location: true,
+            booking: { select: { eventType: { select: { meetingLink: true } } } },
+          },
+        },
+      },
+    });
+
+    if (!booking || booking.status !== "CONFIRMED") {
+      logger.info("Booking reminder skipped: not found or not confirmed", { bookingId });
+      return { skipped: true };
+    }
+
+    const host = await prisma.user.findUnique({
+      where: { id: booking.userId },
+      select: {
+        name: true,
+        email: true,
+        settings: { select: { emailNotificationsEnabled: true, bookingEmailsEnabled: true } },
+      },
+    });
+
+    const emailsEnabled =
+      (host?.settings?.emailNotificationsEnabled ?? true) &&
+      (host?.settings?.bookingEmailsEnabled ?? true);
+
+    if (!emailsEnabled) {
+      return { skipped: true };
+    }
+
+    const meetingLink =
+      booking.meeting?.booking?.eventType?.meetingLink ??
+      booking.meeting?.meetLink ??
+      booking.meeting?.location;
+
+    const sharedParams = {
+      eventTypeTitle: booking.eventType.title,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+      timezone: booking.timezone,
+      meetingLink,
+    };
+
+    await Promise.all([
+      host?.email
+        ? sendEmail({
+            to: host.email,
+            subject: bookingReminderSubject({
+              eventTypeTitle: booking.eventType.title,
+              otherPartyName: booking.guestName,
+            }),
+            html: bookingReminderEmail({
+              recipientName: host?.name ?? "Host",
+              otherPartyName: booking.guestName,
+              role: "host",
+              ...sharedParams,
+            }),
+          })
+        : Promise.resolve(),
+      sendEmail({
+        to: booking.guestEmail,
+        subject: bookingReminderSubject({
+          eventTypeTitle: booking.eventType.title,
+          otherPartyName: host?.name ?? "Host",
+        }),
+        html: bookingReminderEmail({
+          recipientName: booking.guestName,
+          otherPartyName: host?.name ?? "Host",
+          role: "guest",
+          ...sharedParams,
+        }),
+      }),
+    ]);
+
+    return { success: true };
+  });
+
+  emailQueue.process(JobNames.DAILY_TASK_DIGEST, async (job) => {
+    logger.info("Processing daily task digest email job", { jobId: job.id });
+
+    const users = await prisma.user.findMany({
+      where: {
+        isActive: true,
+        isDeleted: false,
+        settings: {
+          emailNotificationsEnabled: true,
+          dailyDigestEnabled: true,
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        timezone: true,
+        tasks: {
+          where: { isDeleted: false, status: { not: "DONE" } },
+          select: { title: true, priority: true, dueDate: true },
+        },
+      },
+    });
+
+    logger.info(`Sending daily digest to ${users.length} users`);
+
+    for (const user of users) {
+      if (!user.email) continue;
+
+      const now = new Date();
+      const userNow = new Date(now.toLocaleString("en-US", { timeZone: user.timezone }));
+      userNow.setHours(0, 0, 0, 0);
+
+      const overdueTasks: any[] = [];
+      const todayTasks: any[] = [];
+
+      user.tasks.forEach((task) => {
+        if (!task.dueDate) return;
+        const taskDate = new Date(task.dueDate);
+        const userTaskDate = new Date(taskDate.toLocaleString("en-US", { timeZone: user.timezone }));
+        userTaskDate.setHours(0, 0, 0, 0);
+
+        const isOverdue = userTaskDate < userNow;
+        const isToday = userTaskDate.getTime() === userNow.getTime();
+
+        const digestTask = {
+          title: task.title,
+          priority: task.priority,
+          dueDate: task.dueDate,
+          isOverdue,
+        };
+
+        if (isOverdue) overdueTasks.push(digestTask);
+        if (isToday) todayTasks.push(digestTask);
+      });
+
+      if (overdueTasks.length > 0 || todayTasks.length > 0) {
+        await sendEmail({
+          to: user.email,
+          subject: dailyDigestSubject({ overdueTasks, todayTasks }),
+          html: dailyDigestEmail({
+            userName: user.name,
+            overdueTasks,
+            todayTasks,
+            appBaseUrl: APP_BASE_URL,
+          }),
+        });
+      }
+    }
+
+    return { success: true, count: users.length };
+  });
+
+  // Schedule daily task digest cron job (08:00 UTC every day)
+  try {
+    await emailQueue.add(
+      JobNames.DAILY_TASK_DIGEST,
+      { triggeredAt: new Date().toISOString() },
+      { repeat: { cron: "0 8 * * *" }, jobId: "daily-digest-cron" }
+    );
+    logger.info("Daily task digest cron scheduled for 08:00 UTC");
+  } catch (err) {
+    logger.error("Failed to schedule daily task digest cron", { 
+      error: err instanceof Error ? err.message : String(err) 
+    });
+  }
+
+  // Monthly usage reset processor
+  emailQueue.process(JobNames.MONTHLY_USAGE_RESET, async (job) => {
+    const data = job.data as MonthlyUsageResetJobData;
+    logger.info("Processing monthly usage reset job", { triggeredAt: data.triggeredAt });
+    try {
+      const count = await runMonthlyReset();
+      return { success: true, usersReset: count };
+    } catch (err) {
+      logger.error("Monthly usage reset job failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+  });
+
+  // Schedule monthly usage reset cron (midnight on 1st of every month UTC)
+  try {
+    await emailQueue.add(
+      JobNames.MONTHLY_USAGE_RESET,
+      { triggeredAt: new Date().toISOString() },
+      { repeat: { cron: "0 0 1 * *" }, jobId: "monthly-usage-reset-cron" }
+    );
+    logger.info("Monthly usage reset cron scheduled for 00:00 UTC on 1st of each month");
+  } catch (err) {
+    logger.error("Failed to schedule monthly usage reset cron", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // ── GCal Push Sync job (Phase 4.3) ────────────────────────────────────────────
+  emailQueue.process(JobNames.GCAL_PUSH_SYNC, async (job) => {
+    const data = job.data as GCalPushSyncJobData;
+    logger.info("Processing GCal push sync job", { channelId: data.channelId });
+    try {
+      await processIncomingNotification(data.channelId);
+      return { success: true };
+    } catch (err) {
+      // Fail-open — Google will retry on next change anyway
+      logger.error("GCal push sync job failed", {
+        channelId: data.channelId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { success: false };
+    }
+  });
+
+  // GCal channel renewal cron (daily at 02:00 UTC)
+  emailQueue.process(JobNames.GCAL_PUSH_SYNC + ":renewal", async (job) => {
+    const data = job.data as GCalPushRenewalJobData;
+    logger.info("Processing GCal channel renewal job", { triggeredAt: data.triggeredAt });
+    try {
+      const renewed = await renewExpiringChannels();
+      return { success: true, renewed };
+    } catch (err) {
+      logger.error("GCal channel renewal job failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+  });
+
+  try {
+    await emailQueue.add(
+      JobNames.GCAL_PUSH_SYNC + ":renewal",
+      { triggeredAt: new Date().toISOString() },
+      { repeat: { cron: "0 2 * * *" }, jobId: "gcal-channel-renewal-cron" },
+    );
+    logger.info("GCal channel renewal cron scheduled for 02:00 UTC daily");
+  } catch (err) {
+    logger.error("Failed to schedule GCal channel renewal cron", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   logger.info("Queue worker started successfully");
 };

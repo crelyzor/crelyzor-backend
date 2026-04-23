@@ -34,6 +34,10 @@ const envSchema = z.object({
   RECALL_API_KEY: z.string().min(1).optional(),
   RECALL_WEBHOOK_SECRET: z.string().min(1).optional(),
   RECALL_BASE_URL: z.string().url().default("https://api.recall.ai/api/v1"),
+
+  // Email (Resend) — optional; emails are skipped gracefully if absent
+  RESEND_API_KEY: z.string().min(1).optional(),
+  RESEND_FROM_EMAIL: z.string().default("Crelyzor <notifications@crelyzor.com>"),
 });
 
 export type Environment = z.infer<typeof envSchema>;

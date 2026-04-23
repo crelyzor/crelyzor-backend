@@ -13,8 +13,10 @@ import settingsRouter from "./settingsRoutes";
 import schedulingRouter from "./schedulingRoutes";
 import publicSchedulingRouter from "./publicSchedulingRoutes";
 import publicBookingsRouter from "./publicBookingsRoutes";
+import billingRouter from "./billingRoutes";
 import integrationRouter from "./integrationRoutes";
 import searchRouter from "./searchRoutes";
+import googleWebhookRouter from "./googleWebhookRoutes";
 
 const indexRouter = Router();
 
@@ -74,6 +76,11 @@ indexRouter.use("/tags", tagRouter);
 indexRouter.use("/integrations", integrationRouter);
 
 // ========================================
+// 💰 BILLING ROUTES
+// ========================================
+indexRouter.use("/billing", billingRouter);
+
+// ========================================
 // 🔍 SEARCH ROUTES
 // ========================================
 indexRouter.use("/search", searchRouter);
@@ -82,5 +89,10 @@ indexRouter.use("/search", searchRouter);
 // 📦 STORAGE ROUTES
 // ========================================
 indexRouter.use("/storage", storageRouter);
+
+// ========================================
+// 🔔 WEBHOOK ROUTES (public — no JWT)
+// ========================================
+indexRouter.use("/webhooks", googleWebhookRouter);
 
 export default indexRouter;

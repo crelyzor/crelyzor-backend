@@ -2,6 +2,7 @@ import { Router } from "express";
 import { verifyJWT } from "../middleware/authMiddleware";
 import { cardController } from "../controllers/cardController";
 import * as tagController from "../controllers/tagController";
+import { singleImportUpload } from "../middleware/importUploadMiddleware";
 
 const cardRouter = Router();
 
@@ -26,20 +27,13 @@ cardRouter.post("/", (req, res) => cardController.createCard(req, res));
 /** GET /api/v1/cards — Get all user's cards */
 cardRouter.get("/", (req, res) => cardController.getUserCards(req, res));
 
-/** GET /api/v1/cards/:cardId — Get a single card */
-cardRouter.get("/:cardId", (req, res) => cardController.getCardById(req, res));
+// ========================================
+// LINKED ENTITIES
+// ========================================
 
-/** PATCH /api/v1/cards/:cardId — Update a card */
-cardRouter.patch("/:cardId", (req, res) => cardController.updateCard(req, res));
-
-/** DELETE /api/v1/cards/:cardId — Delete a card */
-cardRouter.delete("/:cardId", (req, res) =>
-  cardController.deleteCard(req, res),
-);
-
-/** POST /api/v1/cards/:cardId/duplicate — Duplicate a card */
-cardRouter.post("/:cardId/duplicate", (req, res) =>
-  cardController.duplicateCard(req, res),
+/** GET /api/v1/cards/:cardId/meetings — Get meetings linked to this card */
+cardRouter.get("/:cardId/meetings", (req, res) =>
+  cardController.getCardMeetings(req, res),
 );
 
 // ========================================
@@ -65,6 +59,11 @@ cardRouter.get("/contacts/export", (req, res) =>
   cardController.exportContacts(req, res),
 );
 
+/** POST /api/v1/cards/:cardId/contacts/import — Import contacts from CSV */
+cardRouter.post("/:cardId/contacts/import", singleImportUpload, (req, res) =>
+  cardController.importContacts(req, res),
+);
+
 /** PATCH /api/v1/cards/contacts/:contactId/tags — Update contact tags */
 cardRouter.patch("/contacts/:contactId/tags", (req, res) =>
   cardController.updateContactTags(req, res),
@@ -73,6 +72,22 @@ cardRouter.patch("/contacts/:contactId/tags", (req, res) =>
 /** DELETE /api/v1/cards/contacts/:contactId — Delete a contact */
 cardRouter.delete("/contacts/:contactId", (req, res) =>
   cardController.deleteContact(req, res),
+);
+
+/** GET /api/v1/cards/:cardId — Get a single card */
+cardRouter.get("/:cardId", (req, res) => cardController.getCardById(req, res));
+
+/** PATCH /api/v1/cards/:cardId — Update a card */
+cardRouter.patch("/:cardId", (req, res) => cardController.updateCard(req, res));
+
+/** DELETE /api/v1/cards/:cardId — Delete a card */
+cardRouter.delete("/:cardId", (req, res) =>
+  cardController.deleteCard(req, res),
+);
+
+/** POST /api/v1/cards/:cardId/duplicate — Duplicate a card */
+cardRouter.post("/:cardId/duplicate", (req, res) =>
+  cardController.duplicateCard(req, res),
 );
 
 // ────────────────────────────────────────────────────────────
@@ -87,5 +102,18 @@ cardRouter.post("/:cardId/tags/:tagId", tagController.attachTagToCard);
 
 /** DELETE /api/v1/cards/:cardId/tags/:tagId */
 cardRouter.delete("/:cardId/tags/:tagId", tagController.detachTagFromCard);
+
+// ────────────────────────────────────────────────────────────
+// CONTACT TAG SUB-ROUTES
+// ────────────────────────────────────────────────────────────
+
+/** GET /api/v1/cards/:cardId/contacts/:contactId/tags */
+cardRouter.get("/:cardId/contacts/:contactId/tags", tagController.getContactTags);
+
+/** POST /api/v1/cards/:cardId/contacts/:contactId/tags/:tagId */
+cardRouter.post("/:cardId/contacts/:contactId/tags/:tagId", tagController.attachTagToContact);
+
+/** DELETE /api/v1/cards/:cardId/contacts/:contactId/tags/:tagId */
+cardRouter.delete("/:cardId/contacts/:contactId/tags/:tagId", tagController.detachTagFromContact);
 
 export default cardRouter;

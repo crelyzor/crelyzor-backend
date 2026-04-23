@@ -24,6 +24,17 @@ export const tagCardParamSchema = z.object({
   tagId: uuidParam,
 });
 
+export const contactIdParamSchema = z.object({
+  cardId: uuidParam,
+  contactId: uuidParam,
+});
+
+export const tagContactParamSchema = z.object({
+  cardId: uuidParam,
+  contactId: uuidParam,
+  tagId: uuidParam,
+});
+
 export const taskIdParamSchema = z.object({
   taskId: uuidParam,
 });

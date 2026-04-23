@@ -3,6 +3,9 @@ import { google } from "googleapis";
 import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
 import prisma from "../db/prismaClient";
+import {
+  registerWatchChannel,
+} from "./googleCalendarPushService";
 
 const LOGIN_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
@@ -13,6 +16,7 @@ const CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
   "https://www.googleapis.com/auth/calendar",
+  "https://www.googleapis.com/auth/tasks",
 ];
 
 export function getOAuthClient(redirectUri?: string) {
@@ -215,5 +219,8 @@ export const googleService = {
     );
 
     logger.info("Google Calendar connected", { userId, email: data.email });
+
+    // Phase 4.3: register push watch channel (fail-open)
+    await registerWatchChannel(userId);
   },
 };

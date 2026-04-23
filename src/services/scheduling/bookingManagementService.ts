@@ -7,7 +7,25 @@ import {
   insertCalendarEvent,
   deleteCalendarEvent,
 } from "../googleCalendarService";
-import { getRecallBotQueue, JobNames } from "../../config/queue";
+import { getRecallBotQueue, getEmailQueue, JobNames } from "../../config/queue";
+import { sendEmail } from "../email/emailService";
+import {
+  bookingReceivedEmail,
+  bookingReceivedSubject,
+} from "../email/templates/bookingReceived";
+import {
+  bookingConfirmationEmail,
+  bookingConfirmationSubject,
+} from "../email/templates/bookingConfirmation";
+import {
+  bookingCancelledEmail,
+  bookingCancelledSubject,
+} from "../email/templates/bookingCancelled";
+
+/** Base URL for the dashboard app — used in email CTAs */
+const APP_BASE_URL = process.env.FRONTEND_URL ?? "https://app.crelyzor.com";
+/** Base URL for public-facing links (cancel, reschedule) */
+const PUBLIC_BASE_URL = process.env.PUBLIC_URL ?? "https://crelyzor.com";
 
 // Fields returned for each booking in the list
 const BOOKING_LIST_SELECT = {
@@ -105,6 +123,7 @@ export async function confirmBooking(userId: string, bookingId: string) {
       eventType: {
         select: {
           title: true,
+          slug: true,
           duration: true,
           locationType: true,
           meetingLink: true,
@@ -122,6 +141,24 @@ export async function confirmBooking(userId: string, bookingId: string) {
     where: { id: bookingId },
     data: { status: "CONFIRMED" },
   });
+
+  if (booking.meetingId) {
+    await prisma.meetingParticipant.createMany({
+      data: [
+        {
+          meetingId: booking.meetingId,
+          userId,
+          participantType: "ORGANIZER",
+        },
+        {
+          meetingId: booking.meetingId,
+          guestEmail: booking.guestEmail,
+          participantType: "ATTENDEE",
+        },
+      ],
+      skipDuplicates: true,
+    });
+  }
 
   logger.info("Booking confirmed", { bookingId, userId });
 
@@ -146,17 +183,25 @@ export async function confirmBooking(userId: string, bookingId: string) {
     });
   }
 
-  // Fetch host details for GCal
+  // Fetch host details for GCal + email prefs
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
       name: true,
-      settings: { select: { recallEnabled: true } },
+      username: true,
+      email: true,
+      settings: {
+        select: {
+          recallEnabled: true,
+          emailNotificationsEnabled: true,
+          bookingEmailsEnabled: true,
+        },
+      },
     },
   });
 
   // GCal — fail-open
-  const gcalEventId = await insertCalendarEvent(userId, {
+  const gcalResult = await insertCalendarEvent(userId, {
     bookingId,
     startTime: booking.startTime,
     endTime: booking.endTime,
@@ -169,11 +214,21 @@ export async function confirmBooking(userId: string, bookingId: string) {
     meetingLink: booking.eventType.meetingLink,
     hostName: user?.name ?? "",
   });
-  if (gcalEventId) {
+  if (gcalResult?.googleEventId) {
     await prisma.booking.update({
       where: { id: bookingId },
-      data: { googleEventId: gcalEventId },
+      data: { googleEventId: gcalResult.googleEventId },
     });
+
+    if (booking.meetingId && gcalResult.meetLink) {
+      await prisma.meeting.update({
+        where: { id: booking.meetingId },
+        data: {
+          meetLink: gcalResult.meetLink,
+          location: gcalResult.meetLink,
+        },
+      });
+    }
   } else {
     // Fail-open: booking is already confirmed in DB regardless of GCal outcome
     logger.warn("GCal event creation returned no event ID — booking confirmed without calendar event", {
@@ -208,6 +263,80 @@ export async function confirmBooking(userId: string, bookingId: string) {
     }
   }
 
+  // Emails — fail-open
+  const emailsEnabled =
+    (user?.settings?.emailNotificationsEnabled ?? true) &&
+    (user?.settings?.bookingEmailsEnabled ?? true);
+
+  if (emailsEnabled && user?.email) {
+    try {
+      // 1. Host: "New booking from [guest]"
+      await sendEmail({
+        to: user.email,
+        subject: bookingReceivedSubject({
+          guestName: booking.guestName,
+          eventTypeTitle: booking.eventType.title,
+        }),
+        html: bookingReceivedEmail({
+          hostName: user.name ?? "there",
+          guestName: booking.guestName,
+          guestEmail: booking.guestEmail,
+          guestNote: booking.guestNote,
+          eventTypeTitle: booking.eventType.title,
+          startTime: booking.startTime,
+          endTime: booking.endTime,
+          timezone: booking.timezone,
+          bookingId,
+          appBaseUrl: APP_BASE_URL,
+        }),
+      });
+
+      // 2. Guest: "Your [event] with [host] is confirmed"
+      await sendEmail({
+        to: booking.guestEmail,
+        subject: bookingConfirmationSubject({
+          eventTypeTitle: booking.eventType.title,
+          hostName: user.name ?? "your host",
+        }),
+        html: bookingConfirmationEmail({
+          guestName: booking.guestName,
+          hostName: user.name ?? "your host",
+          eventTypeTitle: booking.eventType.title,
+          startTime: booking.startTime,
+          endTime: booking.endTime,
+          timezone: booking.timezone,
+          bookingId,
+          cancelUrl: `${PUBLIC_BASE_URL}/bookings/${bookingId}/cancel`,
+          rescheduleUrl: `${PUBLIC_BASE_URL}/schedule/${user?.username}/${booking.eventType.slug}?reschedule=${bookingId}`,
+        }),
+      });
+    } catch (err) {
+      logger.error("Failed to send booking confirmation emails (non-critical)", {
+        bookingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // 3. Queue a 24h reminder for BOTH host and guest
+    try {
+      const reminderAt = booking.startTime.getTime() - 24 * 60 * 60 * 1000;
+      const delay = reminderAt - Date.now();
+      if (delay > 0) {
+        await getEmailQueue().add(
+          JobNames.BOOKING_REMINDER,
+          { bookingId },
+          { delay },
+        );
+        logger.info("Booking reminder email queued", { bookingId, delay });
+      }
+    } catch (err) {
+      logger.error("Failed to queue booking reminder email (non-critical)", {
+        bookingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   return prisma.booking.findUnique({
     where: { id: bookingId },
     select: BOOKING_ACTION_SELECT,
@@ -222,9 +351,20 @@ export async function declineBooking(
   bookingId: string,
   reason?: string,
 ) {
+
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, userId, isDeleted: false },
-    select: { id: true, status: true, meetingId: true },
+    select: {
+      id: true,
+      status: true,
+      meetingId: true,
+      guestName: true,
+      guestEmail: true,
+      startTime: true,
+      timezone: true,
+      cancelReason: true,
+      eventType: { select: { title: true } },
+    },
   });
 
   if (!booking) throw new AppError("Booking not found", 404);
@@ -255,6 +395,40 @@ export async function declineBooking(
 
   logger.info("Booking declined by host", { bookingId, userId });
 
+  // Notify guest of decline — fail-open
+  try {
+    const host = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        name: true,
+        settings: { select: { emailNotificationsEnabled: true, bookingEmailsEnabled: true } },
+      },
+    });
+    const emailsEnabled =
+      (host?.settings?.emailNotificationsEnabled ?? true) &&
+      (host?.settings?.bookingEmailsEnabled ?? true);
+
+    if (emailsEnabled) {
+      await sendEmail({
+        to: booking.guestEmail,
+        subject: bookingCancelledSubject({ eventTypeTitle: booking.eventType.title }),
+        html: bookingCancelledEmail({
+          recipientName: booking.guestName,
+          cancelledByName: host?.name ?? "the host",
+          eventTypeTitle: booking.eventType.title,
+          startTime: booking.startTime,
+          timezone: booking.timezone,
+          cancelReason: booking.cancelReason,
+        }),
+      });
+    }
+  } catch (err) {
+    logger.error("Failed to send booking decline email to guest (non-critical)", {
+      bookingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   return prisma.booking.findUnique({
     where: { id: bookingId },
     select: BOOKING_ACTION_SELECT,
@@ -272,7 +446,18 @@ export async function cancelBooking(
 ) {
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, userId, isDeleted: false },
-    select: { id: true, status: true, meetingId: true, googleEventId: true },
+    select: {
+      id: true,
+      status: true,
+      meetingId: true,
+      googleEventId: true,
+      guestName: true,
+      guestEmail: true,
+      startTime: true,
+      timezone: true,
+      cancelReason: true,
+      eventType: { select: { title: true } },
+    },
   });
 
   if (!booking) throw new AppError("Booking not found", 404);
@@ -313,6 +498,52 @@ export async function cancelBooking(
   // Only clean up GCal if the booking was CONFIRMED (had a GCal event)
   if (booking.status === "CONFIRMED") {
     await deleteCalendarEvent(userId, booking.googleEventId);
+  }
+
+  // Email both parties — fail-open
+  try {
+    const host = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        name: true,
+        email: true,
+        settings: { select: { emailNotificationsEnabled: true, bookingEmailsEnabled: true } },
+      },
+    });
+    const emailsEnabled =
+      (host?.settings?.emailNotificationsEnabled ?? true) &&
+      (host?.settings?.bookingEmailsEnabled ?? true);
+
+    if (emailsEnabled) {
+      const cancelledSubject = bookingCancelledSubject({ eventTypeTitle: booking.eventType.title });
+      const hostName = host?.name ?? "the host";
+      const sharedParams = {
+        cancelledByName: hostName,
+        eventTypeTitle: booking.eventType.title,
+        startTime: booking.startTime,
+        timezone: booking.timezone,
+        cancelReason: booking.cancelReason,
+      };
+      await Promise.all([
+        host?.email
+          ? sendEmail({
+              to: host.email,
+              subject: cancelledSubject,
+              html: bookingCancelledEmail({ recipientName: hostName, ...sharedParams }),
+            })
+          : Promise.resolve(),
+        sendEmail({
+          to: booking.guestEmail,
+          subject: cancelledSubject,
+          html: bookingCancelledEmail({ recipientName: booking.guestName, ...sharedParams }),
+        }),
+      ]);
+    }
+  } catch (err) {
+    logger.error("Failed to send booking cancelled emails (non-critical)", {
+      bookingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   return prisma.booking.findUnique({

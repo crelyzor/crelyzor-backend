@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-04-04 (Phase 3.3 product gaps written down)
+Last updated: 2026-04-19 (Phase 4.3 complete ✅ — Two-way GCal Push Webhooks shipped)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -322,13 +322,13 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ### P4 — Quick Add + Integrations
 - [x] Global quick-add Cmd+K with natural language parsing
-- [ ] Auto-create "Prepare" task on booking confirmed (bookingManagementService.ts)
-- [ ] Contact-linked tasks on Card detail page
+- [x] Auto-create "Prepare" task on booking confirmed (bookingManagementService.ts)
+- [x] Contact-linked tasks on Card detail page
 
 ### P5 — Calendar View
-- [ ] /calendar page (week/day, GCal + meetings + tasks unified)
-- [ ] All-day task markers for dueDate-only tasks
-- [ ] Drag task to time slot → sets scheduledTime
+- [x] /calendar page (week/day, GCal + meetings + tasks unified)
+- [x] All-day task markers for dueDate-only tasks
+- [x] Drag task to time slot → sets scheduledTime
 
 ---
 
@@ -357,24 +357,24 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ---
 
-### P3 — Schedule Task → Create GCal Block
+### P3 — Schedule Task → Create GCal Block ✅ Complete
 
-- [ ] **`googleCalendarService.ts`:** Add `createTaskBlock(userId, task)` — inserts a GCal event titled `"🔲 [task.title]"` at `task.scheduledTime` for `task.durationMinutes`. Returns `googleEventId | null`. Fail-open.
-- [ ] **`googleCalendarService.ts`:** Add `deleteTaskBlock(userId, googleEventId)` — deletes the GCal event. Fail-open.
-- [ ] **Schema:** Add `googleEventId String?` to `Task` model (stores the GCal block event id)
-- [ ] **`taskService.ts` → `updateTask`:** When `scheduledTime` is set + user has GCal connected + `blockInCalendar: true` in payload → call `createTaskBlock`, store `googleEventId` on Task. When `scheduledTime` cleared → call `deleteTaskBlock`.
-- [ ] **`PATCH /sma/tasks/:taskId` Zod schema:** Add `blockInCalendar?: z.boolean().optional()`
-- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
+- [x] **`googleCalendarService.ts`:** Add `createTaskBlock(userId, task)` — inserts a GCal event titled `"🔲 [task.title]"` at `task.scheduledTime` for `task.durationMinutes`. Returns `googleEventId | null`. Fail-open.
+- [x] **`googleCalendarService.ts`:** Add `deleteTaskBlock(userId, googleEventId)` — deletes the GCal event. Fail-open.
+- [x] **Schema:** Add `googleEventId String?` to `Task` model (stores the GCal block event id)
+- [x] **`taskService.ts` → `updateTask`:** When `scheduledTime` is set + user has GCal connected + `blockInCalendar: true` in payload → call `createTaskBlock`, store `googleEventId` on Task. When `scheduledTime` cleared → call `deleteTaskBlock`.
+- [x] **`PATCH /sma/tasks/:taskId` Zod schema:** Add `blockInCalendar?: z.boolean().optional()`
+- [x] **Migration:** `pnpm db:push && pnpm db:generate`
 
 ---
 
-### P3 — Meeting ↔ Card Contact Auto-Linking
+### P3 — Meeting ↔ Card Contact Auto-Linking ✅ Complete
 
-- [ ] **`meetingService.ts` → `createMeeting`:** After meeting is created, query `Card` + `CardContact` where `cardContact.email` matches any participant email (scoped to same userId). For each match, create a `Task` card link or update meeting metadata. Actually: create a `MeetingContact` junction or store `cardId` on `MeetingParticipant`.
-- [ ] **Schema option:** Add `cardId UUID?` to `MeetingParticipant` model — links a participant slot to a Card contact
-- [ ] **`GET /meetings/:meetingId`:** Include `participants.card { id, displayName, slug }` in response
-- [ ] **New endpoint:** `GET /cards/:cardId/meetings` — list meetings where a card contact participated (join through `MeetingParticipant.cardId`). `verifyJWT`, ownership check.
-- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
+- [x] **`meetingService.ts` → `createMeeting`:** After meeting is created, query `Card` + `CardContact` where `cardContact.email` matches any participant email (scoped to same userId). For each match, create a `Task` card link or update meeting metadata. Actually: create a `MeetingContact` junction or store `cardId` on `MeetingParticipant`.
+- [x] **Schema option:** Add `cardId UUID?` to `MeetingParticipant` model — links a participant slot to a Card contact
+- [x] **`GET /meetings/:meetingId`:** Include `participants.card { id, displayName, slug }` in response
+- [x] **New endpoint:** `GET /cards/:cardId/meetings` — list meetings where a card contact participated (join through `MeetingParticipant.cardId`). `verifyJWT`, ownership check.
+- [x] **Migration:** `pnpm db:push && pnpm db:generate`
 
 ---
 
@@ -385,15 +385,14 @@ Move Recall from per-user BYO-key to platform-level service.
 
 ---
 
-### P4 — Recurring Tasks
+### P4 — Recurring Tasks ✅
 
-- [ ] **Schema:** Add `recurringRule String?` to `Task` (stores RRULE string, e.g. `FREQ=WEEKLY;BYDAY=MO`)
-- [ ] **Schema:** Add `recurringParentId UUID?` → self-referential FK to original Task
-- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
-- [ ] **`taskService.ts` → `updateTask`:** When `isCompleted: true` + task has `recurringRule` → generate next occurrence: parse RRULE, compute next `dueDate`, create new Task (same title/description/priority/cardId/meetingId, `recurringParentId = original.id`)
-- [ ] **`PATCH /sma/tasks/:taskId` Zod:** Add `recurringRule?: z.string().optional().nullable()`
-- [ ] **`POST /sma/tasks` Zod:** Add `recurringRule?: z.string().optional()`
-- [ ] Use `rrule` npm package for RRULE parsing/generation (lightweight, no dependencies)
+- [x] **Schema:** Add `recurringRule String?` to `Task` (stores RRULE string, e.g. `FREQ=WEEKLY;BYDAY=MO`)
+- [x] **Schema:** Add `recurringParentId UUID?` → self-referential FK to original Task + `@@index([recurringParentId])`
+- [x] **Migration:** `pnpm db:push` — synced to Neon
+- [x] **`taskController.ts` → `updateTask`:** When task transitions to DONE + has `recurringRule` → parse RRULE, compute next `dueDate`, spawn new Task (fail-open try/catch)
+- [x] **`PATCH /sma/tasks/:taskId` Zod:** `recurringRule` as `z.enum(["FREQ=DAILY","FREQ=WEEKLY","FREQ=MONTHLY"]).nullable().optional()`
+- [x] Use `rrule` npm package — imported as default export (`import rruleLib from "rrule"; const { RRule } = rruleLib`)
 
 ---
 
@@ -406,58 +405,315 @@ Move Recall from per-user BYO-key to platform-level service.
 ### P1 — Email Notifications (Resend integration)
 
 **Setup:**
-- [ ] Install `resend` npm package (`pnpm add resend`)
-- [ ] Add `RESEND_API_KEY` to `.env.example` + `environment.ts` Zod schema
-- [ ] Create `src/services/email/emailService.ts` — thin wrapper around Resend client. `sendEmail({ to, subject, html })`. Fail-open: log error, never throw.
-- [ ] Create `src/services/email/templates/` — one file per template (plain string or simple HTML, no heavy templating lib)
+- [x] Install `resend` npm package (`pnpm add resend`)
+- [x] Add `RESEND_API_KEY` to `.env.example` + `environment.ts` Zod schema
+- [x] Create `src/services/email/emailService.ts` — thin wrapper around Resend client. `sendEmail({ to, subject, html })`. Fail-open: log error, never throw.
+- [x] Create `src/services/email/templates/` — one file per template (plain string or simple HTML, no heavy templating lib)
 
 **Triggers:**
-- [ ] **Booking received (host)** — in `bookingManagementService.ts` after booking confirmed: `sendBookingReceivedEmail(host, booking, guestName, guestEmail)`
-- [ ] **Booking confirmation (guest)** — same trigger: `sendBookingConfirmationEmail(guest, booking, host)` — include event title, date/time in guest timezone, Google Calendar link, Apple Calendar (.ics attachment), cancel link (`/public/bookings/:id/cancel`)
-- [ ] **Booking reminder** — Bull delayed job scheduled at `booking.startTime - 24h`: send reminder to both host + guest
-- [ ] **Booking cancelled** — in `bookingManagementService.ts` cancel handler: notify both parties
-- [ ] **Meeting AI complete** — in `jobProcessor.ts` after AI processing finishes (transcription status → COMPLETED): `sendMeetingReadyEmail(userId, meetingTitle, meetingId)`. Guard: only if processing succeeded.
-- [ ] **Daily task digest** — new Bull cron job (`DAILY_TASK_DIGEST`) firing at 08:00 UTC. Queries all users with `UserSettings.dailyDigestEnabled === true`. Per user: fetch overdue + today tasks. If none → skip. Send digest email.
+- [x] **Booking received (host)** — in `bookingManagementService.ts` after booking confirmed: `sendBookingReceivedEmail(host, booking, guestName, guestEmail)`
+- [x] **Booking confirmation (guest)** — same trigger: `sendBookingConfirmationEmail(guest, booking, host)` — include event title, date/time in guest timezone, Google Calendar link, Apple Calendar (.ics attachment), cancel link (`/public/bookings/:id/cancel`)
+- [x] **Booking reminder** — Bull delayed job scheduled at `booking.startTime - 24h`: send reminder to both host + guest
+- [x] **Booking cancelled** — in `bookingManagementService.ts` cancel handler: notify both parties
+- [x] **Meeting AI complete** — in `jobProcessor.ts` after AI processing finishes (transcription status → COMPLETED): `sendMeetingReadyEmail(userId, meetingTitle, meetingId)`. Guard: only if processing succeeded.
+- [x] **Daily task digest** — new Bull cron job (`DAILY_TASK_DIGEST`) firing at 08:00 UTC. Queries all users with `UserSettings.dailyDigestEnabled === true`. Per user: fetch overdue + today tasks. If none → skip. Send digest email.
 
 **Settings:**
-- [ ] **Schema:** Add to `UserSettings`: `emailNotificationsEnabled Boolean @default(true)`, `bookingEmailsEnabled Boolean @default(true)`, `meetingReadyEmailEnabled Boolean @default(true)`, `dailyDigestEnabled Boolean @default(false)`
-- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
-- [ ] **`PATCH /settings/user`:** Expose new fields in Zod schema + service handler
+- [x] **Schema:** Add to `UserSettings`: `emailNotificationsEnabled Boolean @default(true)`, `bookingEmailsEnabled Boolean @default(true)`, `meetingReadyEmailEnabled Boolean @default(true)`, `dailyDigestEnabled Boolean @default(false)`
+- [x] **Migration:** `pnpm db:push && pnpm db:generate`
+- [x] **`PATCH /settings/user`:** Expose new fields in Zod schema + service handler
 
 ---
 
 ### P2 — Scheduling Completeness
 
-- [ ] **Guest reschedule link** — include a reschedule URL in booking confirmation email. New public endpoint `GET /public/bookings/:id` — returns booking details (no auth). Frontend uses this to pre-populate the date picker.
-- [ ] **Booking cancelled email** — already noted above in P1
+- [x] **Guest reschedule link** — include a reschedule URL in booking confirmation email. New public endpoint `GET /public/bookings/:id` — returns booking details (no auth). Frontend uses this to pre-populate the date picker.
+- [x] **Booking cancelled email** — already noted above in P1
 
 > Note: `minNoticeHours`, `bufferBefore`, `bufferAfter`, `maxPerDay` are already on the EventType schema and the slot engine uses them. No backend changes needed — frontend just needs to expose them in the EventType editor UI.
 
 ---
 
-### P3 — Meeting ↔ Card Contact Auto-Linking
+### P3 — Meeting ↔ Card Contact Auto-Linking ✅ Complete
 
-_(Already in Phase 3.2 P3 — copy here for priority tracking)_
-
-- [ ] **`meetingService.ts`:** After meeting created, query `CardContact` where `email` matches any participant email (same userId). For each match, set `cardId` on `MeetingParticipant`.
-- [ ] **Schema:** Add `cardId UUID?` to `MeetingParticipant` model
-- [ ] **`GET /meetings/:meetingId`:** Include `participants.card { id, displayName, slug }` in response
-- [ ] **New endpoint:** `GET /cards/:cardId/meetings` — list meetings where a card contact participated
-- [ ] **Migration:** `pnpm db:push && pnpm db:generate`
+- [x] **`meetingService.ts`:** After meeting created, query `CardContact` where `email` matches any participant email (same userId). For each match, set `cardId` on `MeetingParticipant`.
+- [x] **Schema:** Add `cardId UUID?` to `MeetingParticipant` model
+- [x] **`GET /meetings/:meetingId`:** Include `participants.card { id, displayName, slug }` in response
+- [x] **New endpoint:** `GET /cards/:cardId/meetings` — list meetings where a card contact participated
+- [x] **New Endpoint**: `GET /tags/:tagId/items` -> `getTagItems` (returns all meetings, cards, tasks, contacts associated with the tag)
+- [x] **Updated Endpoint**: `GET /tags` -> `listTags` now includes counts
+- [x] **Migration:** `pnpm db:push && pnpm db:generate`
 
 ---
 
 ### P5 — Data Import
 
-- [ ] **Contact CSV import:** `POST /cards/:cardId/contacts/import` — multipart CSV upload. Parse with `csv-parse`. Validate rows (name required, email or phone required). Bulk-create `CardContact` records in a single transaction. Return `{ created: N, skipped: N, errors: [] }`.
-- [ ] **Calendar .ics import:** `POST /meetings/import/ics` — multipart .ics upload. Parse with `ical.js`. For each VEVENT: create `Meeting` (type: SCHEDULED, skip if already exists by uid). Return count. Does not trigger AI — user can manually trigger from meeting detail.
+- [x] **Contact CSV import:** `POST /cards/:cardId/contacts/import` — multipart CSV upload. Parse with `csv-parse`. Validate rows (name required, email or phone required). Bulk-create `CardContact` records in a single transaction. Return `{ created: N, skipped: N, errors: [] }`.
+- [x] **Calendar .ics import:** `POST /meetings/import/ics` — multipart .ics upload. Parse with `ical.js`. For each VEVENT: create `Meeting` (type: SCHEDULED, skip if already exists by uid). Return count. Does not trigger AI — user can manually trigger from meeting detail.
 
 ---
 
-## Phase 4 — Big Brain ⛔ BLOCKED
+## Phase 3.4 — Global Tags ← next
 
-Requires separate infrastructure. Do not start.
+> Makes tags truly global: contacts get a proper `ContactTag` junction, tag list returns counts, and a new endpoint returns everything tagged with a given tag across all entity types.
+
+---
+
+### P0 — Schema
+
+- [x] **`ContactTag` junction model** — add to `schema.prisma`:
+  ```prisma
+  model ContactTag {
+    contactId String   @db.Uuid
+    tagId     String   @db.Uuid
+    createdAt DateTime @default(now())
+    contact   CardContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+    tag       Tag         @relation(fields: [tagId],     references: [id], onDelete: Cascade)
+    @@id([contactId, tagId])
+    @@index([contactId])
+    @@index([tagId])
+  }
+  ```
+- [x] **Add relations** to existing models:
+  - `Tag` model: add `contactTags ContactTag[]`
+  - `CardContact` model: add `contactTags ContactTag[]`
+- [x] **Migration:** `pnpm db:push && pnpm db:generate`
+- [x] **`deleteTag` transaction** in `tagService.ts`: add `tx.contactTag.deleteMany({ where: { tagId } })` alongside existing meeting/card/task cleanup
+
+---
+
+### P1 — Contact Tag Service + Routes
+
+**`tagService.ts` additions:**
+- [x] `verifyContactOwnership(contactId, userId)`
+- [x] `getContactTags(userId, contactId)`
+- [x] `attachTagToContact(userId, contactId, tagId)`
+- [x] `detachTagFromContact(userId, contactId, tagId)`
+
+**Routes** — add to `cardRoutes.ts` (contacts are sub-resources of cards):
+- [x] `GET  /cards/:cardId/contacts/:contactId/tags` → `tagController.getContactTags`
+- [x] `POST /cards/:cardId/contacts/:contactId/tags/:tagId` → `tagController.attachTagToContact`
+- [x] `DELETE /cards/:cardId/contacts/:contactId/tags/:tagId` → `tagController.detachTagFromContact`
+- [x] All under existing `verifyJWT` router-level middleware
+
+**`tagController.ts` additions:**
+- [x] `getContactTags`, `attachTagToContact`, `detachTagFromContact` handlers
+
+---
+
+### P2 — Tag Items Endpoint + Count on Tag List
+
+**`tagService.ts`:**
+- [x] `getTagItems(userId, tagId)` — verify tag ownership, then run 4 parallel queries:
+  - `meetingTag.findMany` where `tagId` + `meeting.createdById = userId` + `meeting.isDeleted: false` → return meeting `{ id, title, startTime, type, status }`
+  - `cardTag.findMany` where `tagId` + `card.userId = userId` + `card.isDeleted: false` → return card `{ id, slug, displayName, title, avatarUrl }`
+  - `taskTag.findMany` where `tagId` + `task.userId = userId` + `task.isDeleted: false` → return task `{ id, title, status, priority, dueDate }`
+  - `contactTag.findMany` where `tagId` + `contact.userId = userId` → return contact `{ id, name, email, company, cardId }`
+  - Returns `{ tag, meetings, cards, tasks, contacts, counts: { meetings, cards, tasks, contacts, total } }`
+- [x] `listTags(userId)` — extend to include `_count: { select: { meetingTags: true, cardTags: true, taskTags: true, contactTags: true } }` on each tag
+
+**`tagRoutes.ts`:**
+- [x] `GET /tags/:tagId/items` → `tagController.getTagItems`
+
+**`tagController.ts`:**
+- [x] `getTagItems` handler
+
+---
+
+## Phase 4.1 — Billing & Monetization ✅ Complete
+
+Full design: `docs/pricing-and-costs.md`
+
+### P0 — Schema + Migration
+
+- [x] Add `plan` enum to `User` model: `FREE | PRO | BUSINESS` (default `FREE`)
+- [x] New `UserUsage` model:
+  ```prisma
+  model UserUsage {
+    id                      String   @id @default(uuid()) @db.Uuid
+    userId                  String   @unique @db.Uuid
+    user                    User     @relation(fields: [userId], references: [id])
+    transcriptionMinutesUsed Int     @default(0)
+    recallHoursUsed         Float    @default(0)
+    aiCreditsUsed           Int      @default(0)
+    storageGbUsed           Float    @default(0)
+    periodStart             DateTime @default(now())
+    resetAt                 DateTime
+    updatedAt               DateTime @updatedAt
+  }
+  ```
+- [x] New `Subscription` model:
+  ```prisma
+  model Subscription {
+    id                      String   @id @default(uuid()) @db.Uuid
+    userId                  String   @unique @db.Uuid
+    user                    User     @relation(fields: [userId], references: [id])
+    razorpayCustomerId      String   @unique
+    razorpaySubscriptionId  String?  @unique
+    plan                    Plan     @default(FREE)
+    status                  String   @default("active")
+    currentPeriodEnd        DateTime?
+    createdAt               DateTime @default(now())
+    updatedAt               DateTime @updatedAt
+  }
+  ```
+- [x] Migration: `pnpm db:push && pnpm db:generate`
+
+---
+
+### P1 — Usage Service ✅ Complete
+
+- [x] `src/services/billing/usageService.ts`:
+  - `getUserUsage(userId)` — fetch or create `UserUsage` for current period
+  - `checkTranscription(userId, minutes)` — throws 402 if over limit
+  - `deductTranscription(userId, minutes)` — increments `transcriptionMinutesUsed`
+  - `checkRecall(userId, hours)` — throws 402 if over limit
+  - `deductRecall(userId, hours)` — increments `recallHoursUsed`
+  - `checkAndDeductCredits(userId, inputTokens, outputTokens)` — calculates credits from tokens, checks limit, deducts
+  - `getLimitsForPlan(plan)` — returns `{ transcriptionMinutes, recallHours, aiCredits, storageGb }` per plan
+- [x] Credit formula: `credits = ceil((inputTokens × 0.00075) + (outputTokens × 0.0045))`
+- [x] Plan limits:
+  - FREE: 120 min, 0 hrs Recall, 50 credits, 2 GB
+  - PRO: 600 min, 5 hrs Recall, 1000 credits, 20 GB
+  - BUSINESS: unlimited (configurable per deal)
+
+---
+
+### P2 — Wire Usage Into Existing Services ✅ Complete
+
+- [x] `transcriptionService.ts` — `checkTranscription` before Deepgram call, `deductTranscription` after success
+- [x] `jobProcessor.ts` (DEPLOY_RECALL_BOT) — `checkRecall` before bot deploy, `deductRecall` after recording download
+- [x] `aiService.ts` — `checkAndDeductCredits` after each `askAI` + `generateContent` call using `response.usage.prompt_tokens` + `response.usage.completion_tokens`
+- [x] Meeting pipeline (summary/tasks/title) — does NOT check credits, fires automatically
+
+---
+
+### P3 — Monthly Reset Cron Job ✅ Complete
+
+- [x] `MONTHLY_USAGE_RESET` job added to `queue.ts`
+- [x] Cron: `0 0 1 * *` (midnight on 1st of every month)
+- [x] `jobProcessor.ts`: calls `runMonthlyReset()` — resets all `UserUsage` rows where `resetAt <= now`
+
+---
+
+### P4 — Billing Endpoints ✅ Complete
+
+- [x] `src/routes/billingRoutes.ts` — all under `verifyJWT`
+- [x] `GET /billing/usage` — returns `{ plan, usage: { transcriptionMinutes, recallHours, aiCredits, storageGb }, limits, resetAt }`
+- [x] `POST /billing/checkout` — **stub for now**. Returns `{ message: "Payment gateway coming soon" }`. Plan upgrades done manually via DB.
+- [x] `POST /billing/portal` — **stub for now**.
+- [x] `src/routes/webhookRoutes.ts`:
+  - Razorpay webhook stub deferred (no-op until gateway live)
+- [x] Add to `.env.example`: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_PRO_PLAN_ID` (commented out, for future use)
+
+> **Note:** Payment gateway (Razorpay) is deferred. Early paid users are upgraded manually via Prisma Studio (`user.plan = PRO`). All enforcement, usage tracking, and UI are fully built — only payment collection is missing.
+
+---
+
+### P5 — Enforcement Layer ✅ Complete
+
+- [x] On limit exceeded → `throw new AppError("TRANSCRIPTION_LIMIT_REACHED", 402)` etc. (done in `usageService.ts`)
+- [x] Error codes: `TRANSCRIPTION_LIMIT_REACHED`, `RECALL_LIMIT_REACHED`, `AI_CREDITS_EXHAUSTED`, `STORAGE_LIMIT_REACHED`
+- [x] Global error handler (`app.ts`): formats 402 as `{ status: "error", code, message, details: { upgradeUrl: "/pricing" } }`
+- [x] `PaymentRequiredError` class added to `globalErrorHandler.ts` + `ErrorFactory.paymentRequired()`
+
+---
+
+### P6 — Payment Gateway ⛔ NOT DOING NOW
+
+> **Do not build this.** Razorpay account is blocked. Payment collection is not part of the current build.
+> Early paid users are upgraded manually via Prisma Studio (`user.plan = PRO`).
+> Revisit when account is unblocked or a new gateway (Cashfree / PayU) is set up.
+
+- [ ] `src/services/billing/razorpayService.ts`
+- [ ] Wire `POST /billing/checkout` with actual payment
+- [ ] `POST /webhooks/razorpay` — verify + handle events
+- [ ] Frontend checkout sheet
+
+---
+
+## Phase 4.2 — Ask AI Persistence ✅ Complete
+
+> Ask AI conversations persisted in PostgreSQL. History loaded on tab open, last 6 messages (3 exchanges) injected as OpenAI context for follow-up awareness. Clear endpoint wipes all messages.
+
+- [x] `AskAIConversation` + `AskAIMessage` models added to `schema.prisma`, `pnpm db:push` run
+- [x] `src/services/ai/askAIConversationService.ts` — `getOrCreateConversation`, `getMessages`, `appendMessage`, `clearMessages`
+- [x] `GET /sma/meetings/:meetingId/ask/history` — returns messages array
+- [x] `DELETE /sma/meetings/:meetingId/ask/history` — wipes conversation
+- [x] `POST /sma/meetings/:meetingId/ask` — appends user message before stream, assistant message after; injects last 6 persisted messages as OpenAI conversation context
+
+---
+
+## Phase 4.3 — Two-way GCal Push Webhooks ✅ Complete
+
+> Pull-based sync already existed. Phase 4.3 adds real-time push delivery via Google Calendar watch channels.
+> All operations are fail-open — pull-based sync continues working even if push is unavailable.
+
+### What was built
+
+**P0 — Schema**
+- [x] `GCalSyncState` model added to `schema.prisma` (`channelId @unique`, `resourceId`, `expiration`, `syncToken`)
+- [x] `gcalSyncState GCalSyncState?` relation on `User`
+- [x] `pnpm db:push` — database is in sync ✅
+
+**P1 — Push Service** (`src/services/googleCalendarPushService.ts`)
+- [x] `registerWatchChannel(userId)` — calls `calendar.events.watch()`, stores channelId/resourceId/expiry in GCalSyncState (upsert)
+- [x] `stopWatchChannel(userId)` — calls `calendar.channels.stop()` + deletes GCalSyncState row
+- [x] `refreshSyncToken(userId)` — fetches updated syncToken; handles 410 Gone with full re-sync
+- [x] `processIncomingNotification(channelId)` — looks up userId by channelId, calls events.list(syncToken), passes to `syncLinkedMeetingsFromGooglePush`, updates syncToken
+- [x] `renewExpiringChannels()` — finds GCalSyncState rows expiring in <5 days, stop+re-register
+
+**P2 — Webhook Endpoint** (`src/routes/googleWebhookRoutes.ts`)
+- [x] `POST /webhooks/google/calendar` — validates X-Goog-Channel-Token, ignores `state=sync` handshake, queues `gcal-push-sync` job, always 200
+- [x] Rate-limited 60/min per IP
+- [x] Registered in `indexRouter.ts` under `/webhooks`
+
+**P3 — Bull Job**
+- [x] `gcal-push-sync` job name added to `JobNames` + `GCalPushSyncJobData` interface
+- [x] Job handler in `jobProcessor.ts` → calls `processIncomingNotification(channelId)`, fail-open (no retry)
+
+**P4 — Connect/Disconnect Wiring**
+- [x] `googleService.handleCalendarConnectCallback()` → calls `registerWatchChannel(userId)` after OAuth (fail-open)
+- [x] `integrationController.disconnectGoogleCalendar()` → calls `stopWatchChannel(userId)` (fail-open)
+
+**P5 — Channel Renewal Cron**
+- [x] Daily cron at 02:00 UTC — calls `renewExpiringChannels()` via `gcal-push-sync:renewal` job
+
+**P6 — Backfill for Existing Users**
+- [x] `POST /integrations/google/calendar/push/register` (verifyJWT, 5/hr) → calls `registerWatchChannel`; returns `{ pushEnabled }`
+- [x] Frontend auto-calls this on Settings > Integrations mount if `connected && !pushEnabled`
+
+**Frontend**
+- [x] `pushEnabled: boolean` added to `GCalConnectionStatus` type in `integrationsService.ts`
+- [x] `registerGCalPushChannel()` API method added
+- [x] `useRegisterGCalPushChannel()` mutation hook — fail-open (no error toast)
+- [x] Settings > Integrations: auto-registers on mount + shows **"Real-time sync active"** badge when `pushEnabled === true`
+
+---
+
+## Phase 4.4 — Polish & First-Run Experience
+
+> **Goal:** Backend tasks that unblock or support 4.4 frontend polish. Based on full product audit (2026-04-19).
+
+### P0 — Schema fix
+
+- [x] Add `isDeleted Boolean @default(false)` and `deletedAt DateTime?` to `CardContact` model
+- [x] Run `pnpm db:push`
+- [x] Update `cardService.ts` contact delete (`deleteContact`) to soft delete — set `isDeleted=true`, `deletedAt=now()` instead of `prisma.cardContact.delete()`
+- [x] Update `cardService.ts` contact queries to filter `isDeleted: false`
+
+---
+
+## Phase 4.5 — Razorpay ⛔ BLOCKED
+
+Account blocked. Env vars already in `.env.example` (commented out). Do not start.
+
+---
+
+## Phase 5 — Big Brain ⛔ BLOCKED
+
+Requires separate infrastructure. Do not start. Phase 4.x must be complete first.
 
 - [ ] Vector embeddings pipeline
 - [ ] RAG query endpoint (global Ask AI)
-- [ ] Full two-way GCal sync — Google Calendar push webhooks
+- [x] ~~Model upgrades: `nova-2` → `nova-3`, `gpt-4o-mini` → `gpt-5.4-mini`~~ — done early at Phase 4 start

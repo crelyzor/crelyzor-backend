@@ -4,6 +4,7 @@ import { meetingController } from "../controllers/meetingController";
 import * as tagController from "../controllers/tagController";
 import { attachmentController } from "../controllers/attachmentController";
 import { singleAttachmentUpload } from "../middleware/attachmentUploadMiddleware";
+import { singleImportUpload } from "../middleware/importUploadMiddleware";
 
 const router = Router();
 
@@ -16,6 +17,11 @@ router.get("/without-pagination", (req, res) =>
 
 /** POST /api/v1/meetings — create meeting */
 router.post("/", (req, res) => meetingController.createMeeting(req, res));
+
+/** POST /api/v1/meetings/import/ics — import meetings from ICS file */
+router.post("/import/ics", singleImportUpload, (req, res) =>
+  meetingController.importIcs(req, res),
+);
 
 /** PATCH /api/v1/meetings/:meetingId — update meeting */
 router.patch("/:meetingId", (req, res) =>

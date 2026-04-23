@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+const emptyStringToUndefined = (value: unknown) => {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const optionalTrimmedString = (schema: z.ZodTypeAny) =>
+  z.preprocess(emptyStringToUndefined, schema.optional());
+
 const cardLinkSchema = z.object({
   type: z.string().max(50).default(""),
   url: z.string().url(),
@@ -8,11 +17,11 @@ const cardLinkSchema = z.object({
 });
 
 const contactFieldsSchema = z.object({
-  phone: z.string().max(30).optional(),
-  email: z.string().email().optional(),
-  location: z.string().max(200).optional(),
-  website: z.string().url().optional(),
-  bookingUrl: z.string().url().optional(),
+  phone: optionalTrimmedString(z.string().max(30)),
+  email: optionalTrimmedString(z.string().email()),
+  location: optionalTrimmedString(z.string().max(200)),
+  website: optionalTrimmedString(z.string().url()),
+  bookingUrl: optionalTrimmedString(z.string().url()),
 });
 
 const themeSchema = z.object({

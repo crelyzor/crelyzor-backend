@@ -22,6 +22,11 @@ export const createStandaloneTaskSchema = createTaskSchema.extend({
   transcriptContext: z.string().max(2000).optional(),
 });
 
+const recurringRuleField = z
+  .enum(["FREQ=DAILY", "FREQ=WEEKLY", "FREQ=MONTHLY"])
+  .nullable()
+  .optional();
+
 export const updateTaskSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   description: z.string().nullable().optional(),
@@ -34,11 +39,12 @@ export const updateTaskSchema = z.object({
   transcriptContext: z.string().max(2000).nullable().optional(),
   durationMinutes: z.number().int().min(5).max(480).nullable().optional(),
   blockInCalendar: z.boolean().optional(),
+  recurringRule: recurringRuleField,
 });
 
 export const listTasksQuerySchema = z.object({
   status: z.enum(["all", "completed", "pending"]).default("all"),
-  view: z.enum(["inbox", "today", "upcoming", "all", "from_meetings"]).optional(),
+  view: z.enum(["inbox", "today", "upcoming", "all", "from_meetings", "from_voice_notes"]).optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
   source: z.enum(["AI_EXTRACTED", "MANUAL"]).optional(),
   meetingId: z.string().uuid().optional(),
@@ -49,7 +55,7 @@ export const listTasksQuerySchema = z.object({
     .optional(),
   dueBefore: dateField.optional(),
   dueAfter: dateField.optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  limit: z.coerce.number().int().min(1).max(500).default(50),
   offset: z.coerce.number().int().min(0).default(0),
   sortBy: z.enum(["createdAt", "dueDate", "priority", "sortOrder"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),

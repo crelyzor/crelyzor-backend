@@ -10,7 +10,7 @@ The single backend for all of Crelyzor. Serves both `calendar-frontend` and `car
 
 - Express 5 + TypeScript 5
 - Prisma 6 + PostgreSQL
-- OpenAI (GPT-4o-mini) + Deepgram (Nova-2)
+- OpenAI (GPT-5.4-mini) + Deepgram (Nova-3 Multilingual)
 - Bull + Upstash Redis (job queues)
 - Google Cloud Storage (recordings, files)
 - Google OAuth 2.0 + JWT
@@ -183,7 +183,7 @@ pnpm db:generate   # regenerates Prisma client
 ## SMA Pipeline (Smart Meeting Assistant)
 
 ```
-Upload → GCS → Deepgram Nova-2 (diarize: true) → TranscriptSegment[]
+Upload → GCS → Deepgram Nova-3 Multilingual (diarize: true) → TranscriptSegment[]
                                                          ↓
                                               OpenAI (parallel):
                                               ├── generateSummary()

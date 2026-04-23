@@ -38,7 +38,7 @@ router.delete("/recordings/:recordingId", recordingController.deleteRecording);
 // Trigger AI processing for a meeting — 10/hour to prevent queue/credit abuse
 router.post(
   "/meetings/:meetingId/process-ai",
-  userRateLimit(10, 60 * 60 * 1000),
+  userRateLimit(10, 60 * 60 * 1000, "sma:process-ai"),
   recordingController.triggerAIProcessing,
 );
 
@@ -61,14 +61,14 @@ router.get(
 // Regenerate transcript (re-run Deepgram on existing recording, same language) — 5/hour
 router.post(
   "/meetings/:meetingId/transcript/regenerate",
-  userRateLimit(5, 60 * 60 * 1000),
+  userRateLimit(5, 60 * 60 * 1000, "sma:regenerate-transcript"),
   transcriptController.regenerateTranscript,
 );
 
 // Change language and re-run Deepgram — 5/hour
 router.post(
   "/meetings/:meetingId/language",
-  userRateLimit(5, 60 * 60 * 1000),
+  userRateLimit(5, 60 * 60 * 1000, "sma:change-language"),
   transcriptController.changeLanguage,
 );
 
@@ -76,6 +76,12 @@ router.post(
 router.patch(
   "/meetings/:meetingId/transcript/segments/:segmentId",
   transcriptController.patchSegment,
+);
+
+// Merge adjacent transcript segments from the same speaker
+router.post(
+  "/meetings/:meetingId/transcript/segments/merge-consecutive",
+  transcriptController.mergeConsecutiveSegments,
 );
 
 // Edit AI summary / key points / title
@@ -102,27 +108,31 @@ router.patch(
 router.get("/meetings/:meetingId/summary", aiController.getSummary);
 router.post(
   "/meetings/:meetingId/summary/regenerate",
-  userRateLimit(5, 60 * 60 * 1000),
+  userRateLimit(5, 60 * 60 * 1000, "sma:regenerate-summary"),
   aiController.regenerateSummary,
 );
 router.post(
   "/meetings/:meetingId/title/regenerate",
-  userRateLimit(5, 60 * 60 * 1000),
+  userRateLimit(5, 60 * 60 * 1000, "sma:regenerate-title"),
   aiController.regenerateTitle,
 );
 
 // Ask AI — streams response via SSE (rate limited per user)
 router.post(
   "/meetings/:meetingId/ask",
-  userRateLimit(20, 60 * 60 * 1000),
+  userRateLimit(20, 60 * 60 * 1000, "sma:ask-ai"),
   aiController.askAI,
 );
+
+// Ask AI history — fetch + clear persisted conversation
+router.get("/meetings/:meetingId/ask/history", aiController.getAskAIHistory);
+router.delete("/meetings/:meetingId/ask/history", aiController.clearAskAIHistory);
 
 // AI Content Generation
 router.get("/meetings/:meetingId/generated", aiController.getGeneratedContents);
 router.post(
   "/meetings/:meetingId/generate",
-  userRateLimit(10, 60 * 60 * 1000),
+  userRateLimit(10, 60 * 60 * 1000, "sma:generate-content"),
   aiController.generateContent,
 );
 
@@ -133,7 +143,11 @@ router.post("/tasks", taskController.createStandaloneTask);
 router.patch("/tasks/reorder", taskController.reorderTasks);
 router.get("/meetings/:meetingId/tasks", taskController.getTasks);
 router.post("/meetings/:meetingId/tasks", taskController.createTask);
-router.patch("/tasks/:taskId", userRateLimit(60, 60 * 60 * 1000), taskController.updateTask);
+router.patch(
+  "/tasks/:taskId",
+  userRateLimit(60, 60 * 60 * 1000, "sma:update-task"),
+  taskController.updateTask,
+);
 router.delete("/tasks/:taskId", taskController.deleteTask);
 router.get("/tasks/:taskId/subtasks", taskController.getSubtasks);
 router.post("/tasks/:taskId/subtasks", taskController.createSubtask);

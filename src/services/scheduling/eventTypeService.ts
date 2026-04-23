@@ -17,6 +17,7 @@ const EVENT_TYPE_SELECT = {
   meetingLink: true,
   bufferBefore: true,
   bufferAfter: true,
+  minNoticeHours: true,
   maxPerDay: true,
   isActive: true,
   availabilityScheduleId: true,
@@ -58,6 +59,7 @@ export async function createEventType(
         meetingLink: data.meetingLink,
         bufferBefore: data.bufferBefore,
         bufferAfter: data.bufferAfter,
+        minNoticeHours: data.minNoticeHours,
         maxPerDay: data.maxPerDay,
         isActive: data.isActive,
         availabilityScheduleId: data.availabilityScheduleId ?? null,
@@ -83,23 +85,7 @@ export async function updateEventType(
   id: string,
   data: UpdateEventTypeInput,
 ) {
-  const existing = await verifyOwnership(id, userId);
-
-  // Service-level guard: partial updates can leave ONLINE type without a link.
-  // Determine the resulting locationType and meetingLink after the patch.
-  const resultingLocationType = data.locationType ?? existing.locationType;
-  const resultingMeetingLink =
-    data.meetingLink !== undefined ? data.meetingLink : existing.meetingLink;
-
-  if (
-    resultingLocationType === LocationType.ONLINE &&
-    !resultingMeetingLink
-  ) {
-    throw new AppError(
-      "meetingLink is required when locationType is ONLINE",
-      400,
-    );
-  }
+  await verifyOwnership(id, userId);
 
   try {
     const eventType = await prisma.eventType.update({
@@ -113,6 +99,7 @@ export async function updateEventType(
         ...(data.meetingLink !== undefined && { meetingLink: data.meetingLink }),
         ...(data.bufferBefore !== undefined && { bufferBefore: data.bufferBefore }),
         ...(data.bufferAfter !== undefined && { bufferAfter: data.bufferAfter }),
+        ...(data.minNoticeHours !== undefined && { minNoticeHours: data.minNoticeHours }),
         ...(data.maxPerDay !== undefined && { maxPerDay: data.maxPerDay }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
         ...(data.availabilityScheduleId !== undefined && {

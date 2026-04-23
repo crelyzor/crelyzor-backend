@@ -2,26 +2,25 @@ import { Storage } from "@google-cloud/storage";
 
 const GCS_PROJECT_ID = process.env.GCS_PROJECT_ID;
 const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME;
-const GCS_KEY_FILE = process.env.GCS_KEY_FILE;
 
 if (!GCS_BUCKET_NAME) {
   throw new Error("GCS_BUCKET_NAME environment variable is required");
 }
 
-// Initialize GCS client
+// Auth via Application Default Credentials (gcloud ADC on local, VM identity on GCE)
 let storage: Storage | null = null;
 
 const getStorage = (): Storage => {
   if (!storage) {
     const options: ConstructorParameters<typeof Storage>[0] = {};
     if (GCS_PROJECT_ID) options.projectId = GCS_PROJECT_ID;
-    if (GCS_KEY_FILE) options.keyFilename = GCS_KEY_FILE;
     storage = new Storage(options);
   }
   return storage;
 };
 
 const getBucket = () => getStorage().bucket(GCS_BUCKET_NAME);
+
 
 interface GenerateUploadUrlRequest {
   fileName: string;

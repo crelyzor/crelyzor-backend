@@ -2,9 +2,12 @@ node_modules
 dist
 .git
 .env
+.env.*
+*.json.key
+*-key.json
+gcs-key.json
 
 .vscode
 Dockerfile
-docker-compose.yml
+docker-compose*.yml
 *.log
-*.md

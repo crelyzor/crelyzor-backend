@@ -8,8 +8,9 @@ import prisma from "../../db/prismaClient";
 import { logger } from "../../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
 import { AppError } from "../../utils/errors/AppError";
+import { checkTranscription, deductTranscription } from "../billing/usageService";
 
-const DEEPGRAM_MODEL = "nova-2";
+const DEEPGRAM_MODEL = "nova-3"; // Upgraded to nova-3 (multilingual) at Phase 4 start — better accuracy, 45+ languages
 
 export interface TranscriptionResult {
   transcriptId: string;
@@ -51,6 +52,11 @@ export const transcribeRecording = async (
     throw new AppError(`Recording not found: ${recordingId}`, 404);
   }
 
+  // Usage check — throws 402 if user is over their transcription limit.
+  // We estimate 60 min as a conservative default; actual deduction uses real duration.
+  const ESTIMATE_MINUTES = 60;
+  await checkTranscription(recording.meeting.createdById, ESTIMATE_MINUTES);
+
   // Update status to processing
   await prisma.meeting.update({
     where: { id: recording.meetingId },
@@ -71,7 +77,7 @@ export const transcribeRecording = async (
         diarize: true,
         punctuate: true,
         utterances: true,
-        language: language ?? "en",
+        language: language ?? "multi",
       },
     );
 
@@ -132,6 +138,41 @@ export const transcribeRecording = async (
 
     // Persist transcript, status update, and speakers atomically
     const distinctSpeakers = [...new Set(segments.map((seg) => seg.speaker))];
+    const priorSpeakerRows = await prisma.meetingSpeaker.findMany({
+      where: {
+        speakerLabel: { in: distinctSpeakers },
+        displayName: { not: null },
+        meeting: {
+          createdById: recording.meeting.createdById,
+          isDeleted: false,
+          id: { not: recording.meetingId },
+        },
+      },
+      select: {
+        speakerLabel: true,
+        displayName: true,
+        role: true,
+        meeting: { select: { createdAt: true } },
+      },
+      orderBy: {
+        meeting: { createdAt: "desc" },
+      },
+    });
+
+    const rememberedByLabel = new Map<
+      string,
+      { displayName: string; role: string | null }
+    >();
+    for (const row of priorSpeakerRows) {
+      if (!row.displayName) continue;
+      if (!rememberedByLabel.has(row.speakerLabel)) {
+        rememberedByLabel.set(row.speakerLabel, {
+          displayName: row.displayName,
+          role: row.role,
+        });
+      }
+    }
+
     const transcript = await prisma.$transaction(
       async (tx) => {
         const created = await tx.meetingTranscript.create({
@@ -157,7 +198,10 @@ export const transcribeRecording = async (
         });
 
         await Promise.all(
-          distinctSpeakers.map((speakerLabel) =>
+          distinctSpeakers.map((speakerLabel) => {
+            const remembered = rememberedByLabel.get(speakerLabel);
+
+            return (
             tx.meetingSpeaker.upsert({
               where: {
                 meetingId_speakerLabel: {
@@ -165,10 +209,16 @@ export const transcribeRecording = async (
                   speakerLabel,
                 },
               },
-              create: { meetingId: recording.meetingId, speakerLabel },
+              create: {
+                meetingId: recording.meetingId,
+                speakerLabel,
+                ...(remembered ? { displayName: remembered.displayName } : {}),
+                ...(remembered?.role ? { role: remembered.role } : {}),
+              },
               update: {},
-            }),
-          ),
+            })
+            );
+          }),
         );
 
         return created;
@@ -180,6 +230,10 @@ export const transcribeRecording = async (
       `Created ${distinctSpeakers.length} speaker records for meeting ${recording.meetingId}`,
     );
     logger.info(`Transcription completed for recording ${recordingId}`);
+
+    // Deduct actual transcription minutes (fail-open)
+    const actualMinutes = (result.metadata?.duration ?? 0) / 60;
+    await deductTranscription(recording.meeting.createdById, actualMinutes);
 
     return {
       transcriptId: transcript.id,
@@ -287,7 +341,7 @@ export const regenerateTranscript = async (
   );
 
   logger.info(`Regenerate transcript queued for meeting ${meetingId}`, {
-    language: language ?? "en",
+    language: language ?? "multi",
   });
 };
 

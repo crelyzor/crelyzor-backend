@@ -1,15 +1,25 @@
 node_modules
 dist
-.env
-/src/generated/prisma
-node_modules
-dist
 .git
-.env
 .vscode
 *.log
 .vercel
+
+# Environment secrets
+.env
+.env.local
+.env.staging
+.env.prod
+
+# Prisma generated
+/src/generated/prisma
+
+# GCS key
+gcs-key.json
+
+# Scripts
 scripts/**/*.js
 scripts/**/*.js.map
+
+# Misc
 temp-mongo-schema
-gcs-key.json

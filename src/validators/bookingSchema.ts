@@ -40,6 +40,8 @@ export const createBookingSchema = z
       .transform((val) => val.replace(/<[^>]*>/g, "").trim())
       .optional(),
 
+    rescheduleBookingId: z.string().uuid().optional(),
+
     // Validated IANA timezone string (e.g. "America/New_York")
     guestTimezone: z.string().refine((tz) => {
       try {

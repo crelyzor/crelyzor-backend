@@ -18,11 +18,72 @@ const TAG_SELECT = {
 // ────────────────────────────────────────────────────────────
 
 export async function listTags(userId: string) {
-  return prisma.tag.findMany({
-    where: { userId, isDeleted: false },
-    select: TAG_SELECT,
-    orderBy: { name: "asc" },
-  });
+  const [tags, meetingCounts, cardCounts, taskCounts, contactCounts] =
+    await Promise.all([
+      prisma.tag.findMany({
+        where: { userId, isDeleted: false },
+        select: TAG_SELECT,
+        orderBy: { name: "asc" },
+      }),
+      prisma.meetingTag.groupBy({
+        by: ["tagId"],
+        where: {
+          tag: { userId, isDeleted: false },
+          meeting: { createdById: userId, isDeleted: false },
+        },
+        _count: { _all: true },
+      }),
+      prisma.cardTag.groupBy({
+        by: ["tagId"],
+        where: {
+          tag: { userId, isDeleted: false },
+          card: { userId, isDeleted: false },
+        },
+        _count: { _all: true },
+      }),
+      prisma.taskTag.groupBy({
+        by: ["tagId"],
+        where: {
+          tag: { userId, isDeleted: false },
+          task: { userId, isDeleted: false },
+        },
+        _count: { _all: true },
+      }),
+      prisma.contactTag.groupBy({
+        by: ["tagId"],
+        where: {
+          tag: { userId, isDeleted: false },
+          contact: {
+            userId,
+            card: { userId, isDeleted: false },
+          },
+        },
+        _count: { _all: true },
+      }),
+    ]);
+
+  const meetingCountsByTag = new Map(
+    meetingCounts.map((row) => [row.tagId, row._count._all]),
+  );
+  const cardCountsByTag = new Map(
+    cardCounts.map((row) => [row.tagId, row._count._all]),
+  );
+  const taskCountsByTag = new Map(
+    taskCounts.map((row) => [row.tagId, row._count._all]),
+  );
+  const contactCountsByTag = new Map(
+    contactCounts.map((row) => [row.tagId, row._count._all]),
+  );
+
+  return tags.map((tag) => ({
+    ...tag,
+    _count: {
+      meetingTags: meetingCountsByTag.get(tag.id) ?? 0,
+      cardTags: cardCountsByTag.get(tag.id) ?? 0,
+      taskTags: taskCountsByTag.get(tag.id) ?? 0,
+      contactTags: contactCountsByTag.get(tag.id) ?? 0,
+    },
+  }));
 }
 
 export async function createTag(userId: string, data: CreateTagInput) {
@@ -92,6 +153,7 @@ export async function deleteTag(userId: string, tagId: string) {
       await tx.meetingTag.deleteMany({ where: { tagId } });
       await tx.cardTag.deleteMany({ where: { tagId } });
       await tx.taskTag.deleteMany({ where: { tagId } });
+      await tx.contactTag.deleteMany({ where: { tagId } });
       await tx.tag.update({
         where: { id: tagId },
         data: { isDeleted: true, deletedAt: new Date() },
@@ -99,6 +161,75 @@ export async function deleteTag(userId: string, tagId: string) {
     },
     { timeout: 15000 },
   );
+}
+
+export async function getTagItems(userId: string, tagId: string) {
+  const tag = await prisma.tag.findFirst({
+    where: { id: tagId, userId, isDeleted: false },
+    select: TAG_SELECT,
+  });
+
+  if (!tag) {
+    throw new AppError("Tag not found", 404);
+  }
+
+  const [meetingTags, cardTags, taskTags, contactTags] = await Promise.all([
+    prisma.meetingTag.findMany({
+      where: { tagId, meeting: { createdById: userId, isDeleted: false } },
+      select: {
+        meeting: {
+          select: { id: true, title: true, startTime: true, type: true, status: true },
+        },
+      },
+    }),
+    prisma.cardTag.findMany({
+      where: { tagId, card: { userId: userId, isDeleted: false } },
+      select: {
+        card: {
+          select: { id: true, slug: true, displayName: true, title: true, avatarUrl: true },
+        },
+      },
+    }),
+    prisma.taskTag.findMany({
+      where: { tagId, task: { userId: userId, isDeleted: false } },
+      select: {
+        task: {
+          select: { id: true, title: true, status: true, priority: true, dueDate: true },
+        },
+      },
+    }),
+    prisma.contactTag.findMany({
+      where: {
+        tagId,
+        contact: { userId, card: { userId, isDeleted: false } },
+      },
+      select: {
+        contact: {
+          select: { id: true, name: true, email: true, company: true, cardId: true },
+        },
+      },
+    }),
+  ]);
+
+  const meetings = meetingTags.map((t) => t.meeting);
+  const cards = cardTags.map((t) => t.card);
+  const tasks = taskTags.map((t) => t.task);
+  const contacts = contactTags.map((t) => t.contact);
+
+  return {
+    tag,
+    meetings,
+    cards,
+    tasks,
+    contacts,
+    counts: {
+      meetings: meetings.length,
+      cards: cards.length,
+      tasks: tasks.length,
+      contacts: contacts.length,
+      total: meetings.length + cards.length + tasks.length + contacts.length,
+    },
+  };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -279,3 +410,74 @@ export async function detachTagFromTask(
 
   logger.info("Tag detached from task", { taskId, tagId, userId });
 }
+
+// ────────────────────────────────────────────────────────────
+// Contact tags
+// ────────────────────────────────────────────────────────────
+
+async function verifyContactOwnership(contactId: string, userId: string) {
+  const contact = await prisma.cardContact.findFirst({
+    where: { 
+      id: contactId,
+      card: {
+        userId: userId,
+        isDeleted: false,
+      }
+    },
+    select: { id: true },
+  });
+  if (!contact) throw new AppError("Contact not found", 404);
+}
+
+export async function getContactTags(userId: string, contactId: string) {
+  await verifyContactOwnership(contactId, userId);
+
+  const rows = await prisma.contactTag.findMany({
+    where: {
+      contactId,
+      tag: { isDeleted: false },
+      contact: {
+        userId,
+        card: { userId, isDeleted: false },
+      },
+    },
+    select: {
+      createdAt: true,
+      tag: { select: TAG_SELECT },
+    },
+    orderBy: { tag: { name: "asc" } },
+  });
+
+  return rows.map((r) => ({ ...r.tag, attachedAt: r.createdAt }));
+}
+
+export async function attachTagToContact(
+  userId: string,
+  contactId: string,
+  tagId: string,
+) {
+  await verifyContactOwnership(contactId, userId);
+  await verifyTagOwnership(tagId, userId);
+
+  await prisma.contactTag.upsert({
+    where: { contactId_tagId: { contactId, tagId } },
+    create: { contactId, tagId },
+    update: {},
+  });
+
+  logger.info("Tag attached to contact", { contactId, tagId, userId });
+}
+
+export async function detachTagFromContact(
+  userId: string,
+  contactId: string,
+  tagId: string,
+) {
+  await verifyContactOwnership(contactId, userId);
+  await verifyTagOwnership(tagId, userId);
+
+  await prisma.contactTag.deleteMany({ where: { contactId, tagId } });
+
+  logger.info("Tag detached from contact", { contactId, tagId, userId });
+}
+

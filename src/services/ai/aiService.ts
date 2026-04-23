@@ -5,9 +5,48 @@ import { getOpenAIClient } from "../../config/openai";
 import { logger } from "../../utils/logging/logger";
 import { AppError } from "../../utils/errors/AppError";
 import { getRedisClient } from "../../config/redisClient";
+import { checkAndDeductCredits } from "../billing/usageService";
+import * as conversationService from "./askAIConversationService";
 
-const OPENAI_MODEL = "gpt-4o-mini";
-const MAX_PIPELINE_CHARS = 40000; // ~10k tokens — keeps pipeline calls within context
+const OPENAI_MODEL = "gpt-5.4-mini"; // Upgraded to gpt-5.4-mini at Phase 4 start — better summaries, task extraction, Ask AI quality
+const MAX_PIPELINE_CHARS = 30000; // ~7.5k tokens — balances quality and cost
+
+type OpenAIUsageStats = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+type OpenAIUsageMeta = {
+  operation: string;
+  model: string;
+  promptChars: number;
+  completionChars: number;
+  usage?: OpenAIUsageStats;
+  streamed?: boolean;
+};
+
+const estimateTokensFromChars = (chars: number): number =>
+  Math.max(1, Math.ceil(chars / 4));
+
+const logOpenAIUsage = (meta: OpenAIUsageMeta): void => {
+  const estimatedPromptTokens = estimateTokensFromChars(meta.promptChars);
+  const estimatedCompletionTokens = estimateTokensFromChars(meta.completionChars);
+
+  logger.info("OpenAI token usage", {
+    operation: meta.operation,
+    model: meta.model,
+    streamed: meta.streamed ?? false,
+    promptChars: meta.promptChars,
+    completionChars: meta.completionChars,
+    promptTokens: meta.usage?.prompt_tokens ?? estimatedPromptTokens,
+    completionTokens: meta.usage?.completion_tokens ?? estimatedCompletionTokens,
+    totalTokens:
+      meta.usage?.total_tokens ??
+      estimatedPromptTokens + estimatedCompletionTokens,
+    usageSource: meta.usage?.total_tokens ? "openai" : "estimated",
+  });
+};
 
 export interface AIProcessingResult {
   summary?: string;
@@ -19,6 +58,11 @@ export interface ExtractedTask {
   title: string;
   description?: string;
   assigneeHint?: string;
+}
+
+export interface SummaryAndKeyPointsResult {
+  summary: string;
+  keyPoints: string[];
 }
 
 /**
@@ -37,6 +81,7 @@ export const generateSummary = async (
   });
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
+  const systemContent = "You are a professional meeting summarizer.";
   const prompt = `You are an AI assistant that summarizes meeting transcripts.
 Provide a clear, professional summary of the following meeting transcript.
 Focus on key decisions, discussion points, and outcomes.
@@ -53,10 +98,10 @@ Provide a summary in 2-3 paragraphs.`;
   const response = await openai.chat.completions.create({
     model: OPENAI_MODEL,
     messages: [
-      { role: "system", content: "You are a professional meeting summarizer." },
+      { role: "system", content: systemContent },
       { role: "user", content: prompt },
     ],
-    max_tokens: 1000,
+    max_completion_tokens: 1000,
     temperature: 0.3,
   });
 
@@ -64,6 +109,14 @@ Provide a summary in 2-3 paragraphs.`;
   if (!summary) {
     throw new AppError("OpenAI returned empty summary content", 502);
   }
+
+  logOpenAIUsage({
+    operation: "generateSummary",
+    model: OPENAI_MODEL,
+    promptChars: systemContent.length + prompt.length,
+    completionChars: summary.length,
+    usage: response.usage,
+  });
 
   // Save summary to database
   await prisma.meetingAISummary.upsert({
@@ -95,6 +148,8 @@ export const extractKeyPoints = async (
   }
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
+  const systemContent =
+    "You extract key points from meetings and return them as JSON.";
   const prompt = `Extract the key points from this meeting transcript.
 Return them as a JSON array of strings, with each key point being concise (1-2 sentences).
 Focus on important decisions, agreements, and notable discussion items.
@@ -110,12 +165,11 @@ Return ONLY a JSON array, no other text.`;
     messages: [
       {
         role: "system",
-        content:
-          "You extract key points from meetings and return them as JSON.",
+        content: systemContent,
       },
       { role: "user", content: prompt },
     ],
-    max_tokens: 1000,
+    max_completion_tokens: 1000,
     temperature: 0.3,
   });
 
@@ -123,6 +177,13 @@ Return ONLY a JSON array, no other text.`;
   if (!rawKeyPointsContent) {
     throw new AppError("OpenAI returned empty key points content", 502);
   }
+  logOpenAIUsage({
+    operation: "extractKeyPoints",
+    model: OPENAI_MODEL,
+    promptChars: systemContent.length + prompt.length,
+    completionChars: rawKeyPointsContent.length,
+    usage: response.usage,
+  });
   const content = rawKeyPointsContent;
 
   let keyPoints: string[];
@@ -158,6 +219,141 @@ const stripMarkdownJson = (content: string): string => {
   return content.trim();
 };
 
+const deriveKeyPointsFromSummary = (summary: string): string[] => {
+  return summary
+    .split(/\n+|(?<=[.!?])\s+/)
+    .map((line) => line.trim().replace(/^[-*\d.)\s]+/, ""))
+    .filter((line) => line.length >= 24)
+    .slice(0, 6);
+};
+
+
+/**
+ * Generate summary + key points in one model call to reduce transcript re-send cost.
+ * Summary remains hard-requirement; key points are best-effort via fallback behavior.
+ */
+export const generateSummaryAndKeyPoints = async (
+  meetingId: string,
+  transcriptText: string,
+  options?: { requireKeyPoints?: boolean },
+): Promise<SummaryAndKeyPointsResult> => {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new AppError("OPENAI_API_KEY is required for AI features", 503);
+  }
+
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, isDeleted: false },
+    select: { title: true, description: true },
+  });
+
+  const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
+  const systemContent =
+    "You are a professional meeting summarizer. Always return valid JSON.";
+  const prompt = `You are an AI assistant that summarizes meeting transcripts.
+Return ONLY valid JSON with this exact shape:
+{
+  "summary": "string",
+  "keyPoints": ["string", "string"]
+}
+
+Rules:
+- summary: 2-3 professional paragraphs, focused on decisions and outcomes.
+- keyPoints: 4-8 concise bullets as plain strings.
+
+Meeting Title: ${meeting?.title ?? "Untitled Meeting"}
+Meeting Description: ${meeting?.description ?? "No description"}
+
+Transcript:
+${capped}`;
+
+  const openai = getOpenAIClient();
+  const response = await openai.chat.completions.create({
+    model: OPENAI_MODEL,
+    messages: [
+      {
+        role: "system",
+        content: systemContent,
+      },
+      { role: "user", content: prompt },
+    ],
+    max_completion_tokens: 1300,
+    temperature: 0.3,
+  });
+
+  const raw = response.choices[0]?.message?.content?.trim();
+  if (!raw) {
+    throw new AppError("OpenAI returned empty summary content", 502);
+  }
+
+  logOpenAIUsage({
+    operation: "generateSummaryAndKeyPoints",
+    model: OPENAI_MODEL,
+    promptChars: systemContent.length + prompt.length,
+    completionChars: raw.length,
+    usage: response.usage,
+  });
+
+  let summary = "";
+  let keyPoints: string[] = [];
+  try {
+    const parsed = JSON.parse(stripMarkdownJson(raw)) as {
+      summary?: unknown;
+      keyPoints?: unknown;
+    };
+
+    summary = typeof parsed.summary === "string" ? parsed.summary.trim() : "";
+    keyPoints = Array.isArray(parsed.keyPoints)
+      ? parsed.keyPoints
+          .filter((value): value is string => typeof value === "string")
+          .map((value) => value.trim())
+          .filter(Boolean)
+      : [];
+
+    if (!summary) {
+      throw new Error("Parsed summary is empty");
+    }
+  } catch (err) {
+    logger.warn("Single-call summary parse failed — using fallback", {
+      meetingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+
+    summary = await generateSummary(meetingId, transcriptText);
+    keyPoints = [];
+    try {
+      keyPoints = await extractKeyPoints(meetingId, transcriptText);
+    } catch (keyPointErr) {
+      if (options?.requireKeyPoints) {
+        throw new AppError("Failed to extract key points", 502);
+      }
+      logger.error("Fallback key-point extraction failed (non-fatal)", {
+        meetingId,
+        error:
+          keyPointErr instanceof Error
+            ? keyPointErr.message
+            : String(keyPointErr),
+      });
+    }
+  }
+
+  await prisma.meetingAISummary.upsert({
+    where: { meetingId },
+    create: {
+      meetingId,
+      summary,
+      keyPoints,
+    },
+    update: {
+      summary,
+      keyPoints,
+      updatedAt: new Date(),
+    },
+  });
+
+  logger.info(`Summary + key points generated in single call for meeting ${meetingId}`);
+  return { summary, keyPoints };
+};
+
 /**
  * Extract tasks from transcript and save as Task records
  */
@@ -171,6 +367,8 @@ export const extractTasks = async (
   }
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
+  const systemContent =
+    "You extract tasks from meeting transcripts and return them as JSON.";
   const prompt = `Extract action items and tasks from this meeting transcript.
 Return them as a JSON array of objects with these fields:
 - title: string (short, actionable task title)
@@ -188,12 +386,11 @@ Return ONLY a JSON array, no other text.`;
     messages: [
       {
         role: "system",
-        content:
-          "You extract tasks from meeting transcripts and return them as JSON.",
+        content: systemContent,
       },
       { role: "user", content: prompt },
     ],
-    max_tokens: 1500,
+    max_completion_tokens: 1500,
     temperature: 0.3,
   });
 
@@ -201,6 +398,13 @@ Return ONLY a JSON array, no other text.`;
   if (!rawTasksContent) {
     throw new AppError("OpenAI returned empty tasks content", 502);
   }
+  logOpenAIUsage({
+    operation: "extractTasks",
+    model: OPENAI_MODEL,
+    promptChars: systemContent.length + prompt.length,
+    completionChars: rawTasksContent.length,
+    usage: response.usage,
+  });
   const content = rawTasksContent;
 
   let rawTasks: Array<{
@@ -256,6 +460,8 @@ export const generateMeetingTitle = async (
   let title: string | null = null;
 
   try {
+    const systemContent =
+      "You generate concise, professional meeting titles. Return only the title, no quotes or punctuation at the end.";
     const prompt = `Based on this meeting transcript, generate a short, descriptive meeting title (4-7 words max).
 The title should capture the main topic or purpose of the meeting.
 Return ONLY the title text, nothing else.
@@ -269,16 +475,22 @@ ${transcriptText.slice(0, 2000)}`;
       messages: [
         {
           role: "system",
-          content:
-            "You generate concise, professional meeting titles. Return only the title, no quotes or punctuation at the end.",
+          content: systemContent,
         },
         { role: "user", content: prompt },
       ],
-      max_tokens: 30,
+      max_completion_tokens: 30,
       temperature: 0.4,
     });
 
     title = response.choices[0]?.message?.content?.trim() ?? null;
+    logOpenAIUsage({
+      operation: "generateMeetingTitle",
+      model: OPENAI_MODEL,
+      promptChars: systemContent.length + prompt.length,
+      completionChars: title?.length ?? 0,
+      usage: response.usage,
+    });
   } catch (err) {
     logger.error(`OpenAI title generation failed for meeting ${meetingId}`, {
       error: err instanceof Error ? err.message : String(err),
@@ -320,18 +532,26 @@ export const processTranscriptWithAI = async (
     throw new AppError(`No transcript found for meeting ${meetingId}`, 422);
   }
 
-  // Idempotency: skip if summary already processed
-  const existingSummary = await prisma.meetingAISummary.findFirst({
-    where: { meetingId, isDeleted: false },
-    select: { summary: true, keyPoints: true },
-  });
-  if (existingSummary?.summary) {
-    logger.info("AI pipeline already processed for meeting — skipping", { meetingId });
-    return {
-      summary: existingSummary.summary,
-      keyPoints: (existingSummary.keyPoints as string[]) ?? [],
-    };
-  }
+  // Partial-idempotency: reuse existing outputs and only backfill missing pieces.
+  const [existingSummary, existingTasks] = await Promise.all([
+    prisma.meetingAISummary.findFirst({
+      where: { meetingId, isDeleted: false },
+      select: { summary: true, keyPoints: true },
+    }),
+    prisma.task.findMany({
+      where: {
+        meetingId,
+        userId,
+        source: "AI_EXTRACTED",
+        isDeleted: false,
+      },
+      select: {
+        title: true,
+        description: true,
+      },
+      take: 100,
+    }),
+  ]);
 
   // Title generation is genuinely fire-and-forget — run outside Promise.all so a
   // title failure cannot reject the entire pipeline.
@@ -342,37 +562,69 @@ export const processTranscriptWithAI = async (
     }),
   );
 
-  // generateSummary is a hard failure — if it fails the whole pipeline fails
-  const summary = await generateSummary(meetingId, transcript.fullText);
+  let summary = existingSummary?.summary?.trim() || "";
+  let keyPoints = Array.isArray(existingSummary?.keyPoints)
+    ? (existingSummary?.keyPoints as string[]).filter(Boolean)
+    : [];
 
-  // extractKeyPoints and extractTasks are soft failures — log but don't fail the pipeline
-  const [keyPointsResult, tasksResult] = await Promise.allSettled([
-    extractKeyPoints(meetingId, transcript.fullText),
-    extractTasks(meetingId, transcript.fullText, userId),
-  ]);
-
-  const keyPoints =
-    keyPointsResult.status === "fulfilled" ? keyPointsResult.value : [];
-  if (keyPointsResult.status === "rejected") {
-    logger.error("extractKeyPoints failed (non-fatal)", {
+  if (!summary) {
+    // No summary yet: generate summary + key points in one call.
+    const summaryAndKeyPoints = await generateSummaryAndKeyPoints(
       meetingId,
-      error:
-        keyPointsResult.reason instanceof Error
-          ? keyPointsResult.reason.message
-          : String(keyPointsResult.reason),
-    });
+      transcript.fullText,
+    );
+    summary = summaryAndKeyPoints.summary;
+    keyPoints = summaryAndKeyPoints.keyPoints;
+  } else if (keyPoints.length === 0) {
+    // Backfill missing key points if summary exists but key points were not persisted.
+    try {
+      keyPoints = await extractKeyPoints(meetingId, transcript.fullText);
+    } catch (err) {
+      logger.error("extractKeyPoints failed during backfill (non-fatal)", {
+        meetingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
-  const tasks =
-    tasksResult.status === "fulfilled" ? tasksResult.value : [];
-  if (tasksResult.status === "rejected") {
-    logger.error("extractTasks failed (non-fatal)", {
-      meetingId,
-      error:
-        tasksResult.reason instanceof Error
-          ? tasksResult.reason.message
-          : String(tasksResult.reason),
-    });
+  if (keyPoints.length === 0 && summary) {
+    const fallbackKeyPoints = deriveKeyPointsFromSummary(summary);
+    if (fallbackKeyPoints.length > 0) {
+      keyPoints = fallbackKeyPoints;
+      await prisma.meetingAISummary.upsert({
+        where: { meetingId },
+        create: {
+          meetingId,
+          summary,
+          keyPoints,
+        },
+        update: {
+          keyPoints,
+          updatedAt: new Date(),
+        },
+      });
+      logger.info("Derived fallback key points from summary", {
+        meetingId,
+        count: keyPoints.length,
+      });
+    }
+  }
+
+  // Task extraction remains best-effort and isolated.
+  let tasks: ExtractedTask[] = existingTasks.map((task) => ({
+    title: task.title,
+    description: task.description ?? undefined,
+  }));
+  if (tasks.length === 0) {
+    try {
+      tasks = await extractTasks(meetingId, transcript.fullText, userId);
+    } catch (taskErr) {
+      logger.error("extractTasks failed (non-fatal)", {
+        meetingId,
+        error:
+          taskErr instanceof Error ? taskErr.message : String(taskErr),
+      });
+    }
   }
 
   return { summary, keyPoints, tasks };
@@ -419,6 +671,96 @@ const buildTranscriptContext = (
     .join("\n");
 };
 
+const QUESTION_STOP_WORDS = new Set([
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "with",
+  "from",
+  "this",
+  "that",
+  "about",
+  "were",
+  "have",
+  "does",
+  "please",
+  "could",
+  "would",
+  "should",
+  "into",
+  "your",
+  "their",
+  "there",
+  "meeting",
+  "transcript",
+]);
+
+/**
+ * Build compact Ask AI context by prioritizing lines relevant to the question.
+ */
+const buildRelevantAskAIContext = (
+  rawTranscript: string,
+  question: string,
+  maxChars: number,
+): string => {
+  if (rawTranscript.length <= maxChars) return rawTranscript;
+
+  const terms = Array.from(
+    new Set(
+      question
+        .toLowerCase()
+        .match(/[a-z0-9]{4,}/g)
+        ?.filter((term) => !QUESTION_STOP_WORDS.has(term)) ?? [],
+    ),
+  );
+
+  if (terms.length === 0) {
+    return `${rawTranscript.slice(0, maxChars)}\n[transcript truncated]`;
+  }
+
+  const lines = rawTranscript.split("\n").filter(Boolean);
+  const scored = lines
+    .map((line, index) => {
+      const normalized = line.toLowerCase();
+      let score = 0;
+      for (const term of terms) {
+        if (normalized.includes(term)) score += 1;
+      }
+      return { index, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  if (scored.length === 0) {
+    return `${rawTranscript.slice(0, maxChars)}\n[transcript truncated]`;
+  }
+
+  const selectedIndexes = new Set<number>();
+  for (const item of scored) {
+    selectedIndexes.add(item.index);
+    if (item.index + 1 < lines.length) {
+      selectedIndexes.add(item.index + 1);
+    }
+    if (selectedIndexes.size >= 220) break;
+  }
+
+  const orderedIndexes = Array.from(selectedIndexes).sort((a, b) => a - b);
+  let context = "";
+  for (const index of orderedIndexes) {
+    const nextLine = `${lines[index]}\n`;
+    if ((context + nextLine).length > maxChars) break;
+    context += nextLine;
+  }
+
+  if (!context) {
+    return `${rawTranscript.slice(0, maxChars)}\n[transcript truncated]`;
+  }
+
+  return `${context.trim()}\n[relevance-filtered transcript context]`;
+};
+
 /**
  * Ask AI — streams an answer to a question about a specific meeting.
  * POST /sma/meetings/:meetingId/ask
@@ -445,8 +787,17 @@ export const askAI = async (
   // Fetch transcript with segments (capped to avoid loading megabytes for long meetings)
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
-    include: {
-      segments: { orderBy: { startTime: "asc" }, take: 500 },
+    select: {
+      id: true,
+      segments: {
+        orderBy: { startTime: "asc" },
+        take: 500,
+        select: {
+          speaker: true,
+          text: true,
+          startTime: true,
+        },
+      },
     },
   });
 
@@ -460,19 +811,36 @@ export const askAI = async (
     select: { speakerLabel: true, displayName: true },
   });
 
-  const MAX_TRANSCRIPT_CHARS = 20000; // ~5k tokens — stay well within context
+  const MAX_TRANSCRIPT_CHARS = 12000; // ~3k tokens — relevance-filtered for lower cost
   const rawTranscript = buildTranscriptContext(transcript.segments, speakers);
-  const transcriptContext =
-    rawTranscript.length > MAX_TRANSCRIPT_CHARS
-      ? rawTranscript.slice(0, MAX_TRANSCRIPT_CHARS) +
-        "\n[transcript truncated]"
-      : rawTranscript;
+  const transcriptContext = buildRelevantAskAIContext(
+    rawTranscript,
+    question,
+    MAX_TRANSCRIPT_CHARS,
+  );
 
   const systemPrompt = `You are an intelligent meeting assistant. You have access to the full transcript of a meeting titled "${meeting.title ?? "Untitled Meeting"}".
 Answer the user's questions based solely on the transcript content.
 Be concise, accurate, and helpful. If the answer isn't in the transcript, say so clearly.`;
 
   const userMessage = `Transcript:\n${transcriptContext}\n\nQuestion: ${question}`;
+
+  // Persist the conversation + user message BEFORE streaming
+  const conversationId = await conversationService.getOrCreateConversation(
+    userId,
+    meetingId,
+  );
+
+  // Fetch last 6 messages (3 exchanges) for conversational context
+  const priorMessages = await conversationService.getMessages(userId, meetingId);
+  const historyMessages = priorMessages
+    .slice(-6)
+    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+  const historyChars = historyMessages.reduce((acc, m) => acc + m.content.length, 0);
+  const askAIPromptChars = systemPrompt.length + userMessage.length + historyChars;
+
+  await conversationService.appendMessage(conversationId, "user", question);
 
   // Stream SSE headers
   res.setHeader("Content-Type", "text/event-stream");
@@ -484,13 +852,16 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
   const openai = getOpenAIClient();
 
   try {
+    let streamedCompletionChars = 0;
+    let fullAssistantResponse = "";
     const stream = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
+        ...historyMessages,
         { role: "user", content: userMessage },
       ],
-      max_tokens: 1500,
+      max_completion_tokens: 900,
       temperature: 0.5,
       stream: true,
     });
@@ -498,8 +869,32 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
     for await (const chunk of stream) {
       const delta = chunk.choices[0]?.delta?.content;
       if (delta) {
+        streamedCompletionChars += delta.length;
+        fullAssistantResponse += delta;
         res.write(`data: ${JSON.stringify({ token: delta })}\n\n`);
       }
+    }
+
+    logOpenAIUsage({
+      operation: "askAI:stream",
+      model: OPENAI_MODEL,
+      promptChars: askAIPromptChars,
+      completionChars: streamedCompletionChars,
+      streamed: true,
+    });
+
+    // Deduct AI credits based on estimated token usage (streamed — no exact counts)
+    const estimatedInputTokens = Math.ceil(askAIPromptChars / 4);
+    const estimatedOutputTokens = Math.ceil(streamedCompletionChars / 4);
+    await checkAndDeductCredits(userId, estimatedInputTokens, estimatedOutputTokens);
+
+    // Persist the assistant response
+    if (fullAssistantResponse) {
+      await conversationService.appendMessage(
+        conversationId,
+        "assistant",
+        fullAssistantResponse,
+      );
     }
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
@@ -524,7 +919,7 @@ const CONTENT_PROMPTS: Record<AIContentType, (transcript: string) => string> = {
     `Based on this meeting transcript, write a formal meeting report/minutes document. Include: Participants (from who's speaking), Key Discussion Points, Decisions Made, and Action Items. Format it professionally with clear sections.\n\nTranscript:\n${t}\n\nMeeting Report:`,
 
   TWEET: (t) =>
-    `Write a single tweet (under 280 characters) that captures the main outcome or topic of this meeting. Be engaging and professional.\n\nTranscript excerpt:\n${t.slice(0, 3000)}\n\nTweet:`,
+    `Write a short social media post (under 280 characters) that captures the main outcome or topic of this meeting. Be engaging and professional.\n\nTranscript excerpt:\n${t.slice(0, 3000)}\n\nSocial Media Post:`,
 
   BLOG_POST: (t) =>
     `Write a 300-400 word blog post about the topic discussed in this meeting. Give it a compelling title. Make it engaging and informative for a professional audience.\n\nTranscript:\n${t}\n\nBlog Post:`,
@@ -571,18 +966,19 @@ export const generateContent = async (
   const openai = getOpenAIClient();
   const capped = transcript.fullText.slice(0, MAX_PIPELINE_CHARS);
   const prompt = CONTENT_PROMPTS[type](capped);
+  const systemContent =
+    "You are a professional meeting assistant that generates well-structured content from meeting transcripts. Be concise, accurate, and professional.";
 
   const response = await openai.chat.completions.create({
     model: OPENAI_MODEL,
     messages: [
       {
         role: "system",
-        content:
-          "You are a professional meeting assistant that generates well-structured content from meeting transcripts. Be concise, accurate, and professional.",
+        content: systemContent,
       },
       { role: "user", content: prompt },
     ],
-    max_tokens: type === "TWEET" ? 100 : 1500,
+    max_completion_tokens: type === "TWEET" ? 100 : 1500,
     temperature: 0.6,
   });
 
@@ -590,6 +986,21 @@ export const generateContent = async (
   if (!content) {
     throw new AppError("OpenAI returned empty content", 502);
   }
+
+  logOpenAIUsage({
+    operation: `generateContent:${type}`,
+    model: OPENAI_MODEL,
+    promptChars: systemContent.length + prompt.length,
+    completionChars: content.length,
+    usage: response.usage,
+  });
+
+  // Deduct AI credits using actual token counts from OpenAI response
+  await checkAndDeductCredits(
+    userId,
+    response.usage?.prompt_tokens ?? Math.ceil((systemContent.length + prompt.length) / 4),
+    response.usage?.completion_tokens ?? Math.ceil(content.length / 4),
+  );
 
   await prisma.meetingAIContent.upsert({
     where: { meetingId_type: { meetingId, type } },
@@ -624,6 +1035,7 @@ export const getGeneratedContents = async (
 export const aiService = {
   generateSummary,
   extractKeyPoints,
+  generateSummaryAndKeyPoints,
   extractTasks,
   generateMeetingTitle,
   processTranscriptWithAI,

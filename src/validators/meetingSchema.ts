@@ -26,6 +26,7 @@ export const createMeetingSchema = z
     participantUserIds: z
       .array(z.string().uuid("Invalid participant ID format"))
       .optional(),
+    guestEmails: z.array(z.string().email().toLowerCase()).optional(),
     notes: z.string().optional(),
     addToCalendar: z.boolean().optional(),
   })
@@ -114,6 +115,7 @@ export const updateMeetingSchema = z
     participantUserIds: z
       .array(z.string().uuid("Invalid participant ID format"))
       .optional(),
+    guestEmails: z.array(z.string().email().toLowerCase()).optional(),
     notes: z.string().optional(),
     addToCalendar: z.boolean().optional(),
   })

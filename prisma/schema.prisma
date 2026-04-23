@@ -36,6 +36,9 @@ model User {
   state   String?
   city    String?
 
+  // Billing (Phase 4)
+  plan Plan @default(FREE)
+
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -66,8 +69,19 @@ model User {
   availabilitySchedules  AvailabilitySchedule[]
   bookings               Booking[]
 
+  // Billing (Phase 4)
+  usage        UserUsage?
+  subscription Subscription?
+
+  // AI Conversations (Phase 4.2)
+  askAIConversations AskAIConversation[]
+
+  // Google Calendar Push Sync (Phase 4.3)
+  gcalSyncState GCalSyncState?
+
   @@index([activeSessionId])
   @@index([createdAt])
+  @@index([plan])
 }
 
 model Session {
@@ -183,6 +197,7 @@ model Meeting {
   tags         MeetingTag[]
   attachments  MeetingAttachment[]
   booking      Booking?
+  askAIConversations AskAIConversation[]
 
   @@index([createdById])
   @@index([createdAt])
@@ -196,16 +211,21 @@ model Meeting {
 model MeetingParticipant {
   id              String          @id @default(uuid()) @db.Uuid
   meetingId       String          @db.Uuid
-  userId          String          @db.Uuid
+  userId          String?         @db.Uuid
+  guestEmail      String?         // For external (non-Crelyzor) participants
   participantType ParticipantType
   joinedAt        DateTime?
+  cardId          String?         @db.Uuid
 
   meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id])
+  user    User?   @relation(fields: [userId], references: [id])
+  card    Card?   @relation(fields: [cardId], references: [id])
 
-  @@unique([meetingId, userId])
+  @@unique([meetingId, userId, guestEmail])
   @@index([userId])
+  @@index([guestEmail])
   @@index([meetingId])
+  @@index([cardId])
 }
 
 model MeetingStateHistory {
@@ -333,17 +353,23 @@ model Task {
   durationMinutes   Int?          @default(30) // Task duration in minutes (5–480)
   googleEventId     String?       // GCal time-block event ID (set when task is blocked in Google Calendar)
 
+  // Phase 3.2 — Recurring tasks
+  recurringRule     String?       // RRULE string e.g. "FREQ=DAILY", "FREQ=WEEKLY", "FREQ=MONTHLY"
+  recurringParentId String?       @db.Uuid // Points to the root recurring task (never the previous sibling)
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  meeting  Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
-  taskTags TaskTag[]
-  parent   Task?     @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
-  subtasks Task[]    @relation("TaskSubtasks")
-  card     Card?     @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  meeting           Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  taskTags          TaskTag[]
+  parent            Task?     @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  subtasks          Task[]    @relation("TaskSubtasks")
+  card              Card?     @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  recurringParent   Task?     @relation("RecurringTasks", fields: [recurringParentId], references: [id], onDelete: SetNull)
+  recurringChildren Task[]    @relation("RecurringTasks")
 
   @@index([userId])
   @@index([meetingId])
@@ -359,6 +385,7 @@ model Task {
   @@index([userId, status, isDeleted])
   @@index([userId, cardId, isDeleted])
   @@index([googleEventId])
+  @@index([recurringParentId])
 }
 
 model TaskTag {
@@ -429,6 +456,64 @@ model MeetingAIContent {
 
   @@unique([meetingId, type])
   @@index([meetingId])
+}
+
+// ================================
+// ASK AI CONVERSATIONS (Phase 4.2)
+// ================================
+
+model AskAIConversation {
+  id        String         @id @default(uuid()) @db.Uuid
+  meetingId String         @db.Uuid
+  userId    String         @db.Uuid
+
+  meeting  Meeting        @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AskAIMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([meetingId, userId])
+  @@index([meetingId])
+  @@index([userId])
+}
+
+model AskAIMessage {
+  id             String            @id @default(uuid()) @db.Uuid
+  conversationId String            @db.Uuid
+
+  role    String // "user" | "assistant"
+  content String @db.Text
+
+  conversation AskAIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+}
+
+// ================================
+// GOOGLE CALENDAR PUSH SYNC (Phase 4.3)
+// ================================
+
+model GCalSyncState {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @unique @db.Uuid
+
+  channelId  String   @unique          // UUID we generate — used as channel identifier with Google
+  resourceId String?                   // Returned by Google after watch() — needed to stop channel
+  expiration DateTime                  // When Google expires this channel (max 30 days)
+  syncToken  String?                   // Incremental sync token from last successful events.list call
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiration])
+  @@index([channelId])
 }
 
 model MeetingShare {
@@ -506,6 +591,7 @@ model Card {
   views    CardView[]
   tags     CardTag[]
   tasks    Task[]
+  meetingParticipants MeetingParticipant[]
 
   @@unique([userId, slug])
   @@index([slug])
@@ -533,13 +619,19 @@ model CardContact {
   scannedAt      DateTime @default(now())
   savedByScanner Boolean  @default(false) // did they also save the card?
 
+  // Soft delete (Phase 4.4)
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
   // Relations
-  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contactTags ContactTag[]
+  card        Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([cardId])
   @@index([userId, scannedAt])
   @@index([email])
+  @@index([userId, isDeleted])
 }
 
 model CardView {
@@ -615,6 +707,7 @@ model Tag {
   meetingTags MeetingTag[]
   cardTags    CardTag[]
   taskTags    TaskTag[]
+  contactTags ContactTag[]
 
   @@unique([userId, name])
   @@index([userId])
@@ -649,6 +742,20 @@ model CardTag {
   @@index([tagId])
 }
 
+model ContactTag {
+  contactId String @db.Uuid
+  tagId     String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  contact CardContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag     Tag         @relation(fields: [tagId],     references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+  @@index([contactId])
+  @@index([tagId])
+}
+
 // ================================
 // SCHEDULING (Phase 1.2)
 // ================================
@@ -659,7 +766,6 @@ model UserSettings {
 
   // Scheduling
   schedulingEnabled Boolean @default(true)
-  minNoticeHours    Int     @default(24)
   maxWindowDays     Int     @default(60)
   defaultBufferMins Int     @default(15)
 
@@ -672,6 +778,12 @@ model UserSettings {
   autoTranscribe  Boolean @default(true)
   autoAIProcess   Boolean @default(true)
   defaultLanguage String  @default("en")
+
+  // Email Notifications (Phase 3.3)
+  emailNotificationsEnabled Boolean @default(true)  // master toggle
+  bookingEmailsEnabled      Boolean @default(true)  // booking received/confirmed/cancelled
+  meetingReadyEmailEnabled  Boolean @default(true)  // AI processing complete
+  dailyDigestEnabled        Boolean @default(false) // 8am daily task digest
 
   // Soft delete
   isDeleted Boolean   @default(false)
@@ -696,6 +808,7 @@ model EventType {
   meetingLink  String?      // Zoom/Meet URL — ONLINE only
   bufferBefore Int          @default(0) // minutes
   bufferAfter  Int          @default(0) // minutes
+  minNoticeHours Int        @default(24)// hours
   maxPerDay    Int?         // null = unlimited
   isActive     Boolean      @default(true)
 
@@ -822,6 +935,55 @@ model Booking {
 }
 
 // ================================
+// BILLING (Phase 4)
+// ================================
+
+model UserUsage {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+
+  // Usage counters — reset monthly by cron job
+  transcriptionMinutesUsed Int   @default(0)
+  recallHoursUsed          Float @default(0)
+  aiCreditsUsed            Int   @default(0)
+  storageGbUsed            Float @default(0)
+
+  // Period tracking
+  periodStart DateTime @default(now())
+  resetAt     DateTime // set to first day of next month on creation + after each reset
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([resetAt]) // cron job queries by resetAt to find users to reset
+}
+
+model Subscription {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+
+  // Razorpay identifiers
+  razorpayCustomerId     String  @unique
+  razorpaySubscriptionId String? @unique
+
+  // Plan state
+  plan             Plan      @default(FREE)
+  status           String    @default("active") // Razorpay subscription status: created | authenticated | active | pending | halted | cancelled | completed | expired
+  currentPeriodEnd DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([razorpayCustomerId])
+  @@index([plan])
+}
+
+// ================================
 // ENUMS
 // ================================
 
@@ -901,4 +1063,10 @@ enum BookingStatus {
   CANCELLED
   RESCHEDULED
   NO_SHOW
+}
+
+enum Plan {
+  FREE
+  PRO
+  BUSINESS
 }

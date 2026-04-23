@@ -24,6 +24,15 @@ function hashIP(ip: string): string {
   return crypto.createHash("sha256").update(ip).digest("hex").slice(0, 16);
 }
 
+function parseUuidParam(value: string, fieldName: string): string {
+  const parsed = z.string().uuid().safeParse(value);
+  if (!parsed.success) {
+    throw ErrorFactory.validation(`Invalid ${fieldName}`);
+  }
+
+  return parsed.data;
+}
+
 export const cardController = {
   // ========================================
   // AUTHENTICATED ROUTES (card management)
@@ -104,9 +113,11 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
+      const cardId = parseUuidParam(req.params.cardId as string, "cardId");
+
       const card = await cardService.getCardById(
         userId,
-        req.params.cardId as string,
+        cardId,
       );
 
       apiResponse(res, {
@@ -124,12 +135,14 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
+      const cardId = parseUuidParam(req.params.cardId as string, "cardId");
+
       const parsed = updateCardSchema.safeParse(req.body);
       if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
       const card = await cardService.updateCard(
         userId,
-        req.params.cardId as string,
+        cardId,
         parsed.data,
       );
 
@@ -148,7 +161,9 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
-      await cardService.deleteCard(userId, req.params.cardId as string);
+      const cardId = parseUuidParam(req.params.cardId as string, "cardId");
+
+      await cardService.deleteCard(userId, cardId);
 
       apiResponse(res, {
         statusCode: 200,
@@ -164,12 +179,14 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
+      const cardId = parseUuidParam(req.params.cardId as string, "cardId");
+
       const parsed = duplicateCardSchema.safeParse(req.body);
       if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
       const card = await cardService.duplicateCard(
         userId,
-        req.params.cardId as string,
+        cardId,
         parsed.data.slug,
       );
 
@@ -218,12 +235,14 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
+      const contactId = parseUuidParam(req.params.contactId as string, "contactId");
+
       const parsed = updateContactTagsSchema.safeParse(req.body);
       if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
       const contact = await cardService.updateContactTags(
         userId,
-        req.params.contactId as string,
+        contactId,
         parsed.data.tags,
       );
 
@@ -242,7 +261,9 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
-      await cardService.deleteContact(userId, req.params.contactId as string);
+      const contactId = parseUuidParam(req.params.contactId as string, "contactId");
+
+      await cardService.deleteContact(userId, contactId);
 
       apiResponse(res, {
         statusCode: 200,
@@ -272,6 +293,36 @@ export const cardController = {
     }
   },
 
+  importContacts: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) throw ErrorFactory.unauthorized();
+
+      const cardId = req.params.cardId as string;
+      if (!z.string().uuid().safeParse(cardId).success) {
+        throw ErrorFactory.validation("Invalid cardId");
+      }
+
+      if (!req.file?.buffer) {
+        throw ErrorFactory.validation("CSV file is required");
+      }
+
+      const result = await cardService.importContactsFromCsv(
+        userId,
+        cardId,
+        req.file.buffer,
+      );
+
+      apiResponse(res, {
+        statusCode: 200,
+        message: "Contacts imported successfully",
+        data: result,
+      });
+    } catch (err) {
+      globalErrorHandler(err as BaseError, req, res);
+    }
+  },
+
   // ========================================
   // ANALYTICS (authenticated)
   // ========================================
@@ -281,12 +332,14 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
+      const cardId = parseUuidParam(req.params.cardId as string, "cardId");
+
       const parsed = getCardAnalyticsSchema.safeParse(req.query);
       if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
       const analytics = await cardService.getCardAnalytics(
         userId,
-        req.params.cardId as string,
+        cardId,
         parsed.data.days,
       );
 
@@ -294,6 +347,28 @@ export const cardController = {
         statusCode: 200,
         message: "Analytics retrieved successfully",
         data: analytics,
+      });
+    } catch (err) {
+      globalErrorHandler(err as BaseError, req, res);
+    }
+  },
+
+  getCardMeetings: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) throw ErrorFactory.unauthorized();
+
+      const cardId = parseUuidParam(req.params.cardId as string, "cardId");
+
+      const meetings = await cardService.getCardMeetings(
+        userId,
+        cardId,
+      );
+
+      apiResponse(res, {
+        statusCode: 200,
+        message: "Card meetings retrieved successfully",
+        data: meetings,
       });
     } catch (err) {
       globalErrorHandler(err as BaseError, req, res);
@@ -333,8 +408,10 @@ export const cardController = {
       const parsed = submitContactSchema.safeParse(req.body);
       if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
+      const cardId = parseUuidParam(req.params.cardId as string, "cardId");
+
       const contact = await cardService.submitContact(
-        req.params.cardId as string,
+        cardId,
         parsed.data,
       );
 
@@ -353,8 +430,10 @@ export const cardController = {
       const parsed = trackViewSchema.safeParse(req.body);
       if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
+      const cardId = parseUuidParam(req.params.cardId as string, "cardId");
+
       const ip = req.ip || req.headers["x-forwarded-for"]?.toString() || "";
-      await cardService.trackView(req.params.cardId as string, {
+      await cardService.trackView(cardId, {
         ipHash: ip ? hashIP(ip) : undefined,
         userAgent: req.headers["user-agent"],
         referrer: req.headers.referer,

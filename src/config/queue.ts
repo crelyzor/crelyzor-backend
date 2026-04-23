@@ -12,6 +12,7 @@ export enum QueueNames {
   AI_PROCESSING = "ai-processing",
   RECALL_BOT_DEPLOY = "recall-bot-deploy",
   RECALL_RECORDING = "recall-recording",
+  EMAIL = "email",
 }
 
 // Job name constants — must match exactly between .add() and .process() calls
@@ -20,6 +21,10 @@ export const JobNames = {
   PROCESS_AI: "process-ai",
   DEPLOY_RECALL_BOT: "deploy-bot",
   FETCH_RECALL_RECORDING: "fetch-recording",
+  BOOKING_REMINDER: "booking-reminder",
+  DAILY_TASK_DIGEST: "daily-task-digest",
+  MONTHLY_USAGE_RESET: "monthly-usage-reset",
+  GCAL_PUSH_SYNC: "gcal-push-sync",
 } as const;
 
 // Job data interfaces
@@ -48,11 +53,40 @@ export interface RecallRecordingJobData {
   hostUserId: string;
 }
 
+/** Job data for booking reminder emails (delayed — fires 24h before meeting). */
+export interface BookingReminderJobData {
+  bookingId: string;
+}
+
+/** Job data for daily task digest (repeating cron). */
+export interface DailyDigestJobData {
+  /** Unused — cron job processes all opted-in users each time. */
+  triggeredAt: string;
+}
+
+/** Job data for monthly usage reset cron. */
+export interface MonthlyUsageResetJobData {
+  /** Unused — cron job resets all users whose resetAt has passed. */
+  triggeredAt: string;
+}
+
+/** Job data for GCal push-notification channel renewal cron. */
+export interface GCalPushRenewalJobData {
+  /** Unused — cron job processes all users with expiring channels. */
+  triggeredAt: string;
+}
+
+/** Job data for a single GCal push-notification — queued by the webhook handler. */
+export interface GCalPushSyncJobData {
+  channelId: string;
+}
+
 // Queue instances
 let transcriptionQueue: Bull.Queue<TranscriptionJobData> | null = null;
 let aiProcessingQueue: Bull.Queue<AIProcessingJobData> | null = null;
 let recallBotQueue: Bull.Queue<RecallBotJobData> | null = null;
 let recallRecordingQueue: Bull.Queue<RecallRecordingJobData> | null = null;
+let emailQueue: Bull.Queue<BookingReminderJobData | DailyDigestJobData | MonthlyUsageResetJobData | GCalPushSyncJobData | GCalPushRenewalJobData> | null = null;
 
 // Redis config optimized for Upstash
 const getRedisConfig = () => ({
@@ -159,12 +193,33 @@ export const initializeQueues = async () => {
       },
     );
 
+    // Initialize Email Queue (reminders + daily digest)
+    emailQueue = new Bull<BookingReminderJobData | DailyDigestJobData>(
+      QueueNames.EMAIL,
+      REDIS_URL,
+      {
+        settings: {
+          maxStalledCount: 1,
+          lockDuration: 60000,
+          lockRenewTime: 30000,
+        },
+        createClient: () => new IORedis(REDIS_URL, redisConfig),
+        defaultJobOptions: {
+          attempts: 3,
+          backoff: { type: "exponential", delay: 5000 },
+          removeOnComplete: 100,
+          removeOnFail: 50,
+        },
+      },
+    );
+
     // Wait for all queues to be ready
     await Promise.all([
       transcriptionQueue.isReady(),
       aiProcessingQueue.isReady(),
       recallBotQueue.isReady(),
       recallRecordingQueue.isReady(),
+      emailQueue.isReady(),
     ]);
 
     logger.info("✅ Redis queues connected successfully");
@@ -184,14 +239,16 @@ export const initializeQueues = async () => {
     setupQueueEvents(aiProcessingQueue, "AI Processing");
     setupQueueEvents(recallBotQueue, "Recall Bot Deploy");
     setupQueueEvents(recallRecordingQueue, "Recall Recording");
+    setupQueueEvents(emailQueue, "Email");
 
-    logger.info("📦 Queues initialized: transcription, ai-processing, recall-bot-deploy, recall-recording");
+    logger.info("📦 Queues initialized: transcription, ai-processing, recall-bot-deploy, recall-recording, email");
 
     return {
       transcriptionQueue,
       aiProcessingQueue,
       recallBotQueue,
       recallRecordingQueue,
+      emailQueue,
     };
   } catch (error) {
     logger.error("Failed to initialize queues:", error);
@@ -255,6 +312,15 @@ export const getRecallRecordingQueue = (): Bull.Queue<RecallRecordingJobData> =>
   return recallRecordingQueue;
 };
 
+export const getEmailQueue = (): Bull.Queue<BookingReminderJobData | DailyDigestJobData | MonthlyUsageResetJobData | GCalPushSyncJobData | GCalPushRenewalJobData> => {
+  if (!emailQueue) {
+    throw new Error(
+      "Email queue not initialized. Call initializeQueues() first.",
+    );
+  }
+  return emailQueue;
+};
+
 // Cleanup function for graceful shutdown
 export const closeQueues = async (): Promise<void> => {
   try {
@@ -275,6 +341,10 @@ export const closeQueues = async (): Promise<void> => {
     if (recallRecordingQueue) {
       closePromises.push(recallRecordingQueue.close());
       recallRecordingQueue = null;
+    }
+    if (emailQueue) {
+      closePromises.push(emailQueue.close());
+      emailQueue = null;
     }
 
     await Promise.all(closePromises);

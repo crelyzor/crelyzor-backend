@@ -7,6 +7,10 @@ import {
   getGCalConnectionStatus,
   disconnectGCalendar,
 } from "../services/googleCalendarService";
+import {
+  registerWatchChannel,
+  stopWatchChannel,
+} from "../services/googleCalendarPushService";
 
 /**
  * GET /integrations/google/events?start=&end=
@@ -51,9 +55,35 @@ export const disconnectGoogleCalendar = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
   await disconnectGCalendar(userId);
 
+  // Phase 4.3: stop push channel (fail-open — after DB changes are committed)
+  await stopWatchChannel(userId);
+
   return apiResponse(res, {
     statusCode: 200,
     message: "Google Calendar disconnected",
     data: null,
+  });
+};
+
+/**
+ * POST /integrations/google/calendar/push/register
+ * Manually (re-)register a GCal push watch channel for the authenticated user.
+ * Used by the frontend to backfill existing connected users on Settings page load.
+ */
+export const registerGCalPushChannel = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+
+  const status = await getGCalConnectionStatus(userId);
+  if (!status.connected) {
+    throw new AppError("Google Calendar is not connected", 400);
+  }
+
+  await registerWatchChannel(userId);
+
+  const updated = await getGCalConnectionStatus(userId);
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Push channel registered",
+    data: { pushEnabled: updated.pushEnabled },
   });
 };

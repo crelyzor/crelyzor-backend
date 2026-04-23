@@ -2,6 +2,7 @@ import prisma from "../db/prismaClient";
 import { ErrorFactory } from "../utils/globalErrorHandler";
 import { logger } from "../utils/logging/logger";
 import type { Prisma } from "@prisma/client";
+import { parse as parseCsv } from "csv-parse/sync";
 import type {
   CreateCardDTO,
   UpdateCardDTO,
@@ -594,7 +595,7 @@ export const cardService = {
     const limit = options.limit || 20;
     const skip = (page - 1) * limit;
 
-    const where: Record<string, unknown> = { userId };
+    const where: Record<string, unknown> = { userId, isDeleted: false };
 
     if (options.cardId) where.cardId = options.cardId;
 
@@ -607,7 +608,13 @@ export const cardService = {
     }
 
     if (options.tags?.length) {
-      where.tags = { hasSome: options.tags };
+      where.contactTags = {
+        some: {
+          tag: {
+            name: { in: options.tags }
+          }
+        }
+      };
     }
 
     const [contacts, total] = await Promise.all([
@@ -637,7 +644,7 @@ export const cardService = {
    */
   async updateContactTags(userId: string, contactId: string, tags: string[]) {
     const contact = await prisma.cardContact.findFirst({
-      where: { id: contactId, userId },
+      where: { id: contactId, userId, isDeleted: false },
     });
     if (!contact) {
       throw ErrorFactory.notFound("Contact not found");
@@ -654,22 +661,24 @@ export const cardService = {
    */
   async deleteContact(userId: string, contactId: string) {
     const contact = await prisma.cardContact.findFirst({
-      where: { id: contactId, userId },
+      where: { id: contactId, userId, isDeleted: false },
     });
     if (!contact) {
       throw ErrorFactory.notFound("Contact not found");
     }
 
-    // TODO: Soft delete blocked — CardContact has no isDeleted field in schema.
-    // Add CardContact.isDeleted + CardContact.deletedAt migration before switching.
-    await prisma.cardContact.delete({ where: { id: contactId } });
+    // Phase 4.4: soft delete — preserve data for audit trail
+    await prisma.cardContact.update({
+      where: { id: contactId },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
   },
 
   /**
    * Export contacts as CSV
    */
   async exportContacts(userId: string, cardId?: string) {
-    const where: Record<string, unknown> = { userId };
+    const where: Record<string, unknown> = { userId, isDeleted: false };
     if (cardId) where.cardId = cardId;
 
     const contacts = await prisma.cardContact.findMany({
@@ -688,6 +697,103 @@ export const cardService = {
       .join("\n");
 
     return header + rows;
+  },
+
+  /**
+   * Import contacts from CSV file into a card.
+   * Validation: name required and at least one of email/phone required.
+   */
+  async importContactsFromCsv(userId: string, cardId: string, csvBuffer: Buffer) {
+    const card = await prisma.card.findFirst({
+      where: { id: cardId, userId, isDeleted: false },
+      select: { id: true },
+    });
+
+    if (!card) {
+      throw ErrorFactory.notFound("Card not found");
+    }
+
+    const csvText = csvBuffer.toString("utf-8");
+
+    let rows: Array<Record<string, string>>;
+    try {
+      rows = parseCsv(csvText, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+        bom: true,
+        relax_column_count: true,
+      }) as Array<Record<string, string>>;
+    } catch {
+      throw ErrorFactory.validation("Invalid CSV format");
+    }
+
+    if (rows.length === 0) {
+      return { created: 0, skipped: 0, errors: [] as string[] };
+    }
+
+    const pick = (row: Record<string, string>, keys: string[]): string => {
+      for (const key of keys) {
+        const value = row[key];
+        if (value && value.trim()) return value.trim();
+      }
+      return "";
+    };
+
+    const toCreate: Array<{
+      cardId: string;
+      userId: string;
+      name: string;
+      email?: string;
+      phone?: string;
+      company?: string;
+      note?: string;
+    }> = [];
+    const errors: string[] = [];
+
+    rows.forEach((row, idx) => {
+      const line = idx + 2;
+      const name = pick(row, ["name", "Name", "full_name", "fullName"]);
+      const email = pick(row, ["email", "Email", "email_address", "emailAddress"]);
+      const phone = pick(row, ["phone", "Phone", "mobile", "phone_number", "phoneNumber"]);
+      const company = pick(row, ["company", "Company", "organization", "Organization"]);
+      const note = pick(row, ["note", "Note", "notes", "Notes"]);
+
+      if (!name) {
+        errors.push(`Line ${line}: name is required`);
+        return;
+      }
+
+      if (!email && !phone) {
+        errors.push(`Line ${line}: email or phone is required`);
+        return;
+      }
+
+      toCreate.push({
+        cardId,
+        userId,
+        name,
+        ...(email ? { email } : {}),
+        ...(phone ? { phone } : {}),
+        ...(company ? { company } : {}),
+        ...(note ? { note } : {}),
+      });
+    });
+
+    if (toCreate.length > 0) {
+      await prisma.$transaction(
+        async (tx) => {
+          await tx.cardContact.createMany({ data: toCreate });
+        },
+        { timeout: 15000 },
+      );
+    }
+
+    return {
+      created: toCreate.length,
+      skipped: rows.length - toCreate.length,
+      errors: errors.slice(0, 100),
+    };
   },
 
   // ========================================
@@ -722,7 +828,7 @@ export const cardService = {
           distinct: ["ipHash"],
         }),
         prisma.cardContact.count({
-          where: { cardId, scannedAt: { gte: since } },
+          where: { cardId, isDeleted: false, scannedAt: { gte: since } },
         }),
         prisma.cardView.groupBy({
           by: ["clickedLink"],
@@ -782,5 +888,42 @@ export const cardService = {
       viewsByDay,
       topCountries,
     };
+  },
+
+  // ========================================
+  // LINKED MEETINGS (authenticated)
+  // ========================================
+
+  /**
+   * Get meetings linked to a card via participants
+   */
+  async getCardMeetings(userId: string, cardId: string) {
+    const card = await prisma.card.findFirst({
+      where: { id: cardId, userId, isDeleted: false },
+      select: { id: true },
+    });
+    if (!card) {
+      throw ErrorFactory.notFound("Card not found");
+    }
+
+    const meetings = await prisma.meeting.findMany({
+      where: {
+        isDeleted: false,
+        participants: {
+          some: { cardId },
+        },
+      },
+      include: {
+        participants: {
+          include: {
+            user: { select: { id: true, name: true, email: true, avatarUrl: true } },
+            card: { select: { id: true, displayName: true, slug: true } },
+          },
+        },
+      },
+      orderBy: { startTime: "desc" },
+    });
+
+    return meetings;
   },
 };

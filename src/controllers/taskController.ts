@@ -1,5 +1,7 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
+import rruleLib from "rrule";
+const { RRule } = rruleLib;
 import prisma from "../db/prismaClient";
 import { logger } from "../utils/logging/logger";
 import { apiResponse } from "../utils/globalResponseHandler";
@@ -15,6 +17,10 @@ import type { Prisma } from "@prisma/client";
 import {
   createTaskBlock,
   deleteCalendarEvent,
+  createGoogleTask,
+  updateGoogleTask,
+  deleteGoogleTask,
+  isGoogleTaskRef,
 } from "../services/googleCalendarService";
 
 const uuidSchema = z.string().uuid();
@@ -80,6 +86,11 @@ export const getAllTasks = async (req: Request, res: Response) => {
         break;
       case "from_meetings":
         where.meetingId = { not: null };
+        where.meeting = { type: { not: "VOICE_NOTE" } };
+        break;
+      case "from_voice_notes":
+        where.meetingId = { not: null };
+        where.meeting = { type: "VOICE_NOTE" };
         break;
       case "all":
       default:
@@ -197,6 +208,34 @@ export const createTask = async (req: Request, res: Response) => {
     data: { meetingId, userId, title, description, dueDate, scheduledTime, priority, source: "MANUAL", ...(durationMinutes !== undefined && { durationMinutes }) },
   });
 
+  if (task.scheduledTime) {
+    const eventId = await createTaskBlock(userId, {
+      title: task.title,
+      scheduledTime: task.scheduledTime,
+      durationMinutes: task.durationMinutes ?? 30,
+    });
+
+    if (eventId) {
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { googleEventId: eventId },
+      });
+    }
+  } else if (task.dueDate) {
+    const taskRef = await createGoogleTask(userId, {
+      title: task.title,
+      dueDate: task.dueDate,
+      notes: task.description,
+    });
+
+    if (taskRef) {
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { googleEventId: taskRef },
+      });
+    }
+  }
+
   logger.info("Task created", { taskId: task.id, meetingId, userId });
 
   return apiResponse(res, { statusCode: 201, message: "Task created", data: { task } });
@@ -258,6 +297,34 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
     },
   });
 
+  if (task.scheduledTime) {
+    const eventId = await createTaskBlock(userId, {
+      title: task.title,
+      scheduledTime: task.scheduledTime,
+      durationMinutes: task.durationMinutes ?? 30,
+    });
+
+    if (eventId) {
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { googleEventId: eventId },
+      });
+    }
+  } else if (task.dueDate) {
+    const taskRef = await createGoogleTask(userId, {
+      title: task.title,
+      dueDate: task.dueDate,
+      notes: task.description,
+    });
+
+    if (taskRef) {
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { googleEventId: taskRef },
+      });
+    }
+  }
+
   logger.info("Standalone task created", { taskId: task.id, userId });
 
   return apiResponse(res, { statusCode: 201, message: "Task created", data: { task } });
@@ -284,12 +351,27 @@ export const updateTask = async (req: Request, res: Response) => {
       scheduledTime: true,
       title: true,
       durationMinutes: true,
+      // Recurring task fields
+      recurringRule: true,
+      recurringParentId: true,
+      dueDate: true,
+      description: true,
+      priority: true,
+      meetingId: true,
+      cardId: true,
     },
   });
 
   if (!existing) throw new AppError("Task not found", 404);
 
-  const { title, description, isCompleted, dueDate, scheduledTime, priority, status, cardId, transcriptContext, durationMinutes, blockInCalendar } = validated.data;
+  const existingGoogleTaskRef = isGoogleTaskRef(existing.googleEventId)
+    ? existing.googleEventId
+    : null;
+  const existingCalendarEventId = existingGoogleTaskRef
+    ? null
+    : existing.googleEventId;
+
+  const { title, description, isCompleted, dueDate, scheduledTime, priority, status, cardId, transcriptContext, durationMinutes, blockInCalendar, recurringRule } = validated.data;
 
   // Verify card ownership if cardId is being set (not cleared)
   if (cardId !== null && cardId !== undefined) {
@@ -320,7 +402,7 @@ export const updateTask = async (req: Request, res: Response) => {
   }
 
   // When scheduledTime is explicitly cleared, also clear any existing GCal block
-  const clearingScheduledTime = scheduledTime === null && !!existing.googleEventId;
+  const clearingScheduledTime = scheduledTime === null && !!existingCalendarEventId;
 
   let task = await prisma.task.update({
     where: { id: taskId },
@@ -336,6 +418,7 @@ export const updateTask = async (req: Request, res: Response) => {
       ...(cardId !== undefined && { cardId }),
       ...(transcriptContext !== undefined && { transcriptContext }),
       ...(durationMinutes !== undefined && { durationMinutes }),
+      ...(recurringRule !== undefined && { recurringRule }),
       // Clear googleEventId when scheduledTime is explicitly removed
       ...(clearingScheduledTime && { googleEventId: null }),
     },
@@ -343,47 +426,123 @@ export const updateTask = async (req: Request, res: Response) => {
 
   // ── GCal block side-effects (fail-open — never block the task update) ────────
 
+  const finalScheduledTime =
+    scheduledTime !== undefined ? scheduledTime : existing.scheduledTime;
+  const finalDuration =
+    durationMinutes !== undefined && durationMinutes !== null
+      ? durationMinutes
+      : (existing.durationMinutes ?? 30);
+  const finalTitle = title !== undefined ? title : existing.title;
+  const finalDescription =
+    description !== undefined ? description : existing.description;
+  const finalDueDate = dueDate !== undefined ? dueDate : existing.dueDate;
+
   if (clearingScheduledTime) {
     // scheduledTime cleared → delete existing GCal block
-    await deleteCalendarEvent(userId, existing.googleEventId);
-  } else if (blockInCalendar === true) {
-    // Request to create/replace a GCal block
-    const finalScheduledTime =
-      scheduledTime !== undefined ? scheduledTime : existing.scheduledTime;
-
-    if (finalScheduledTime) {
-      // Delete existing block first (replace semantics)
-      if (existing.googleEventId) {
-        await deleteCalendarEvent(userId, existing.googleEventId);
-      }
-      const finalDuration =
-        durationMinutes !== undefined && durationMinutes !== null
-          ? durationMinutes
-          : (existing.durationMinutes ?? 30);
-      const finalTitle = title !== undefined ? title : existing.title;
-
-      const eventId = await createTaskBlock(userId, {
-        title: finalTitle,
-        scheduledTime: finalScheduledTime,
-        durationMinutes: finalDuration,
-      });
-
-      if (eventId) {
-        task = await prisma.task.update({
-          where: { id: taskId },
-          data: { googleEventId: eventId },
-        });
-        logger.info("Task GCal block created", { taskId, userId, eventId });
-      }
+    await deleteCalendarEvent(userId, existingCalendarEventId);
+  } else if (
+    finalScheduledTime &&
+    (blockInCalendar === true ||
+      blockInCalendar === undefined ||
+      !!existingCalendarEventId)
+  ) {
+    // Request to create/replace a GCal block, or auto-sync a scheduled task.
+    // Delete existing block first (replace semantics) so time/duration edits are reflected.
+    if (existingCalendarEventId) {
+      await deleteCalendarEvent(userId, existingCalendarEventId);
     }
-  } else if (blockInCalendar === false && existing.googleEventId) {
+
+    if (existingGoogleTaskRef) {
+      await deleteGoogleTask(userId, existingGoogleTaskRef);
+    }
+
+    const eventId = await createTaskBlock(userId, {
+      title: finalTitle,
+      scheduledTime: finalScheduledTime,
+      durationMinutes: finalDuration,
+    });
+
+    if (eventId) {
+      task = await prisma.task.update({
+        where: { id: taskId },
+        data: { googleEventId: eventId },
+      });
+      logger.info("Task GCal block created", { taskId, userId, eventId });
+    }
+  } else if (blockInCalendar === false && existingCalendarEventId) {
     // Request to remove the GCal block without clearing scheduledTime
-    await deleteCalendarEvent(userId, existing.googleEventId);
+    await deleteCalendarEvent(userId, existingCalendarEventId);
     task = await prisma.task.update({
       where: { id: taskId },
       data: { googleEventId: null },
     });
     logger.info("Task GCal block removed", { taskId, userId });
+  } else if (!finalScheduledTime) {
+    if (finalDueDate) {
+      if (existingGoogleTaskRef) {
+        await updateGoogleTask(userId, existingGoogleTaskRef, {
+          title: finalTitle,
+          dueDate: finalDueDate,
+          notes: finalDescription,
+        });
+      } else {
+        const taskRef = await createGoogleTask(userId, {
+          title: finalTitle,
+          dueDate: finalDueDate,
+          notes: finalDescription,
+        });
+
+        if (taskRef) {
+          task = await prisma.task.update({
+            where: { id: taskId },
+            data: { googleEventId: taskRef },
+          });
+        }
+      }
+    } else if (dueDate === null && existingGoogleTaskRef) {
+      await deleteGoogleTask(userId, existingGoogleTaskRef);
+      task = await prisma.task.update({
+        where: { id: taskId },
+        data: { googleEventId: null },
+      });
+    }
+  }
+
+  // ── Recurring task spawn (fail-open) ─────────────────────────────────────
+  // When a recurring task transitions to DONE for the first time, auto-create
+  // the next occurrence based on the RRULE.
+  const taskRecurringRule = recurringRule !== undefined ? recurringRule : existing.recurringRule;
+  if (resolvedStatus === "DONE" && existing.status !== "DONE" && taskRecurringRule) {
+    try {
+      const rule = RRule.fromString(taskRecurringRule);
+      const baseDueDate = existing.dueDate ?? (() => {
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        return d;
+      })();
+      const nextDate = rule.after(baseDueDate);
+      if (nextDate) {
+        await prisma.task.create({
+          data: {
+            userId,
+            title: existing.title,
+            ...(existing.description && { description: existing.description }),
+            ...(existing.priority && { priority: existing.priority }),
+            ...(existing.meetingId && { meetingId: existing.meetingId }),
+            ...(existing.cardId && { cardId: existing.cardId }),
+            recurringRule: taskRecurringRule,
+            recurringParentId: existing.recurringParentId ?? taskId,
+            dueDate: nextDate,
+            source: "MANUAL",
+            status: "TODO",
+            isCompleted: false,
+          },
+        });
+        logger.info("Recurring task occurrence spawned", { taskId, userId, nextDate });
+      }
+    } catch (err) {
+      logger.error("Failed to spawn recurring task occurrence", { taskId, err });
+    }
   }
 
   logger.info("Task updated", { taskId, userId });
@@ -402,7 +561,7 @@ export const deleteTask = async (req: Request, res: Response) => {
 
   const existing = await prisma.task.findFirst({
     where: { id: taskId, userId, isDeleted: false },
-    select: { id: true },
+    select: { id: true, googleEventId: true },
   });
 
   if (!existing) throw new AppError("Task not found", 404);
@@ -421,6 +580,12 @@ export const deleteTask = async (req: Request, res: Response) => {
       data: { isDeleted: true, deletedAt: now },
     });
   }, { timeout: 15000 });
+
+  if (isGoogleTaskRef(existing.googleEventId)) {
+    await deleteGoogleTask(userId, existing.googleEventId);
+  } else {
+    await deleteCalendarEvent(userId, existing.googleEventId);
+  }
 
   logger.info("Task deleted", { taskId, userId });
 

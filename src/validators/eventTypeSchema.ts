@@ -37,19 +37,12 @@ export const createEventTypeSchema = z
     meetingLink: safeUrl.optional(),
     bufferBefore: z.number().int().min(0).max(120).default(0),
     bufferAfter: z.number().int().min(0).max(120).default(0),
+    minNoticeHours: z.number().int().min(0).max(168).default(24),
     maxPerDay: z.number().int().min(1).max(50).optional(),
     isActive: z.boolean().default(true),
     availabilityScheduleId: z.string().uuid().nullable().optional(),
   })
-  .refine(
-    (data) => {
-      if (data.locationType === LocationType.ONLINE) {
-        return !!data.meetingLink;
-      }
-      return true;
-    },
-    { message: "meetingLink is required when locationType is ONLINE", path: ["meetingLink"] },
-  );
+  .strict();
 
 export const updateEventTypeSchema = z
   .object({
@@ -66,6 +59,7 @@ export const updateEventTypeSchema = z
     meetingLink: safeUrl.nullable().optional(), // null = clear the link
     bufferBefore: z.number().int().min(0).max(120).optional(),
     bufferAfter: z.number().int().min(0).max(120).optional(),
+    minNoticeHours: z.number().int().min(0).max(168).optional(),
     maxPerDay: z.number().int().min(1).max(50).nullable().optional(),
     isActive: z.boolean().optional(),
     availabilityScheduleId: z.string().uuid().nullable().optional(),

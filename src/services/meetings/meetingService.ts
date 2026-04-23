@@ -12,6 +12,8 @@ import {
   updateGCalEventForMeeting,
   deleteCalendarEvent,
 } from "../googleCalendarService";
+import { cancelBot } from "../recall/recallService";
+import ICAL from "ical.js";
 import { getRecallBotQueue, JobNames } from "../../config/queue";
 import { env } from "../../config/environment";
 import { logger } from "../../utils/logging/logger";
@@ -26,6 +28,13 @@ const meetingInclude = {
           name: true,
           email: true,
           avatarUrl: true,
+        },
+      },
+      card: {
+        select: {
+          id: true,
+          displayName: true,
+          slug: true,
         },
       },
     },
@@ -52,6 +61,7 @@ export interface CreateMeetingDTO {
   timezone: string;
   location?: string;
   participantUserIds?: string[];
+  guestEmails?: string[];
   notes?: string;
   addToCalendar?: boolean;
 }
@@ -79,8 +89,11 @@ export const meetingService = {
       timezone,
       location,
       participantUserIds,
+      guestEmails,
       notes,
     } = data;
+
+    const normalizedGuestEmails = [...new Set((guestEmails ?? []).map((email) => email.toLowerCase()))];
 
     const isScheduled = type === MeetingType.SCHEDULED;
 
@@ -156,10 +169,38 @@ export const meetingService = {
           });
 
           if (participantUserIds && participantUserIds.length > 0) {
+            const participantUsers = await tx.user.findMany({
+              where: { id: { in: participantUserIds } },
+              select: { id: true, email: true },
+            });
+            const participantEmails = participantUsers.map(u => u.email).filter(Boolean) as string[];
+
+            const matchedContacts = await tx.cardContact.findMany({
+              where: {
+                card: { userId: createdById },
+                email: { in: participantEmails },
+              },
+              select: { email: true, cardId: true },
+            });
+
+            const emailToCardId = new Map(matchedContacts.map(c => [c.email, c.cardId]));
+
             await tx.meetingParticipant.createMany({
-              data: participantUserIds.map((userId) => ({
+              data: participantUsers.map((u) => ({
                 meetingId: newMeeting.id,
-                userId,
+                userId: u.id,
+                participantType: "ATTENDEE" as const,
+                cardId: u.email && emailToCardId.has(u.email) ? emailToCardId.get(u.email) : null,
+              })),
+            });
+          }
+
+          // Add guest participants (external emails)
+          if (normalizedGuestEmails.length > 0) {
+            await tx.meetingParticipant.createMany({
+              data: normalizedGuestEmails.map((email) => ({
+                meetingId: newMeeting.id,
+                guestEmail: email,
                 participantType: "ATTENDEE" as const,
               })),
             });
@@ -178,29 +219,59 @@ export const meetingService = {
       throw ErrorFactory.validation("Failed to create meeting");
     }
 
+    let committedMeeting = await prisma.meeting.findUnique({
+      where: { id: meeting.id },
+      include: meetingInclude,
+    });
+
+    if (!committedMeeting) {
+      throw ErrorFactory.validation("Failed to load created meeting");
+    }
+
+    const attendeeEmails = committedMeeting.participants.reduce<
+      Array<{ email: string; displayName?: string }>
+    >((acc, participant) => {
+      if (participant.userId === createdById) return acc;
+      if (!participant.user?.email) return acc;
+      acc.push({
+        email: participant.user.email,
+        ...(participant.user.name ? { displayName: participant.user.name } : {}),
+      });
+      return acc;
+    }, []);
+
+    const attendeeSet = new Set(attendeeEmails.map((attendee) => attendee.email.toLowerCase()));
+    for (const guestEmail of normalizedGuestEmails) {
+      if (attendeeSet.has(guestEmail)) continue;
+      attendeeEmails.push({ email: guestEmail });
+      attendeeSet.add(guestEmail);
+    }
+
     // Create Google Calendar event for SCHEDULED meetings when requested.
     // Includes conference data to generate a Meet URL in a single API call.
     // Fail-open: GCal failure never prevents the meeting from being created.
-    if (data.addToCalendar === true && isScheduled) {
+    if (isScheduled && data.addToCalendar !== false) {
       try {
         const gcalResult = await createGCalEventForMeeting(createdById, {
-          title: meeting.title,
-          startTime: meeting.startTime,
-          endTime: meeting.endTime,
-          timezone: meeting.timezone,
-          location: meeting.location,
-          description: meeting.description,
+          title: committedMeeting.title,
+          startTime: committedMeeting.startTime,
+          endTime: committedMeeting.endTime,
+          timezone: committedMeeting.timezone,
+          location: committedMeeting.location,
+          description: committedMeeting.description,
+          attendees: attendeeEmails,
           requestMeetLink: true,
         });
         if (gcalResult) {
-          return await prisma.meeting.update({
-            where: { id: meeting.id },
+          const updatedMeeting = await prisma.meeting.update({
+            where: { id: committedMeeting.id },
             data: {
               googleEventId: gcalResult.googleEventId,
               ...(gcalResult.meetLink ? { meetLink: gcalResult.meetLink } : {}),
             },
             include: meetingInclude,
           });
+          committedMeeting = updatedMeeting;
         }
       } catch {
         // fail-open — meeting is already committed
@@ -210,7 +281,7 @@ export const meetingService = {
     // Recall bot — queue deploy for SCHEDULED meetings with a video link.
     // Fail-open: bot deploy failure never blocks meeting creation.
     if (isScheduled && env.RECALL_API_KEY) {
-      const videoLink = meeting.meetLink ?? meeting.location;
+      const videoLink = committedMeeting.meetLink ?? committedMeeting.location;
       if (videoLink && isVideoMeetingUrl(videoLink)) {
         try {
           const settings = await prisma.userSettings.findUnique({
@@ -219,16 +290,16 @@ export const meetingService = {
           });
 
           if (settings?.recallEnabled) {
-            const deployAt = meeting.startTime.getTime() - 5 * 60 * 1000;
+            const deployAt = committedMeeting.startTime.getTime() - 5 * 60 * 1000;
             const delay = Math.max(0, deployAt - Date.now());
 
             await getRecallBotQueue().add(
               JobNames.DEPLOY_RECALL_BOT,
-              { meetingId: meeting.id, hostUserId: createdById },
-              { delay },
+              { meetingId: committedMeeting.id, hostUserId: createdById },
+              { delay, jobId: `recall-bot-${committedMeeting.id}` },
             );
             logger.info("Recall bot deployment queued for manual meeting", {
-              meetingId: meeting.id,
+              meetingId: committedMeeting.id,
               delayMs: delay,
             });
           }
@@ -238,7 +309,7 @@ export const meetingService = {
       }
     }
 
-    return meeting;
+    return committedMeeting;
   },
 
   async updateMeeting(
@@ -253,6 +324,7 @@ export const meetingService = {
       location?: string;
       participantUserIds?: string[];
       notes?: string;
+      addToCalendar?: boolean;
     },
   ): Promise<Meeting> {
     const meeting = await prisma.meeting.findFirst({
@@ -265,6 +337,7 @@ export const meetingService = {
         timezone: true,
         createdById: true,
         googleEventId: true,
+        recallBotId: true,
         participants: { select: { userId: true, participantType: true } },
       },
     });
@@ -297,12 +370,12 @@ export const meetingService = {
       }
 
       const otherParticipants = meeting.participants.filter(
-        (p) => p.userId !== meeting.createdById,
+        (p) => p.userId !== meeting.createdById && p.userId !== null,
       );
       const participantConflictResults = await Promise.all(
         otherParticipants.map((p) =>
           this.detectConflicts({
-            userId: p.userId,
+            userId: p.userId!,
             startTime: newStartTime,
             endTime: newEndTime,
             excludeMeetingId: meetingId,
@@ -351,8 +424,8 @@ export const meetingService = {
 
         if (data.participantUserIds) {
           const currentParticipantIds = meeting.participants
-            .filter((p) => p.userId !== meeting.createdById)
-            .map((p) => p.userId);
+            .filter((p) => p.userId !== meeting.createdById && p.userId !== null)
+            .map((p) => p.userId!);
 
           const toRemove = currentParticipantIds.filter(
             (id) => !data.participantUserIds!.includes(id),
@@ -368,11 +441,28 @@ export const meetingService = {
           }
 
           if (toAdd.length > 0) {
+            const addedUsers = await tx.user.findMany({
+              where: { id: { in: toAdd } },
+              select: { id: true, email: true },
+            });
+            const addedEmails = addedUsers.map(u => u.email).filter(Boolean) as string[];
+
+            const matchedContacts = await tx.cardContact.findMany({
+              where: {
+                card: { userId: updatedByUserId },
+                email: { in: addedEmails },
+              },
+              select: { email: true, cardId: true },
+            });
+
+            const emailToCardId = new Map(matchedContacts.map(c => [c.email, c.cardId]));
+
             await tx.meetingParticipant.createMany({
-              data: toAdd.map((userId) => ({
+              data: addedUsers.map((u) => ({
                 meetingId,
-                userId,
+                userId: u.id,
                 participantType: "ATTENDEE" as const,
+                cardId: u.email && emailToCardId.has(u.email) ? emailToCardId.get(u.email) : null,
               })),
             });
           }
@@ -411,6 +501,99 @@ export const meetingService = {
         location: data.location,
         description: data.description,
       });
+    } else if (meeting.status === MeetingStatus.CREATED && data.addToCalendar !== false) {
+      try {
+        const gcalResult = await createGCalEventForMeeting(updatedByUserId, {
+          title: updatedMeeting.title,
+          startTime: newStartTime,
+          endTime: newEndTime,
+          timezone: data.timezone ?? meeting.timezone,
+          location: data.location,
+          description: data.description,
+          requestMeetLink: true,
+        });
+
+        if (gcalResult) {
+          await prisma.meeting.update({
+            where: { id: meetingId },
+            data: {
+              googleEventId: gcalResult.googleEventId,
+              ...(gcalResult.meetLink ? { meetLink: gcalResult.meetLink } : {}),
+            },
+          });
+        }
+      } catch {
+        // fail-open — meeting update already committed
+      }
+    }
+
+    // Recall bot rescheduling for edited meetings.
+    // If start time or meeting link changes, clear old queue/bot and queue fresh deploy.
+    const shouldRescheduleRecall =
+      data.startTime !== undefined || data.location !== undefined;
+
+    if (meeting.status === MeetingStatus.CREATED && env.RECALL_API_KEY && shouldRescheduleRecall) {
+      try {
+        await removeExistingRecallDeployJobs(updatedMeeting.id);
+
+        const latestMeeting = await prisma.meeting.findUnique({
+          where: { id: updatedMeeting.id },
+          select: {
+            id: true,
+            startTime: true,
+            meetLink: true,
+            location: true,
+            recallBotId: true,
+          },
+        });
+
+        if (!latestMeeting) {
+          return updatedMeeting;
+        }
+
+        if (latestMeeting.recallBotId) {
+          try {
+            await cancelBot(latestMeeting.recallBotId);
+          } catch (err) {
+            logger.warn("Failed to cancel existing Recall bot during meeting edit", {
+              meetingId: latestMeeting.id,
+              botId: latestMeeting.recallBotId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+
+          await prisma.meeting.update({
+            where: { id: latestMeeting.id },
+            data: { recallBotId: null },
+          });
+        }
+
+        const settings = await prisma.userSettings.findUnique({
+          where: { userId: updatedByUserId },
+          select: { recallEnabled: true },
+        });
+
+        const videoLink = latestMeeting.meetLink ?? latestMeeting.location;
+        if (settings?.recallEnabled && videoLink && isVideoMeetingUrl(videoLink)) {
+          const deployAt = latestMeeting.startTime.getTime() - 5 * 60 * 1000;
+          const delay = Math.max(0, deployAt - Date.now());
+
+          await getRecallBotQueue().add(
+            JobNames.DEPLOY_RECALL_BOT,
+            { meetingId: latestMeeting.id, hostUserId: updatedByUserId },
+            { delay, jobId: `recall-bot-${latestMeeting.id}-${Date.now()}` },
+          );
+          logger.info("Recall bot deployment re-queued for edited meeting", {
+            meetingId: latestMeeting.id,
+            delayMs: delay,
+          });
+        }
+      } catch (err) {
+        logger.warn("Recall bot reschedule on meeting edit failed (fail-open)", {
+          meetingId: updatedMeeting.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     return updatedMeeting;
@@ -421,7 +604,12 @@ export const meetingService = {
 
     const meeting = await prisma.meeting.findFirst({
       where: { id: meetingId, createdById: requesterUserId, isDeleted: false },
-      select: { id: true, status: true, googleEventId: true },
+      select: {
+        id: true,
+        status: true,
+        googleEventId: true,
+        booking: { select: { id: true } },
+      },
     });
 
     if (!meeting) {
@@ -440,6 +628,17 @@ export const meetingService = {
           },
           include: meetingInclude,
         });
+
+        if (meeting.booking?.id) {
+          await tx.booking.update({
+            where: { id: meeting.booking.id },
+            data: {
+              status: "CANCELLED",
+              cancelReason: reason || "Meeting cancelled",
+              canceledAt: new Date(),
+            },
+          });
+        }
 
         await tx.meetingStateHistory.create({
           data: {
@@ -661,4 +860,139 @@ export const meetingService = {
     // Remove from Google Calendar after DB is committed. Fail-open.
     await deleteCalendarEvent(userId, meeting.googleEventId);
   },
+
+  async importMeetingsFromIcs(userId: string, fileBuffer: Buffer) {
+    const raw = fileBuffer.toString("utf-8");
+
+    let events: ICAL.Component[] = [];
+    try {
+      const parsed = ICAL.parse(raw);
+      const root = new ICAL.Component(parsed);
+      events = root.getAllSubcomponents("vevent");
+    } catch {
+      throw ErrorFactory.validation("Invalid ICS file");
+    }
+
+    if (events.length === 0) {
+      throw ErrorFactory.validation("No calendar events found in ICS file");
+    }
+
+    let created = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (const component of events) {
+      try {
+        const event = new ICAL.Event(component);
+        const uid = event.uid?.trim();
+        const startTime = event.startDate?.toJSDate();
+
+        if (!startTime) {
+          skipped += 1;
+          errors.push("Skipped event with missing start time");
+          continue;
+        }
+
+        const parsedEnd = event.endDate?.toJSDate();
+        const endTime =
+          parsedEnd && parsedEnd > startTime
+            ? parsedEnd
+            : new Date(startTime.getTime() + 30 * 60 * 1000);
+
+        if (uid) {
+          const existing = await prisma.meeting.findFirst({
+            where: {
+              createdById: userId,
+              googleEventId: uid,
+              isDeleted: false,
+            },
+            select: { id: true },
+          });
+
+          if (existing) {
+            skipped += 1;
+            continue;
+          }
+        }
+
+        const title = event.summary?.trim() || "Imported meeting";
+        const description = event.description?.trim() || undefined;
+        const location = event.location?.trim() || undefined;
+        const timezone = event.startDate?.zone?.tzid || "UTC";
+
+        await prisma.$transaction(
+          async (tx) => {
+            const meeting = await tx.meeting.create({
+              data: {
+                title,
+                description,
+                type: MeetingType.SCHEDULED,
+                startTime,
+                endTime,
+                timezone,
+                status: MeetingStatus.CREATED,
+                location,
+                createdById: userId,
+                ...(uid ? { googleEventId: uid } : {}),
+              },
+            });
+
+            await tx.meetingParticipant.create({
+              data: {
+                meetingId: meeting.id,
+                userId,
+                participantType: "ORGANIZER",
+              },
+            });
+          },
+          { timeout: 15000 },
+        );
+
+        created += 1;
+      } catch (error) {
+        skipped += 1;
+        const message =
+          error instanceof Error ? error.message : "Failed to import event";
+        errors.push(message);
+      }
+    }
+
+    logger.info("ICS import completed", {
+      userId,
+      created,
+      skipped,
+      total: events.length,
+    });
+
+    return {
+      created,
+      skipped,
+      errors: errors.slice(0, 50),
+    };
+  },
 };
+
+async function removeExistingRecallDeployJobs(meetingId: string): Promise<void> {
+  const queue = getRecallBotQueue();
+  const jobs = await queue.getJobs([
+    "waiting",
+    "delayed",
+    "paused",
+    "completed",
+    "failed",
+  ]);
+
+  const prefix = `recall-bot-${meetingId}`;
+  for (const job of jobs) {
+    const currentJobId = job.id ? String(job.id) : "";
+    if (!currentJobId.startsWith(prefix)) {
+      continue;
+    }
+
+    await job.remove();
+    logger.info("Removed existing Recall bot deploy job before reschedule", {
+      meetingId,
+      jobId: currentJobId,
+    });
+  }
+}

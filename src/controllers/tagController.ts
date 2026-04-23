@@ -12,6 +12,8 @@ import {
   tagCardParamSchema,
   taskIdParamSchema,
   tagTaskParamSchema,
+  contactIdParamSchema,
+  tagContactParamSchema,
 } from "../validators/tagSchema";
 import * as tagService from "../services/tagService";
 
@@ -94,6 +96,24 @@ export const deleteTag = async (req: Request, res: Response) => {
   logger.info("Tag deleted", { tagId: params.data.tagId, userId });
 
   return apiResponse(res, { statusCode: 200, message: "Tag deleted" });
+};
+
+/**
+ * GET /tags/:tagId/items
+ */
+export const getTagItems = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+
+  const params = tagParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid tag ID", 400);
+
+  const items = await tagService.getTagItems(userId, params.data.tagId);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Tag items fetched",
+    data: items,
+  });
 };
 
 // ────────────────────────────────────────────────────────────
@@ -282,5 +302,69 @@ export const detachTagFromTask = async (req: Request, res: Response) => {
   return apiResponse(res, {
     statusCode: 200,
     message: "Tag removed from task",
+  });
+};
+
+// ────────────────────────────────────────────────────────────
+// Contact tags
+// ────────────────────────────────────────────────────────────
+
+/**
+ * GET /cards/:cardId/contacts/:contactId/tags
+ */
+export const getContactTags = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+
+  const params = contactIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid contact ID", 400);
+
+  const tags = await tagService.getContactTags(userId, params.data.contactId);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Contact tags fetched",
+    data: { tags },
+  });
+};
+
+/**
+ * POST /cards/:cardId/contacts/:contactId/tags/:tagId
+ */
+export const attachTagToContact = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+
+  const params = tagContactParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid parameters", 400);
+
+  await tagService.attachTagToContact(
+    userId,
+    params.data.contactId,
+    params.data.tagId,
+  );
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Tag attached to contact",
+  });
+};
+
+/**
+ * DELETE /cards/:cardId/contacts/:contactId/tags/:tagId
+ */
+export const detachTagFromContact = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+
+  const params = tagContactParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid parameters", 400);
+
+  await tagService.detachTagFromContact(
+    userId,
+    params.data.contactId,
+    params.data.tagId,
+  );
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Tag removed from contact",
   });
 };
