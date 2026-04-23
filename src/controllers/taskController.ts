@@ -1,7 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import rruleLib from "rrule";
-const { RRule } = rruleLib;
+import { RRule } from "rrule";
 import prisma from "../db/prismaClient";
 import { logger } from "../utils/logging/logger";
 import { apiResponse } from "../utils/globalResponseHandler";
