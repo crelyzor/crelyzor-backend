@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "Calendar + Smart Meeting Assistant Backend",
   "main": "dist/index.js",
-  "type": "module",
   "scripts": {
     "postinstall": "prisma generate",
     "build": "tsc",
