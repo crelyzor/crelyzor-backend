@@ -3,9 +3,7 @@ import { google } from "googleapis";
 import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
 import prisma from "../db/prismaClient";
-import {
-  registerWatchChannel,
-} from "./googleCalendarPushService";
+import { registerWatchChannel } from "./googleCalendarPushService";
 
 const LOGIN_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
@@ -40,7 +38,10 @@ function signCalendarState(redirectUrl: string, userId: string): string {
 }
 
 /** Verify state signature (timing-safe). Returns { redirectUrl, userId } on success. */
-function verifyCalendarState(raw: string): { redirectUrl: string; userId: string } {
+function verifyCalendarState(raw: string): {
+  redirectUrl: string;
+  userId: string;
+} {
   let parsed: { redirectUrl?: string; userId?: string; sig?: string };
   try {
     parsed = JSON.parse(raw);

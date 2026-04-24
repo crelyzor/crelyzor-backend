@@ -31,7 +31,9 @@ const estimateTokensFromChars = (chars: number): number =>
 
 const logOpenAIUsage = (meta: OpenAIUsageMeta): void => {
   const estimatedPromptTokens = estimateTokensFromChars(meta.promptChars);
-  const estimatedCompletionTokens = estimateTokensFromChars(meta.completionChars);
+  const estimatedCompletionTokens = estimateTokensFromChars(
+    meta.completionChars,
+  );
 
   logger.info("OpenAI token usage", {
     operation: meta.operation,
@@ -40,7 +42,8 @@ const logOpenAIUsage = (meta: OpenAIUsageMeta): void => {
     promptChars: meta.promptChars,
     completionChars: meta.completionChars,
     promptTokens: meta.usage?.prompt_tokens ?? estimatedPromptTokens,
-    completionTokens: meta.usage?.completion_tokens ?? estimatedCompletionTokens,
+    completionTokens:
+      meta.usage?.completion_tokens ?? estimatedCompletionTokens,
     totalTokens:
       meta.usage?.total_tokens ??
       estimatedPromptTokens + estimatedCompletionTokens,
@@ -190,8 +193,13 @@ Return ONLY a JSON array, no other text.`;
   try {
     keyPoints = JSON.parse(stripMarkdownJson(content));
   } catch {
-    logger.error("Failed to parse key points JSON", { rawContent: content.slice(0, 200) });
-    throw new AppError("Failed to parse key points JSON from OpenAI response", 502);
+    logger.error("Failed to parse key points JSON", {
+      rawContent: content.slice(0, 200),
+    });
+    throw new AppError(
+      "Failed to parse key points JSON from OpenAI response",
+      502,
+    );
   }
 
   // Update the summary with key points (separate from parse — let DB errors propagate)
@@ -226,7 +234,6 @@ const deriveKeyPointsFromSummary = (summary: string): string[] => {
     .filter((line) => line.length >= 24)
     .slice(0, 6);
 };
-
 
 /**
  * Generate summary + key points in one model call to reduce transcript re-send cost.
@@ -350,7 +357,9 @@ ${capped}`;
     },
   });
 
-  logger.info(`Summary + key points generated in single call for meeting ${meetingId}`);
+  logger.info(
+    `Summary + key points generated in single call for meeting ${meetingId}`,
+  );
   return { summary, keyPoints };
 };
 
@@ -415,7 +424,9 @@ Return ONLY a JSON array, no other text.`;
   try {
     rawTasks = JSON.parse(stripMarkdownJson(content));
   } catch {
-    logger.error("Failed to parse tasks JSON", { rawContent: content.slice(0, 200) });
+    logger.error("Failed to parse tasks JSON", {
+      rawContent: content.slice(0, 200),
+    });
     throw new AppError("Failed to parse tasks JSON from OpenAI response", 502);
   }
 
@@ -508,10 +519,13 @@ ${transcriptText.slice(0, 2000)}`;
     });
     logger.info(`Meeting ${meetingId} renamed to: "${title}"`);
   } catch (err) {
-    logger.error(`DB write failed when saving generated title for meeting ${meetingId}`, {
-      error: err instanceof Error ? err.message : String(err),
-      title,
-    });
+    logger.error(
+      `DB write failed when saving generated title for meeting ${meetingId}`,
+      {
+        error: err instanceof Error ? err.message : String(err),
+        title,
+      },
+    );
   }
 
   return title;
@@ -621,8 +635,7 @@ export const processTranscriptWithAI = async (
     } catch (taskErr) {
       logger.error("extractTasks failed (non-fatal)", {
         meetingId,
-        error:
-          taskErr instanceof Error ? taskErr.message : String(taskErr),
+        error: taskErr instanceof Error ? taskErr.message : String(taskErr),
       });
     }
   }
@@ -832,13 +845,20 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
   );
 
   // Fetch last 6 messages (3 exchanges) for conversational context
-  const priorMessages = await conversationService.getMessages(userId, meetingId);
+  const priorMessages = await conversationService.getMessages(
+    userId,
+    meetingId,
+  );
   const historyMessages = priorMessages
     .slice(-6)
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-  const historyChars = historyMessages.reduce((acc, m) => acc + m.content.length, 0);
-  const askAIPromptChars = systemPrompt.length + userMessage.length + historyChars;
+  const historyChars = historyMessages.reduce(
+    (acc, m) => acc + m.content.length,
+    0,
+  );
+  const askAIPromptChars =
+    systemPrompt.length + userMessage.length + historyChars;
 
   await conversationService.appendMessage(conversationId, "user", question);
 
@@ -886,7 +906,11 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
     // Deduct AI credits based on estimated token usage (streamed — no exact counts)
     const estimatedInputTokens = Math.ceil(askAIPromptChars / 4);
     const estimatedOutputTokens = Math.ceil(streamedCompletionChars / 4);
-    await checkAndDeductCredits(userId, estimatedInputTokens, estimatedOutputTokens);
+    await checkAndDeductCredits(
+      userId,
+      estimatedInputTokens,
+      estimatedOutputTokens,
+    );
 
     // Persist the assistant response
     if (fullAssistantResponse) {
@@ -998,7 +1022,8 @@ export const generateContent = async (
   // Deduct AI credits using actual token counts from OpenAI response
   await checkAndDeductCredits(
     userId,
-    response.usage?.prompt_tokens ?? Math.ceil((systemContent.length + prompt.length) / 4),
+    response.usage?.prompt_tokens ??
+      Math.ceil((systemContent.length + prompt.length) / 4),
     response.usage?.completion_tokens ?? Math.ceil(content.length / 4),
   );
 

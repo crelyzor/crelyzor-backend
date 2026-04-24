@@ -93,13 +93,25 @@ export async function updateEventType(
       data: {
         ...(data.title !== undefined && { title: data.title }),
         ...(data.slug !== undefined && { slug: data.slug }),
-        ...(data.description !== undefined && { description: data.description }),
+        ...(data.description !== undefined && {
+          description: data.description,
+        }),
         ...(data.duration !== undefined && { duration: data.duration }),
-        ...(data.locationType !== undefined && { locationType: data.locationType }),
-        ...(data.meetingLink !== undefined && { meetingLink: data.meetingLink }),
-        ...(data.bufferBefore !== undefined && { bufferBefore: data.bufferBefore }),
-        ...(data.bufferAfter !== undefined && { bufferAfter: data.bufferAfter }),
-        ...(data.minNoticeHours !== undefined && { minNoticeHours: data.minNoticeHours }),
+        ...(data.locationType !== undefined && {
+          locationType: data.locationType,
+        }),
+        ...(data.meetingLink !== undefined && {
+          meetingLink: data.meetingLink,
+        }),
+        ...(data.bufferBefore !== undefined && {
+          bufferBefore: data.bufferBefore,
+        }),
+        ...(data.bufferAfter !== undefined && {
+          bufferAfter: data.bufferAfter,
+        }),
+        ...(data.minNoticeHours !== undefined && {
+          minNoticeHours: data.minNoticeHours,
+        }),
         ...(data.maxPerDay !== undefined && { maxPerDay: data.maxPerDay }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
         ...(data.availabilityScheduleId !== undefined && {

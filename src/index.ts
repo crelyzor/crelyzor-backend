@@ -47,7 +47,9 @@ const startServer = async () => {
     logger.warn("⚠️ ALLOWED_ORIGINS not set — CORS will use defaults");
   }
   if (!process.env.RECALL_WEBHOOK_SECRET) {
-    logger.warn("⚠️ RECALL_WEBHOOK_SECRET not set — Recall.ai webhook signature verification is disabled");
+    logger.warn(
+      "⚠️ RECALL_WEBHOOK_SECRET not set — Recall.ai webhook signature verification is disabled",
+    );
   }
 
   // Log configured services

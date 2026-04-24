@@ -8,7 +8,10 @@ import prisma from "../../db/prismaClient";
 import { logger } from "../../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
 import { AppError } from "../../utils/errors/AppError";
-import { checkTranscription, deductTranscription } from "../billing/usageService";
+import {
+  checkTranscription,
+  deductTranscription,
+} from "../billing/usageService";
 
 const DEEPGRAM_MODEL = "nova-3"; // Upgraded to nova-3 (multilingual) at Phase 4 start — better accuracy, 45+ languages
 
@@ -35,7 +38,10 @@ export const transcribeRecording = async (
   language?: string,
 ): Promise<TranscriptionResult> => {
   if (!isTranscriptionEnabled()) {
-    throw new AppError("Transcription is not enabled - DEEPGRAM_API_KEY required", 503);
+    throw new AppError(
+      "Transcription is not enabled - DEEPGRAM_API_KEY required",
+      503,
+    );
   }
 
   const recording = await prisma.meetingRecording.findFirst({
@@ -89,7 +95,10 @@ export const transcribeRecording = async (
     const alternatives = channel?.alternatives?.[0];
 
     if (!alternatives) {
-      throw new AppError("No transcription results returned from Deepgram", 502);
+      throw new AppError(
+        "No transcription results returned from Deepgram",
+        502,
+      );
     }
 
     // Parse segments from utterances or words
@@ -201,8 +210,7 @@ export const transcribeRecording = async (
           distinctSpeakers.map((speakerLabel) => {
             const remembered = rememberedByLabel.get(speakerLabel);
 
-            return (
-            tx.meetingSpeaker.upsert({
+            return tx.meetingSpeaker.upsert({
               where: {
                 meetingId_speakerLabel: {
                   meetingId: recording.meetingId,
@@ -216,8 +224,7 @@ export const transcribeRecording = async (
                 ...(remembered?.role ? { role: remembered.role } : {}),
               },
               update: {},
-            })
-            );
+            });
           }),
         );
 

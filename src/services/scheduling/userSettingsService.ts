@@ -122,10 +122,7 @@ export async function updateUserSettings(
   }
 
   if (data.recallEnabled === true && !env.RECALL_API_KEY) {
-    throw new AppError(
-      "Recording bot is not available on this instance",
-      400,
-    );
+    throw new AppError("Recording bot is not available on this instance", 400);
   }
 
   const updated = await prisma.userSettings.update({

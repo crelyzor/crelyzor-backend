@@ -236,7 +236,9 @@ export const cardService = {
    * Update a card
    */
   async updateCard(userId: string, cardId: string, data: UpdateCardDTO) {
-    const card = await prisma.card.findFirst({ where: { id: cardId, userId, isDeleted: false } });
+    const card = await prisma.card.findFirst({
+      where: { id: cardId, userId, isDeleted: false },
+    });
     if (!card) {
       throw ErrorFactory.notFound("Card not found");
     }
@@ -281,8 +283,13 @@ export const cardService = {
       const username = user?.username ?? "user";
       const effectiveSlug = data.slug ?? card.slug;
       const effectiveIsDefault = data.isDefault ?? card.isDefault;
-      const templateId = ((data.templateId ?? card.templateId) || "executive") as TemplateId;
-      const publicUrl = buildPublicUrl(username, effectiveSlug, effectiveIsDefault);
+      const templateId = ((data.templateId ?? card.templateId) ||
+        "executive") as TemplateId;
+      const publicUrl = buildPublicUrl(
+        username,
+        effectiveSlug,
+        effectiveIsDefault,
+      );
       const mergedCard = {
         displayName: data.displayName ?? card.displayName,
         title: data.title ?? card.title,
@@ -293,8 +300,14 @@ export const cardService = {
         theme: data.theme ?? card.theme,
         showQr: data.showQr ?? card.showQr,
       };
-      const templateData = buildTemplateData(mergedCard as Parameters<typeof buildTemplateData>[0], publicUrl);
-      ({ htmlContent, htmlBackContent } = await renderCardHtml(templateId, templateData));
+      const templateData = buildTemplateData(
+        mergedCard as Parameters<typeof buildTemplateData>[0],
+        publicUrl,
+      );
+      ({ htmlContent, htmlBackContent } = await renderCardHtml(
+        templateId,
+        templateData,
+      ));
     }
 
     return prisma.$transaction(
@@ -311,7 +324,9 @@ export const cardService = {
           where: { id: cardId },
           data: {
             ...(data.slug !== undefined && { slug: data.slug }),
-            ...(data.displayName !== undefined && { displayName: data.displayName }),
+            ...(data.displayName !== undefined && {
+              displayName: data.displayName,
+            }),
             ...(data.title !== undefined && { title: data.title }),
             ...(data.bio !== undefined && { bio: data.bio }),
             ...(data.avatarUrl !== undefined && { avatarUrl: data.avatarUrl }),
@@ -320,12 +335,15 @@ export const cardService = {
               links: data.links as unknown as Prisma.InputJsonValue,
             }),
             ...(data.contactFields !== undefined && {
-              contactFields: data.contactFields as unknown as Prisma.InputJsonValue,
+              contactFields:
+                data.contactFields as unknown as Prisma.InputJsonValue,
             }),
             ...(data.theme !== undefined && {
               theme: data.theme as unknown as Prisma.InputJsonValue,
             }),
-            ...(data.templateId !== undefined && { templateId: data.templateId }),
+            ...(data.templateId !== undefined && {
+              templateId: data.templateId,
+            }),
             ...(data.showQr !== undefined && { showQr: data.showQr }),
             ...(data.isDefault !== undefined && { isDefault: data.isDefault }),
             ...(data.isActive !== undefined && { isActive: data.isActive }),
@@ -344,7 +362,9 @@ export const cardService = {
    * Delete a card
    */
   async deleteCard(userId: string, cardId: string) {
-    const card = await prisma.card.findFirst({ where: { id: cardId, userId, isDeleted: false } });
+    const card = await prisma.card.findFirst({
+      where: { id: cardId, userId, isDeleted: false },
+    });
     if (!card) {
       throw ErrorFactory.notFound("Card not found");
     }
@@ -378,7 +398,9 @@ export const cardService = {
    * Duplicate a card with a new slug
    */
   async duplicateCard(userId: string, cardId: string, newSlug: string) {
-    const card = await prisma.card.findFirst({ where: { id: cardId, userId, isDeleted: false } });
+    const card = await prisma.card.findFirst({
+      where: { id: cardId, userId, isDeleted: false },
+    });
     if (!card) {
       throw ErrorFactory.notFound("Card not found");
     }
@@ -457,7 +479,9 @@ export const cardService = {
         avatarUrl: true,
         cards: {
           where: cardWhere,
-          orderBy: slug ? undefined : [{ isDefault: "desc" as const }, { createdAt: "asc" as const }],
+          orderBy: slug
+            ? undefined
+            : [{ isDefault: "desc" as const }, { createdAt: "asc" as const }],
           take: 1,
         },
       },
@@ -484,7 +508,11 @@ export const cardService = {
       ...publicCard
     } = card;
     return {
-      user: { name: user.name, username: user.username, avatarUrl: user.avatarUrl },
+      user: {
+        name: user.name,
+        username: user.username,
+        avatarUrl: user.avatarUrl,
+      },
       card: publicCard,
     };
   },
@@ -611,9 +639,9 @@ export const cardService = {
       where.contactTags = {
         some: {
           tag: {
-            name: { in: options.tags }
-          }
-        }
+            name: { in: options.tags },
+          },
+        },
       };
     }
 
@@ -703,7 +731,11 @@ export const cardService = {
    * Import contacts from CSV file into a card.
    * Validation: name required and at least one of email/phone required.
    */
-  async importContactsFromCsv(userId: string, cardId: string, csvBuffer: Buffer) {
+  async importContactsFromCsv(
+    userId: string,
+    cardId: string,
+    csvBuffer: Buffer,
+  ) {
     const card = await prisma.card.findFirst({
       where: { id: cardId, userId, isDeleted: false },
       select: { id: true },
@@ -754,9 +786,25 @@ export const cardService = {
     rows.forEach((row, idx) => {
       const line = idx + 2;
       const name = pick(row, ["name", "Name", "full_name", "fullName"]);
-      const email = pick(row, ["email", "Email", "email_address", "emailAddress"]);
-      const phone = pick(row, ["phone", "Phone", "mobile", "phone_number", "phoneNumber"]);
-      const company = pick(row, ["company", "Company", "organization", "Organization"]);
+      const email = pick(row, [
+        "email",
+        "Email",
+        "email_address",
+        "emailAddress",
+      ]);
+      const phone = pick(row, [
+        "phone",
+        "Phone",
+        "mobile",
+        "phone_number",
+        "phoneNumber",
+      ]);
+      const company = pick(row, [
+        "company",
+        "Company",
+        "organization",
+        "Organization",
+      ]);
       const note = pick(row, ["note", "Note", "notes", "Notes"]);
 
       if (!name) {
@@ -808,7 +856,9 @@ export const cardService = {
     cardId: string,
     days: number = 30,
   ): Promise<CardAnalytics> {
-    const card = await prisma.card.findFirst({ where: { id: cardId, userId, isDeleted: false } });
+    const card = await prisma.card.findFirst({
+      where: { id: cardId, userId, isDeleted: false },
+    });
     if (!card) {
       throw ErrorFactory.notFound("Card not found");
     }
@@ -817,41 +867,46 @@ export const cardService = {
     since.setDate(since.getDate() - days);
 
     // Use DB-side aggregation to avoid loading all CardView rows into memory.
-    const [totalViews, uniqueViewRows, totalContacts, linkClickRows, countryRows] =
-      await Promise.all([
-        prisma.cardView.count({
-          where: { cardId, viewedAt: { gte: since } },
-        }),
-        prisma.cardView.findMany({
-          where: { cardId, viewedAt: { gte: since }, ipHash: { not: null } },
-          select: { ipHash: true },
-          distinct: ["ipHash"],
-        }),
-        prisma.cardContact.count({
-          where: { cardId, isDeleted: false, scannedAt: { gte: since } },
-        }),
-        prisma.cardView.groupBy({
-          by: ["clickedLink"],
-          where: {
-            cardId,
-            viewedAt: { gte: since },
-            clickedLink: { not: null },
-          },
-          _count: { clickedLink: true },
-          orderBy: { _count: { clickedLink: "desc" } },
-        }),
-        prisma.cardView.groupBy({
-          by: ["country"],
-          where: {
-            cardId,
-            viewedAt: { gte: since },
-            country: { not: null },
-          },
-          _count: { country: true },
-          orderBy: { _count: { country: "desc" } },
-          take: 10,
-        }),
-      ]);
+    const [
+      totalViews,
+      uniqueViewRows,
+      totalContacts,
+      linkClickRows,
+      countryRows,
+    ] = await Promise.all([
+      prisma.cardView.count({
+        where: { cardId, viewedAt: { gte: since } },
+      }),
+      prisma.cardView.findMany({
+        where: { cardId, viewedAt: { gte: since }, ipHash: { not: null } },
+        select: { ipHash: true },
+        distinct: ["ipHash"],
+      }),
+      prisma.cardContact.count({
+        where: { cardId, isDeleted: false, scannedAt: { gte: since } },
+      }),
+      prisma.cardView.groupBy({
+        by: ["clickedLink"],
+        where: {
+          cardId,
+          viewedAt: { gte: since },
+          clickedLink: { not: null },
+        },
+        _count: { clickedLink: true },
+        orderBy: { _count: { clickedLink: "desc" } },
+      }),
+      prisma.cardView.groupBy({
+        by: ["country"],
+        where: {
+          cardId,
+          viewedAt: { gte: since },
+          country: { not: null },
+        },
+        _count: { country: true },
+        orderBy: { _count: { country: "desc" } },
+        take: 10,
+      }),
+    ]);
 
     const uniqueViews = uniqueViewRows.length || totalViews;
     const conversionRate =
@@ -859,14 +914,19 @@ export const cardService = {
 
     const linkClicks = linkClickRows
       .filter((r) => r.clickedLink)
-      .map((r) => ({ link: r.clickedLink as string, count: r._count.clickedLink }));
+      .map((r) => ({
+        link: r.clickedLink as string,
+        count: r._count.clickedLink,
+      }));
 
     const topCountries = countryRows
       .filter((r) => r.country)
       .map((r) => ({ country: r.country as string, count: r._count.country }));
 
     // Views by day: aggregate in the DB to avoid loading all rows into memory
-    const viewsByDayRows = await prisma.$queryRaw<{ date: string; count: number }[]>`
+    const viewsByDayRows = await prisma.$queryRaw<
+      { date: string; count: number }[]
+    >`
       SELECT DATE("viewedAt" AT TIME ZONE 'UTC') AS date, COUNT(*)::int AS count
       FROM "CardView"
       WHERE "cardId" = ${cardId}::uuid
@@ -916,7 +976,9 @@ export const cardService = {
       include: {
         participants: {
           include: {
-            user: { select: { id: true, name: true, email: true, avatarUrl: true } },
+            user: {
+              select: { id: true, name: true, email: true, avatarUrl: true },
+            },
             card: { select: { id: true, displayName: true, slug: true } },
           },
         },

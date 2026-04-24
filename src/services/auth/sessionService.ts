@@ -119,21 +119,24 @@ class SessionService {
   }
 
   async revokeSession(userId: string, sessionId: string): Promise<void> {
-    await prisma.$transaction(async (tx) => {
-      await tx.refreshToken.updateMany({
-        where: {
-          userId,
-        },
-        data: { revoked: true },
-      });
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.refreshToken.updateMany({
+          where: {
+            userId,
+          },
+          data: { revoked: true },
+        });
 
-      await tx.session.deleteMany({
-        where: {
-          id: sessionId,
-          userId,
-        },
-      });
-    }, { timeout: 15000 });
+        await tx.session.deleteMany({
+          where: {
+            id: sessionId,
+            userId,
+          },
+        });
+      },
+      { timeout: 15000 },
+    );
   }
 
   async revokeAllSessions(
@@ -145,24 +148,27 @@ class SessionService {
       whereClause.id = { not: exceptSessionId };
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.refreshToken.updateMany({
-        where: {
-          userId,
-          revoked: false,
-        },
-        data: { revoked: true },
-      });
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.refreshToken.updateMany({
+          where: {
+            userId,
+            revoked: false,
+          },
+          data: { revoked: true },
+        });
 
-      await tx.session.deleteMany({
-        where: whereClause,
-      });
+        await tx.session.deleteMany({
+          where: whereClause,
+        });
 
-      await tx.user.update({
-        where: { id: userId },
-        data: { activeSessionId: exceptSessionId || null },
-      });
-    }, { timeout: 15000 });
+        await tx.user.update({
+          where: { id: userId },
+          data: { activeSessionId: exceptSessionId || null },
+        });
+      },
+      { timeout: 15000 },
+    );
   }
 
   async getUserSessions(
@@ -200,21 +206,24 @@ class SessionService {
   }> {
     const now = new Date();
 
-    const [deletedSessions, revokedTokens] = await prisma.$transaction(async (tx) => {
-      const sessions = await tx.session.deleteMany({
-        where: { expiredAt: { lt: now } },
-      });
+    const [deletedSessions, revokedTokens] = await prisma.$transaction(
+      async (tx) => {
+        const sessions = await tx.session.deleteMany({
+          where: { expiredAt: { lt: now } },
+        });
 
-      const tokens = await tx.refreshToken.updateMany({
-        where: {
-          expiresAt: { lt: now },
-          revoked: false,
-        },
-        data: { revoked: true },
-      });
+        const tokens = await tx.refreshToken.updateMany({
+          where: {
+            expiresAt: { lt: now },
+            revoked: false,
+          },
+          data: { revoked: true },
+        });
 
-      return [sessions, tokens];
-    }, { timeout: 15000 });
+        return [sessions, tokens];
+      },
+      { timeout: 15000 },
+    );
 
     return {
       sessionsDeleted: deletedSessions.count,

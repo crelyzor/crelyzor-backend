@@ -178,7 +178,13 @@ export async function getTagItems(userId: string, tagId: string) {
       where: { tagId, meeting: { createdById: userId, isDeleted: false } },
       select: {
         meeting: {
-          select: { id: true, title: true, startTime: true, type: true, status: true },
+          select: {
+            id: true,
+            title: true,
+            startTime: true,
+            type: true,
+            status: true,
+          },
         },
       },
     }),
@@ -186,7 +192,13 @@ export async function getTagItems(userId: string, tagId: string) {
       where: { tagId, card: { userId: userId, isDeleted: false } },
       select: {
         card: {
-          select: { id: true, slug: true, displayName: true, title: true, avatarUrl: true },
+          select: {
+            id: true,
+            slug: true,
+            displayName: true,
+            title: true,
+            avatarUrl: true,
+          },
         },
       },
     }),
@@ -194,7 +206,13 @@ export async function getTagItems(userId: string, tagId: string) {
       where: { tagId, task: { userId: userId, isDeleted: false } },
       select: {
         task: {
-          select: { id: true, title: true, status: true, priority: true, dueDate: true },
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            priority: true,
+            dueDate: true,
+          },
         },
       },
     }),
@@ -205,7 +223,13 @@ export async function getTagItems(userId: string, tagId: string) {
       },
       select: {
         contact: {
-          select: { id: true, name: true, email: true, company: true, cardId: true },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            company: true,
+            cardId: true,
+          },
         },
       },
     }),
@@ -417,12 +441,12 @@ export async function detachTagFromTask(
 
 async function verifyContactOwnership(contactId: string, userId: string) {
   const contact = await prisma.cardContact.findFirst({
-    where: { 
+    where: {
       id: contactId,
       card: {
         userId: userId,
         isDeleted: false,
-      }
+      },
     },
     select: { id: true },
   });
@@ -480,4 +504,3 @@ export async function detachTagFromContact(
 
   logger.info("Tag detached from contact", { contactId, tagId, userId });
 }
-

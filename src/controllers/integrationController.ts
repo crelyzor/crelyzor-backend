@@ -23,7 +23,11 @@ export const getGoogleCalendarEvents = async (req: Request, res: Response) => {
   const query = getCalendarEventsSchema.safeParse(req.query);
   if (!query.success) throw new AppError("Validation failed", 400);
 
-  const events = await fetchGCalEvents(userId, query.data.start, query.data.end);
+  const events = await fetchGCalEvents(
+    userId,
+    query.data.start,
+    query.data.end,
+  );
 
   return apiResponse(res, {
     statusCode: 200,

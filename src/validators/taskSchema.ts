@@ -44,7 +44,16 @@ export const updateTaskSchema = z.object({
 
 export const listTasksQuerySchema = z.object({
   status: z.enum(["all", "completed", "pending"]).default("all"),
-  view: z.enum(["inbox", "today", "upcoming", "all", "from_meetings", "from_voice_notes"]).optional(),
+  view: z
+    .enum([
+      "inbox",
+      "today",
+      "upcoming",
+      "all",
+      "from_meetings",
+      "from_voice_notes",
+    ])
+    .optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
   source: z.enum(["AI_EXTRACTED", "MANUAL"]).optional(),
   meetingId: z.string().uuid().optional(),
@@ -57,7 +66,9 @@ export const listTasksQuerySchema = z.object({
   dueAfter: dateField.optional(),
   limit: z.coerce.number().int().min(1).max(500).default(50),
   offset: z.coerce.number().int().min(0).default(0),
-  sortBy: z.enum(["createdAt", "dueDate", "priority", "sortOrder"]).default("createdAt"),
+  sortBy: z
+    .enum(["createdAt", "dueDate", "priority", "sortOrder"])
+    .default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 

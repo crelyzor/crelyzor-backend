@@ -49,7 +49,9 @@ function getDayOfWeekInTz(dateStr: string, tz: string): number {
     timeZone: tz,
     weekday: "short",
   }).format(noonUTC);
-  const idx = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekdayStr);
+  const idx = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(
+    weekdayStr,
+  );
   return idx === -1 ? 0 : idx;
 }
 
@@ -194,7 +196,10 @@ export async function createBooking(data: CreateBookingInput) {
           Date.now() + settings.maxWindowDays * 24 * 60 * 60 * 1000,
         );
         if (startTime > maxBookingDate) {
-          throw new AppError("Selected time is outside the booking window", 409);
+          throw new AppError(
+            "Selected time is outside the booking window",
+            409,
+          );
         }
 
         // g. Check date override for this schedule
@@ -203,7 +208,9 @@ export async function createBooking(data: CreateBookingInput) {
         const overrideDate = new Date(Date.UTC(oYr, oMo - 1, oDa, 12, 0, 0));
 
         const override = await tx.availabilityOverride.findUnique({
-          where: { scheduleId_date: { scheduleId: schedule.id, date: overrideDate } },
+          where: {
+            scheduleId_date: { scheduleId: schedule.id, date: overrideDate },
+          },
           select: { isBlocked: true, isDeleted: true },
         });
         if (override && !override.isDeleted && override.isBlocked) {
@@ -227,7 +234,10 @@ export async function createBooking(data: CreateBookingInput) {
           return startTime >= windowStart && endTime <= windowEnd;
         });
         if (!fitsInWindow) {
-          throw new AppError("Selected time is outside availability window", 409);
+          throw new AppError(
+            "Selected time is outside availability window",
+            409,
+          );
         }
 
         // j. Conflict check with buffer padding
@@ -331,15 +341,28 @@ export async function createBooking(data: CreateBookingInput) {
               guestEmail: data.guestEmail,
               isDeleted: false,
             },
-            select: { id: true, status: true, meetingId: true, googleEventId: true },
+            select: {
+              id: true,
+              status: true,
+              meetingId: true,
+              googleEventId: true,
+            },
           });
 
           if (!oldBooking) {
-            throw new AppError("Original booking not found or email mismatch", 404);
+            throw new AppError(
+              "Original booking not found or email mismatch",
+              404,
+            );
           }
 
-          if (["CANCELLED", "DECLINED", "NO_SHOW"].includes(oldBooking.status)) {
-            throw new AppError(`Cannot reschedule a booking that is ${oldBooking.status}`, 409);
+          if (
+            ["CANCELLED", "DECLINED", "NO_SHOW"].includes(oldBooking.status)
+          ) {
+            throw new AppError(
+              `Cannot reschedule a booking that is ${oldBooking.status}`,
+              409,
+            );
           }
 
           oldGoogleEventId = oldBooking.googleEventId;
@@ -436,10 +459,13 @@ export async function createBooking(data: CreateBookingInput) {
   if (result.oldGoogleEventId) {
     // Only fire and forget the GCal cleanup
     deleteCalendarEvent(user.id, result.oldGoogleEventId).catch((err) => {
-      logger.error("Failed to delete old GCal event during reschedule (non-critical)", {
-        eventId: result.oldGoogleEventId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      logger.error(
+        "Failed to delete old GCal event during reschedule (non-critical)",
+        {
+          eventId: result.oldGoogleEventId,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
     });
   }
 
@@ -485,7 +511,12 @@ export async function cancelBookingAsGuest(bookingId: string, reason?: string) {
         select: {
           name: true,
           email: true,
-          settings: { select: { emailNotificationsEnabled: true, bookingEmailsEnabled: true } },
+          settings: {
+            select: {
+              emailNotificationsEnabled: true,
+              bookingEmailsEnabled: true,
+            },
+          },
         },
       },
     },
@@ -575,10 +606,13 @@ export async function cancelBookingAsGuest(bookingId: string, reason?: string) {
       ]);
     }
   } catch (err) {
-    logger.error("Failed to send guest-initiated cancelled emails (non-critical)", {
-      bookingId,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    logger.error(
+      "Failed to send guest-initiated cancelled emails (non-critical)",
+      {
+        bookingId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
   }
 
   return cancelled;

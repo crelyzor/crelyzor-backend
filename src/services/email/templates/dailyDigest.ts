@@ -82,9 +82,12 @@ export function dailyDigestEmail(p: DailyDigestParams): string {
   return emailLayout(body);
 }
 
-export function dailyDigestSubject(p: Pick<DailyDigestParams, "overdueTasks" | "todayTasks">): string {
+export function dailyDigestSubject(
+  p: Pick<DailyDigestParams, "overdueTasks" | "todayTasks">,
+): string {
   const total = p.overdueTasks.length + p.todayTasks.length;
   if (total === 0) return "Your daily task digest";
-  const overdueNote = p.overdueTasks.length > 0 ? ` (${p.overdueTasks.length} overdue)` : "";
+  const overdueNote =
+    p.overdueTasks.length > 0 ? ` (${p.overdueTasks.length} overdue)` : "";
   return `${total} task${total !== 1 ? "s" : ""} today${overdueNote}`;
 }

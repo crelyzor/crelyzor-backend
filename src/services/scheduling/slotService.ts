@@ -42,13 +42,18 @@ function getDayOfWeekInTz(dateStr: string, tz: string): number {
     timeZone: tz,
     weekday: "short",
   }).format(noonUTC);
-  const idx = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekdayStr);
+  const idx = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(
+    weekdayStr,
+  );
   return idx === -1 ? 0 : idx;
 }
 
 // ── Resolve the effective schedule for a user + event type ────────────────────
 
-async function resolveSchedule(userId: string, availabilityScheduleId: string | null) {
+async function resolveSchedule(
+  userId: string,
+  availabilityScheduleId: string | null,
+) {
   if (availabilityScheduleId) {
     return prisma.availabilitySchedule.findFirst({
       where: { id: availabilityScheduleId, isDeleted: false },
@@ -119,7 +124,10 @@ export async function getSlots(
   if (!eventType) throw new AppError("Event type not found", 404);
 
   // 5. Resolve the effective schedule (event type's linked schedule or default)
-  const schedule = await resolveSchedule(user.id, eventType.availabilityScheduleId);
+  const schedule = await resolveSchedule(
+    user.id,
+    eventType.availabilityScheduleId,
+  );
   if (!schedule) {
     logger.info("No availability schedule configured", { username });
     return { slots: [] };

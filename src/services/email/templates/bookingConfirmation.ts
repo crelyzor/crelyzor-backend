@@ -1,4 +1,11 @@
-import { emailLayout, infoRow, formatDateTime, ctaButton, secondaryLink, gcalLink } from "./helpers";
+import {
+  emailLayout,
+  infoRow,
+  formatDateTime,
+  ctaButton,
+  secondaryLink,
+  gcalLink,
+} from "./helpers";
 
 export interface BookingConfirmationParams {
   guestName: string;
@@ -49,6 +56,8 @@ export function bookingConfirmationEmail(p: BookingConfirmationParams): string {
   return emailLayout(body);
 }
 
-export function bookingConfirmationSubject(p: Pick<BookingConfirmationParams, "eventTypeTitle" | "hostName">): string {
+export function bookingConfirmationSubject(
+  p: Pick<BookingConfirmationParams, "eventTypeTitle" | "hostName">,
+): string {
   return `Your ${p.eventTypeTitle} with ${p.hostName} is confirmed`;
 }

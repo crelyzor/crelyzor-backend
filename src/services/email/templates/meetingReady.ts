@@ -28,6 +28,8 @@ export function meetingReadyEmail(p: MeetingReadyParams): string {
   return emailLayout(body);
 }
 
-export function meetingReadySubject(p: Pick<MeetingReadyParams, "meetingTitle">): string {
+export function meetingReadySubject(
+  p: Pick<MeetingReadyParams, "meetingTitle">,
+): string {
   return `Your meeting "${p.meetingTitle}" is ready`;
 }
