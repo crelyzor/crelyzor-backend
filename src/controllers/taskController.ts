@@ -35,9 +35,11 @@ const taskInclude = {
   card: { select: { id: true, displayName: true, slug: true } },
 } satisfies Prisma.TaskInclude;
 
-function flattenTags<T extends { taskTags: Array<{ tag: { id: string; name: string; color: string } }> }>(
-  task: T
-) {
+function flattenTags<
+  T extends {
+    taskTags: Array<{ tag: { id: string; name: string; color: string } }>;
+  },
+>(task: T) {
   const { taskTags, ...rest } = task;
   return { ...rest, tags: taskTags.map((tt) => tt.tag) };
 }
@@ -51,7 +53,21 @@ export const getAllTasks = async (req: Request, res: Response) => {
   const validated = listTasksQuerySchema.safeParse(req.query);
   if (!validated.success) throw new AppError("Validation failed", 400);
 
-  const { status, view, priority, source, meetingId, cardId, hasMeeting, dueBefore, dueAfter, limit, offset, sortBy, sortOrder } = validated.data;
+  const {
+    status,
+    view,
+    priority,
+    source,
+    meetingId,
+    cardId,
+    hasMeeting,
+    dueBefore,
+    dueAfter,
+    limit,
+    offset,
+    sortBy,
+    sortOrder,
+  } = validated.data;
 
   const now = new Date();
   const startOfToday = new Date(now);
@@ -119,7 +135,10 @@ export const getAllTasks = async (req: Request, res: Response) => {
   if (sortBy === "priority") {
     orderBy = [{ priority: sortOrder }, { createdAt: "desc" }];
   } else if (sortBy === "dueDate") {
-    orderBy = [{ dueDate: { sort: sortOrder, nulls: "last" } }, { createdAt: "desc" }];
+    orderBy = [
+      { dueDate: { sort: sortOrder, nulls: "last" } },
+      { createdAt: "desc" },
+    ];
   } else if (sortBy === "sortOrder") {
     orderBy = [{ sortOrder: sortOrder }, { createdAt: "desc" }];
   } else {
@@ -127,7 +146,13 @@ export const getAllTasks = async (req: Request, res: Response) => {
   }
 
   const [tasks, total] = await Promise.all([
-    prisma.task.findMany({ where, orderBy, take: limit, skip: offset, include: taskInclude }),
+    prisma.task.findMany({
+      where,
+      orderBy,
+      take: limit,
+      skip: offset,
+      include: taskInclude,
+    }),
     prisma.task.count({ where }),
   ]);
 
@@ -165,7 +190,8 @@ export const getAllTasks = async (req: Request, res: Response) => {
  */
 export const getTasks = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user!.userId;
 
   const meeting = await prisma.meeting.findFirst({
@@ -180,7 +206,11 @@ export const getTasks = async (req: Request, res: Response) => {
     orderBy: { createdAt: "asc" },
   });
 
-  return apiResponse(res, { statusCode: 200, message: "Tasks fetched", data: { tasks } });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Tasks fetched",
+    data: { tasks },
+  });
 };
 
 /**
@@ -188,7 +218,8 @@ export const getTasks = async (req: Request, res: Response) => {
  */
 export const createTask = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user!.userId;
 
   const validated = createTaskSchema.safeParse(req.body);
@@ -201,10 +232,27 @@ export const createTask = async (req: Request, res: Response) => {
 
   if (!meeting) throw new AppError("Meeting not found", 404);
 
-  const { title, description, dueDate, scheduledTime, priority, durationMinutes } = validated.data;
+  const {
+    title,
+    description,
+    dueDate,
+    scheduledTime,
+    priority,
+    durationMinutes,
+  } = validated.data;
 
   const task = await prisma.task.create({
-    data: { meetingId, userId, title, description, dueDate, scheduledTime, priority, source: "MANUAL", ...(durationMinutes !== undefined && { durationMinutes }) },
+    data: {
+      meetingId,
+      userId,
+      title,
+      description,
+      dueDate,
+      scheduledTime,
+      priority,
+      source: "MANUAL",
+      ...(durationMinutes !== undefined && { durationMinutes }),
+    },
   });
 
   if (task.scheduledTime) {
@@ -237,7 +285,11 @@ export const createTask = async (req: Request, res: Response) => {
 
   logger.info("Task created", { taskId: task.id, meetingId, userId });
 
-  return apiResponse(res, { statusCode: 201, message: "Task created", data: { task } });
+  return apiResponse(res, {
+    statusCode: 201,
+    message: "Task created",
+    data: { task },
+  });
 };
 
 /**
@@ -249,7 +301,19 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
   const validated = createStandaloneTaskSchema.safeParse(req.body);
   if (!validated.success) throw new AppError("Validation failed", 400);
 
-  const { title, description, dueDate, scheduledTime, priority, meetingId, parentTaskId, cardId, status, transcriptContext, durationMinutes } = validated.data;
+  const {
+    title,
+    description,
+    dueDate,
+    scheduledTime,
+    priority,
+    meetingId,
+    parentTaskId,
+    cardId,
+    status,
+    transcriptContext,
+    durationMinutes,
+  } = validated.data;
 
   // Verify meeting ownership if meetingId provided
   if (meetingId) {
@@ -326,7 +390,11 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
 
   logger.info("Standalone task created", { taskId: task.id, userId });
 
-  return apiResponse(res, { statusCode: 201, message: "Task created", data: { task } });
+  return apiResponse(res, {
+    statusCode: 201,
+    message: "Task created",
+    data: { task },
+  });
 };
 
 /**
@@ -334,7 +402,8 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
  */
 export const updateTask = async (req: Request, res: Response) => {
   const taskId = req.params.taskId as string;
-  if (!uuidSchema.safeParse(taskId).success) throw new AppError("Invalid taskId", 400);
+  if (!uuidSchema.safeParse(taskId).success)
+    throw new AppError("Invalid taskId", 400);
   const userId = req.user!.userId;
 
   const validated = updateTaskSchema.safeParse(req.body);
@@ -370,7 +439,20 @@ export const updateTask = async (req: Request, res: Response) => {
     ? null
     : existing.googleEventId;
 
-  const { title, description, isCompleted, dueDate, scheduledTime, priority, status, cardId, transcriptContext, durationMinutes, blockInCalendar, recurringRule } = validated.data;
+  const {
+    title,
+    description,
+    isCompleted,
+    dueDate,
+    scheduledTime,
+    priority,
+    status,
+    cardId,
+    transcriptContext,
+    durationMinutes,
+    blockInCalendar,
+    recurringRule,
+  } = validated.data;
 
   // Verify card ownership if cardId is being set (not cleared)
   if (cardId !== null && cardId !== undefined) {
@@ -401,14 +483,17 @@ export const updateTask = async (req: Request, res: Response) => {
   }
 
   // When scheduledTime is explicitly cleared, also clear any existing GCal block
-  const clearingScheduledTime = scheduledTime === null && !!existingCalendarEventId;
+  const clearingScheduledTime =
+    scheduledTime === null && !!existingCalendarEventId;
 
   let task = await prisma.task.update({
     where: { id: taskId },
     data: {
       ...(title !== undefined && { title }),
       ...(description !== undefined && { description }),
-      ...(resolvedIsCompleted !== undefined && { isCompleted: resolvedIsCompleted }),
+      ...(resolvedIsCompleted !== undefined && {
+        isCompleted: resolvedIsCompleted,
+      }),
       ...(completedAt !== undefined && { completedAt }),
       ...(dueDate !== undefined && { dueDate }),
       ...(scheduledTime !== undefined && { scheduledTime }),
@@ -510,15 +595,22 @@ export const updateTask = async (req: Request, res: Response) => {
   // ── Recurring task spawn (fail-open) ─────────────────────────────────────
   // When a recurring task transitions to DONE for the first time, auto-create
   // the next occurrence based on the RRULE.
-  const taskRecurringRule = recurringRule !== undefined ? recurringRule : existing.recurringRule;
-  if (resolvedStatus === "DONE" && existing.status !== "DONE" && taskRecurringRule) {
+  const taskRecurringRule =
+    recurringRule !== undefined ? recurringRule : existing.recurringRule;
+  if (
+    resolvedStatus === "DONE" &&
+    existing.status !== "DONE" &&
+    taskRecurringRule
+  ) {
     try {
       const rule = RRule.fromString(taskRecurringRule);
-      const baseDueDate = existing.dueDate ?? (() => {
-        const d = new Date();
-        d.setHours(0, 0, 0, 0);
-        return d;
-      })();
+      const baseDueDate =
+        existing.dueDate ??
+        (() => {
+          const d = new Date();
+          d.setHours(0, 0, 0, 0);
+          return d;
+        })();
       const nextDate = rule.after(baseDueDate);
       if (nextDate) {
         await prisma.task.create({
@@ -537,16 +629,27 @@ export const updateTask = async (req: Request, res: Response) => {
             isCompleted: false,
           },
         });
-        logger.info("Recurring task occurrence spawned", { taskId, userId, nextDate });
+        logger.info("Recurring task occurrence spawned", {
+          taskId,
+          userId,
+          nextDate,
+        });
       }
     } catch (err) {
-      logger.error("Failed to spawn recurring task occurrence", { taskId, err });
+      logger.error("Failed to spawn recurring task occurrence", {
+        taskId,
+        err,
+      });
     }
   }
 
   logger.info("Task updated", { taskId, userId });
 
-  return apiResponse(res, { statusCode: 200, message: "Task updated", data: { task } });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Task updated",
+    data: { task },
+  });
 };
 
 /**
@@ -555,7 +658,8 @@ export const updateTask = async (req: Request, res: Response) => {
  */
 export const deleteTask = async (req: Request, res: Response) => {
   const taskId = req.params.taskId as string;
-  if (!uuidSchema.safeParse(taskId).success) throw new AppError("Invalid taskId", 400);
+  if (!uuidSchema.safeParse(taskId).success)
+    throw new AppError("Invalid taskId", 400);
   const userId = req.user!.userId;
 
   const existing = await prisma.task.findFirst({
@@ -567,18 +671,21 @@ export const deleteTask = async (req: Request, res: Response) => {
 
   const now = new Date();
 
-  await prisma.$transaction(async (tx) => {
-    // Soft-delete parent
-    await tx.task.update({
-      where: { id: taskId },
-      data: { isDeleted: true, deletedAt: now },
-    });
-    // Cascade soft-delete to direct subtasks
-    await tx.task.updateMany({
-      where: { parentTaskId: taskId, userId, isDeleted: false },
-      data: { isDeleted: true, deletedAt: now },
-    });
-  }, { timeout: 15000 });
+  await prisma.$transaction(
+    async (tx) => {
+      // Soft-delete parent
+      await tx.task.update({
+        where: { id: taskId },
+        data: { isDeleted: true, deletedAt: now },
+      });
+      // Cascade soft-delete to direct subtasks
+      await tx.task.updateMany({
+        where: { parentTaskId: taskId, userId, isDeleted: false },
+        data: { isDeleted: true, deletedAt: now },
+      });
+    },
+    { timeout: 15000 },
+  );
 
   if (isGoogleTaskRef(existing.googleEventId)) {
     await deleteGoogleTask(userId, existing.googleEventId);
@@ -602,27 +709,30 @@ export const reorderTasks = async (req: Request, res: Response) => {
 
   const { taskIds } = validated.data;
 
-  await prisma.$transaction(async (tx) => {
-    // Verify all IDs belong to this user in one query
-    const owned = await tx.task.findMany({
-      where: { id: { in: taskIds }, userId, isDeleted: false },
-      select: { id: true },
-    });
+  await prisma.$transaction(
+    async (tx) => {
+      // Verify all IDs belong to this user in one query
+      const owned = await tx.task.findMany({
+        where: { id: { in: taskIds }, userId, isDeleted: false },
+        select: { id: true },
+      });
 
-    if (owned.length !== taskIds.length) {
-      throw new AppError("One or more tasks not found", 404);
-    }
+      if (owned.length !== taskIds.length) {
+        throw new AppError("One or more tasks not found", 404);
+      }
 
-    // Apply sort order — userId in where as a second ownership guard
-    await Promise.all(
-      taskIds.map((id, index) =>
-        tx.task.update({
-          where: { id, userId },
-          data: { sortOrder: index },
-        })
-      )
-    );
-  }, { timeout: 15000 });
+      // Apply sort order — userId in where as a second ownership guard
+      await Promise.all(
+        taskIds.map((id, index) =>
+          tx.task.update({
+            where: { id, userId },
+            data: { sortOrder: index },
+          }),
+        ),
+      );
+    },
+    { timeout: 15000 },
+  );
 
   logger.info("Tasks reordered", { userId, count: taskIds.length });
 
@@ -634,7 +744,8 @@ export const reorderTasks = async (req: Request, res: Response) => {
  */
 export const getSubtasks = async (req: Request, res: Response) => {
   const taskId = req.params.taskId as string;
-  if (!uuidSchema.safeParse(taskId).success) throw new AppError("Invalid taskId", 400);
+  if (!uuidSchema.safeParse(taskId).success)
+    throw new AppError("Invalid taskId", 400);
   const userId = req.user!.userId;
 
   // Verify parent task belongs to this user
@@ -663,7 +774,8 @@ export const getSubtasks = async (req: Request, res: Response) => {
  */
 export const createSubtask = async (req: Request, res: Response) => {
   const taskId = req.params.taskId as string;
-  if (!uuidSchema.safeParse(taskId).success) throw new AppError("Invalid taskId", 400);
+  if (!uuidSchema.safeParse(taskId).success)
+    throw new AppError("Invalid taskId", 400);
   const userId = req.user!.userId;
 
   // Verify parent task ownership before attaching a child
@@ -677,7 +789,14 @@ export const createSubtask = async (req: Request, res: Response) => {
   const validated = createTaskSchema.safeParse(req.body);
   if (!validated.success) throw new AppError("Validation failed", 400);
 
-  const { title, description, dueDate, scheduledTime, priority, durationMinutes } = validated.data;
+  const {
+    title,
+    description,
+    dueDate,
+    scheduledTime,
+    priority,
+    durationMinutes,
+  } = validated.data;
 
   const subtask = await prisma.task.create({
     data: {
@@ -693,7 +812,15 @@ export const createSubtask = async (req: Request, res: Response) => {
     },
   });
 
-  logger.info("Subtask created", { subtaskId: subtask.id, parentTaskId: taskId, userId });
+  logger.info("Subtask created", {
+    subtaskId: subtask.id,
+    parentTaskId: taskId,
+    userId,
+  });
 
-  return apiResponse(res, { statusCode: 201, message: "Subtask created", data: { task: subtask } });
+  return apiResponse(res, {
+    statusCode: 201,
+    message: "Subtask created",
+    data: { task: subtask },
+  });
 };

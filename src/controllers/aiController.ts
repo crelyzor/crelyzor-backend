@@ -22,7 +22,8 @@ const uuidSchema = z.string().uuid();
  */
 export const getSummary = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -52,7 +53,8 @@ export const getSummary = async (req: Request, res: Response) => {
  */
 export const regenerateSummary = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -94,7 +96,8 @@ export const regenerateSummary = async (req: Request, res: Response) => {
  */
 export const regenerateTitle = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -134,7 +137,8 @@ export const regenerateTitle = async (req: Request, res: Response) => {
  */
 export const getNotes = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -146,7 +150,9 @@ export const getNotes = async (req: Request, res: Response) => {
   if (!meeting) throw new AppError("Meeting not found", 404);
 
   const parsedQuery = notesQuerySchema.safeParse(req.query);
-  const { limit, offset } = parsedQuery.success ? parsedQuery.data : { limit: 50, offset: 0 };
+  const { limit, offset } = parsedQuery.success
+    ? parsedQuery.data
+    : { limit: 50, offset: 0 };
 
   const [notes, total] = await Promise.all([
     prisma.meetingNote.findMany({
@@ -170,7 +176,8 @@ export const getNotes = async (req: Request, res: Response) => {
  */
 export const createNote = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -207,7 +214,8 @@ export const createNote = async (req: Request, res: Response) => {
  */
 export const askAI = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
 
   if (!userId) {
@@ -232,7 +240,8 @@ export const askAI = async (req: Request, res: Response) => {
  */
 export const generateContent = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
   if (!userId) throw new AppError("Unauthorized", 401);
 
@@ -260,7 +269,8 @@ export const generateContent = async (req: Request, res: Response) => {
  */
 export const getGeneratedContents = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
   if (!userId) throw new AppError("Unauthorized", 401);
 
@@ -308,7 +318,8 @@ export const deleteNote = async (req: Request, res: Response) => {
  */
 export const getAskAIHistory = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
   if (!userId) throw new AppError("Unauthorized", 401);
 
@@ -334,7 +345,8 @@ export const getAskAIHistory = async (req: Request, res: Response) => {
  */
 export const clearAskAIHistory = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user?.userId;
   if (!userId) throw new AppError("Unauthorized", 401);
 

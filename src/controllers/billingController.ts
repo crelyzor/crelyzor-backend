@@ -1,6 +1,9 @@
 import type { Request, Response } from "express";
 import { apiResponse } from "../utils/globalResponseHandler";
-import { getUserUsage, getLimitsForPlan } from "../services/billing/usageService";
+import {
+  getUserUsage,
+  getLimitsForPlan,
+} from "../services/billing/usageService";
 import prisma from "../db/prismaClient";
 
 /**
@@ -77,7 +80,10 @@ export const createCheckoutSession = async (req: Request, res: Response) => {
  *
  * ⛔ STUB — Billing portal (manage subscription, invoices) is deferred.
  */
-export const createBillingPortalSession = async (req: Request, res: Response) => {
+export const createBillingPortalSession = async (
+  req: Request,
+  res: Response,
+) => {
   return apiResponse(res, {
     statusCode: 200,
     message: "Billing portal coming soon",

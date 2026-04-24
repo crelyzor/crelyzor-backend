@@ -22,11 +22,17 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
   const webhookSecret = process.env.RECALL_WEBHOOK_SECRET;
   if (webhookSecret) {
     const standardWebhookId = req.headers["webhook-id"] as string | undefined;
-    const standardWebhookSignature = req.headers["webhook-signature"] as string | undefined;
-    const standardWebhookTimestamp = req.headers["webhook-timestamp"] as string | undefined;
+    const standardWebhookSignature = req.headers["webhook-signature"] as
+      | string
+      | undefined;
+    const standardWebhookTimestamp = req.headers["webhook-timestamp"] as
+      | string
+      | undefined;
 
     const hasStandardHeaders =
-      !!standardWebhookId && !!standardWebhookSignature && !!standardWebhookTimestamp;
+      !!standardWebhookId &&
+      !!standardWebhookSignature &&
+      !!standardWebhookTimestamp;
 
     if (hasStandardHeaders) {
       if (!req.rawBody) {
@@ -43,68 +49,79 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
       );
 
       if (!trusted) {
-        logger.warn("Recall webhook rejected: invalid standard webhook signature");
+        logger.warn(
+          "Recall webhook rejected: invalid standard webhook signature",
+        );
         return res.status(401).json({ error: "Invalid signature" });
       }
     } else {
-    const signatureHeader =
-      (req.headers["x-recallai-signature"] as string | undefined) ??
-      (req.headers["x-recall-signature"] as string | undefined) ??
-      (req.headers["x-recall-signature-256"] as string | undefined) ??
-      (req.headers["recall-signature"] as string | undefined);
+      const signatureHeader =
+        (req.headers["x-recallai-signature"] as string | undefined) ??
+        (req.headers["x-recall-signature"] as string | undefined) ??
+        (req.headers["x-recall-signature-256"] as string | undefined) ??
+        (req.headers["recall-signature"] as string | undefined);
 
-    const signature = extractHexSignature(signatureHeader);
-    if (!signature) {
-      if (process.env.NODE_ENV === "production") {
-        logger.warn("Recall webhook rejected: missing signature header");
-        return res.status(401).json({ error: "Missing signature" });
+      const signature = extractHexSignature(signatureHeader);
+      if (!signature) {
+        if (process.env.NODE_ENV === "production") {
+          logger.warn("Recall webhook rejected: missing signature header");
+          return res.status(401).json({ error: "Missing signature" });
+        }
+
+        logger.warn(
+          "Recall webhook missing signature header — skipping verification in non-production",
+          {
+            headerKeys: Object.keys(req.headers || {}),
+          },
+        );
+      } else {
+        if (!req.rawBody) {
+          logger.warn("Recall webhook rejected: rawBody not captured");
+          return res.status(400).json({ error: "Could not verify request" });
+        }
+
+        const expected = crypto
+          .createHmac("sha256", webhookSecret)
+          .update(req.rawBody)
+          .digest("hex");
+
+        if (signature.length !== expected.length) {
+          logger.warn("Recall webhook rejected: invalid signature length");
+          return res.status(401).json({ error: "Invalid signature" });
+        }
+
+        const trusted = crypto.timingSafeEqual(
+          Buffer.from(signature, "hex"),
+          Buffer.from(expected, "hex"),
+        );
+
+        if (!trusted) {
+          logger.warn("Recall webhook rejected: invalid signature");
+          return res.status(401).json({ error: "Invalid signature" });
+        }
       }
-
-      logger.warn("Recall webhook missing signature header — skipping verification in non-production", {
-        headerKeys: Object.keys(req.headers || {}),
-      });
-    } else {
-      if (!req.rawBody) {
-        logger.warn("Recall webhook rejected: rawBody not captured");
-        return res.status(400).json({ error: "Could not verify request" });
-      }
-
-      const expected = crypto
-        .createHmac("sha256", webhookSecret)
-        .update(req.rawBody)
-        .digest("hex");
-
-      if (signature.length !== expected.length) {
-        logger.warn("Recall webhook rejected: invalid signature length");
-        return res.status(401).json({ error: "Invalid signature" });
-      }
-
-      const trusted = crypto.timingSafeEqual(
-        Buffer.from(signature, "hex"),
-        Buffer.from(expected, "hex"),
-      );
-
-      if (!trusted) {
-        logger.warn("Recall webhook rejected: invalid signature");
-        return res.status(401).json({ error: "Invalid signature" });
-      }
-    }
     }
   }
 
   // 2. Validate payload shape
   const parsed = recallWebhookSchema.safeParse(req.body);
   if (!parsed.success) {
-    logger.warn("Recall webhook rejected: invalid payload shape", { errors: parsed.error.issues });
+    logger.warn("Recall webhook rejected: invalid payload shape", {
+      errors: parsed.error.issues,
+    });
     return res.status(400).json({ error: "Invalid payload" });
   }
 
   const { event, data } = parsed.data;
   const botId = data.bot_id ?? data.bot?.id;
-  const statusCode = data.status?.code ?? data.data?.code ?? inferStatusFromEvent(event);
+  const statusCode =
+    data.status?.code ?? data.data?.code ?? inferStatusFromEvent(event);
 
   if (!botId) {
-    logger.warn("Recall webhook rejected: missing bot identifier", { event, body: req.body });
+    logger.warn("Recall webhook rejected: missing bot identifier", {
+      event,
+      body: req.body,
+    });
     return res.status(400).json({ error: "Missing bot id" });
   }
 
@@ -143,7 +160,13 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
 
   // 5. Dispatch on status
   if (statusCode) {
-    await handleStatusChange(meeting.id, statusCode, meeting.createdById, botId, event);
+    await handleStatusChange(
+      meeting.id,
+      statusCode,
+      meeting.createdById,
+      botId,
+      event,
+    );
   }
 
   return apiResponse(res, { statusCode: 200, message: "OK" });
@@ -153,7 +176,9 @@ function extractHexSignature(signatureHeader?: string): string | undefined {
   if (!signatureHeader) return undefined;
 
   // Accept either raw hex signature or kv formats like: t=...,v1=<hex>
-  const v1Match = signatureHeader.match(/(?:^|,)\s*v1=([a-fA-F0-9]+)\s*(?:,|$)/);
+  const v1Match = signatureHeader.match(
+    /(?:^|,)\s*v1=([a-fA-F0-9]+)\s*(?:,|$)/,
+  );
   if (v1Match?.[1]) return v1Match[1].toLowerCase();
 
   const cleaned = signatureHeader.replace(/^sha256=/i, "").trim();
@@ -231,7 +256,10 @@ function verifyStandardWebhookSignature(
 // Wrap the webhook handler in a top-level try/catch so unhandled errors
 // still return HTTP 200 to Recall.ai (preventing infinite retries).
 const _rawHandleRecallWebhook = handleRecallWebhook;
-export const handleRecallWebhookSafe = async (req: import("express").Request, res: import("express").Response) => {
+export const handleRecallWebhookSafe = async (
+  req: import("express").Request,
+  res: import("express").Response,
+) => {
   try {
     await _rawHandleRecallWebhook(req, res);
   } catch (err) {
@@ -264,7 +292,11 @@ async function handleStatusChange(
       break;
 
     case "processing":
-      logger.info("Recall recording still processing", { meetingId, botId, event });
+      logger.info("Recall recording still processing", {
+        meetingId,
+        botId,
+        event,
+      });
       break;
 
     case "done": {
@@ -276,7 +308,9 @@ async function handleStatusChange(
 
       // Queue fetch when recording is reported done, legacy status_change, or bot.done (current Recall.ai event).
       const shouldQueueRecording =
-        event === "recording.done" || event === "bot.status_change" || event === "bot.done";
+        event === "recording.done" ||
+        event === "bot.status_change" ||
+        event === "bot.done";
 
       if (shouldQueueRecording) {
         await getRecallRecordingQueue().add(
@@ -290,13 +324,20 @@ async function handleStatusChange(
           },
         );
 
-        logger.info("Meeting COMPLETED, Recall recording fetch queued", { meetingId, botId, event });
-      } else {
-        logger.info("Meeting COMPLETED from Recall done event (recording fetch skipped — unexpected event type)", {
+        logger.info("Meeting COMPLETED, Recall recording fetch queued", {
           meetingId,
           botId,
           event,
         });
+      } else {
+        logger.info(
+          "Meeting COMPLETED from Recall done event (recording fetch skipped — unexpected event type)",
+          {
+            meetingId,
+            botId,
+            event,
+          },
+        );
       }
       break;
     }
@@ -306,7 +347,9 @@ async function handleStatusChange(
         where: { id: meetingId },
         data: { status: MeetingStatus.COMPLETED },
       });
-      logger.info("Meeting marked COMPLETED via Recall webhook (call_ended)", { meetingId });
+      logger.info("Meeting marked COMPLETED via Recall webhook (call_ended)", {
+        meetingId,
+      });
       break;
 
     case "fatal_error":
@@ -314,7 +357,9 @@ async function handleStatusChange(
       break;
 
     default:
-      logger.info("Recall webhook: unhandled status code", { meetingId, statusCode });
+      logger.info("Recall webhook: unhandled status code", {
+        meetingId,
+        statusCode,
+      });
   }
 }
-

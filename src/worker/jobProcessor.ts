@@ -19,11 +19,27 @@ import {
 import { transcriptionService } from "../services/transcription/transcriptionService";
 import { aiService } from "../services/ai/aiService";
 import { sendEmail } from "../services/email/emailService";
-import { meetingReadyEmail, meetingReadySubject } from "../services/email/templates/meetingReady";
-import { bookingReminderEmail, bookingReminderSubject } from "../services/email/templates/bookingReminder";
-import { dailyDigestEmail, dailyDigestSubject } from "../services/email/templates/dailyDigest";
-import { deployBot, getBotRecordingInfo } from "../services/recall/recallService";
-import { checkRecall, deductRecall, runMonthlyReset } from "../services/billing/usageService";
+import {
+  meetingReadyEmail,
+  meetingReadySubject,
+} from "../services/email/templates/meetingReady";
+import {
+  bookingReminderEmail,
+  bookingReminderSubject,
+} from "../services/email/templates/bookingReminder";
+import {
+  dailyDigestEmail,
+  dailyDigestSubject,
+} from "../services/email/templates/dailyDigest";
+import {
+  deployBot,
+  getBotRecordingInfo,
+} from "../services/recall/recallService";
+import {
+  checkRecall,
+  deductRecall,
+  runMonthlyReset,
+} from "../services/billing/usageService";
 import { gcsService } from "../services/gcs/gcsService";
 import { logger } from "../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
@@ -104,10 +120,22 @@ export const startWorker = async (): Promise<void> => {
 
       // Email notification: Meeting Ready
       const [meeting, user] = await Promise.all([
-        prisma.meeting.findUnique({ where: { id: data.meetingId }, select: { title: true } }),
+        prisma.meeting.findUnique({
+          where: { id: data.meetingId },
+          select: { title: true },
+        }),
         prisma.user.findUnique({
           where: { id: data.ownerId },
-          select: { name: true, email: true, settings: { select: { emailNotificationsEnabled: true, meetingReadyEmailEnabled: true } } }
+          select: {
+            name: true,
+            email: true,
+            settings: {
+              select: {
+                emailNotificationsEnabled: true,
+                meetingReadyEmailEnabled: true,
+              },
+            },
+          },
         }),
       ]);
 
@@ -143,7 +171,9 @@ export const startWorker = async (): Promise<void> => {
   const recallBotQueue = getRecallBotQueue();
   recallBotQueue.process(JobNames.DEPLOY_RECALL_BOT, async (job) => {
     const data = job.data as RecallBotJobData;
-    logger.info("Processing Recall bot deploy job", { meetingId: data.meetingId });
+    logger.info("Processing Recall bot deploy job", {
+      meetingId: data.meetingId,
+    });
 
     try {
       // Fetch meeting + host settings — both must exist for deployment to proceed
@@ -171,14 +201,22 @@ export const startWorker = async (): Promise<void> => {
       ]);
 
       if (!meeting) {
-        throw new Error(`Meeting ${data.meetingId} not found — skipping bot deploy`);
+        throw new Error(
+          `Meeting ${data.meetingId} not found — skipping bot deploy`,
+        );
       }
       // Meeting link can come from booking event type, Meet link, or location field
-      const meetingLink = meeting.booking?.eventType?.meetingLink ?? meeting.meetLink ?? meeting.location;
+      const meetingLink =
+        meeting.booking?.eventType?.meetingLink ??
+        meeting.meetLink ??
+        meeting.location;
       if (!meetingLink || !isVideoMeetingUrl(meetingLink)) {
-        logger.warn("Meeting has no valid video meeting URL — skipping bot deploy", {
-          meetingId: data.meetingId,
-        });
+        logger.warn(
+          "Meeting has no valid video meeting URL — skipping bot deploy",
+          {
+            meetingId: data.meetingId,
+          },
+        );
         return { skipped: true };
       }
       if (!userSettings?.recallEnabled) {
@@ -190,20 +228,32 @@ export const startWorker = async (): Promise<void> => {
       }
 
       // Join 5 minutes before start
-      const joinAt = new Date(meeting.startTime.getTime() - 5 * 60 * 1000).toISOString();
+      const joinAt = new Date(
+        meeting.startTime.getTime() - 5 * 60 * 1000,
+      ).toISOString();
 
       // Recall usage check — estimate 1 hr per session. Throws 402 if over limit.
       // Fail-open: if check itself errors unexpectedly, let the job continue.
       try {
         await checkRecall(data.hostUserId, 1);
       } catch (usageErr: unknown) {
-        if (usageErr instanceof Error && usageErr.message === "RECALL_LIMIT_REACHED") {
-          logger.warn("Recall limit reached — skipping bot deploy", { meetingId: data.meetingId, hostUserId: data.hostUserId });
+        if (
+          usageErr instanceof Error &&
+          usageErr.message === "RECALL_LIMIT_REACHED"
+        ) {
+          logger.warn("Recall limit reached — skipping bot deploy", {
+            meetingId: data.meetingId,
+            hostUserId: data.hostUserId,
+          });
           return { skipped: true, reason: "recall_limit_reached" };
         }
-        logger.error("Recall usage check error (non-fatal, continuing deploy)", {
-          error: usageErr instanceof Error ? usageErr.message : String(usageErr),
-        });
+        logger.error(
+          "Recall usage check error (non-fatal, continuing deploy)",
+          {
+            error:
+              usageErr instanceof Error ? usageErr.message : String(usageErr),
+          },
+        );
       }
 
       const { botId } = await deployBot(meetingLink, joinAt);
@@ -231,7 +281,10 @@ export const startWorker = async (): Promise<void> => {
   const recallRecordingQueue = getRecallRecordingQueue();
   recallRecordingQueue.process(JobNames.FETCH_RECALL_RECORDING, async (job) => {
     const data = job.data as RecallRecordingJobData;
-    logger.info("Processing Recall recording fetch job", { meetingId: data.meetingId, botId: data.botId });
+    logger.info("Processing Recall recording fetch job", {
+      meetingId: data.meetingId,
+      botId: data.botId,
+    });
 
     try {
       // Fetch recording download URL from bot details
@@ -240,7 +293,9 @@ export const startWorker = async (): Promise<void> => {
       // Download the recording bytes
       const response = await fetch(downloadUrl);
       if (!response.ok) {
-        throw new Error(`Failed to download Recall recording: HTTP ${response.status}`);
+        throw new Error(
+          `Failed to download Recall recording: HTTP ${response.status}`,
+        );
       }
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
@@ -311,7 +366,10 @@ export const startWorker = async (): Promise<void> => {
   const emailQueue = getEmailQueue();
   emailQueue.process(JobNames.BOOKING_REMINDER, async (job) => {
     const { bookingId } = job.data as BookingReminderJobData;
-    logger.info("Processing booking reminder email job", { jobId: job.id, bookingId });
+    logger.info("Processing booking reminder email job", {
+      jobId: job.id,
+      bookingId,
+    });
 
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
@@ -329,14 +387,18 @@ export const startWorker = async (): Promise<void> => {
           select: {
             meetLink: true,
             location: true,
-            booking: { select: { eventType: { select: { meetingLink: true } } } },
+            booking: {
+              select: { eventType: { select: { meetingLink: true } } },
+            },
           },
         },
       },
     });
 
     if (!booking || booking.status !== "CONFIRMED") {
-      logger.info("Booking reminder skipped: not found or not confirmed", { bookingId });
+      logger.info("Booking reminder skipped: not found or not confirmed", {
+        bookingId,
+      });
       return { skipped: true };
     }
 
@@ -345,7 +407,12 @@ export const startWorker = async (): Promise<void> => {
       select: {
         name: true,
         email: true,
-        settings: { select: { emailNotificationsEnabled: true, bookingEmailsEnabled: true } },
+        settings: {
+          select: {
+            emailNotificationsEnabled: true,
+            bookingEmailsEnabled: true,
+          },
+        },
       },
     });
 
@@ -434,7 +501,9 @@ export const startWorker = async (): Promise<void> => {
       if (!user.email) continue;
 
       const now = new Date();
-      const userNow = new Date(now.toLocaleString("en-US", { timeZone: user.timezone }));
+      const userNow = new Date(
+        now.toLocaleString("en-US", { timeZone: user.timezone }),
+      );
       userNow.setHours(0, 0, 0, 0);
 
       const overdueTasks: any[] = [];
@@ -443,7 +512,9 @@ export const startWorker = async (): Promise<void> => {
       user.tasks.forEach((task) => {
         if (!task.dueDate) return;
         const taskDate = new Date(task.dueDate);
-        const userTaskDate = new Date(taskDate.toLocaleString("en-US", { timeZone: user.timezone }));
+        const userTaskDate = new Date(
+          taskDate.toLocaleString("en-US", { timeZone: user.timezone }),
+        );
         userTaskDate.setHours(0, 0, 0, 0);
 
         const isOverdue = userTaskDate < userNow;
@@ -482,19 +553,21 @@ export const startWorker = async (): Promise<void> => {
     await emailQueue.add(
       JobNames.DAILY_TASK_DIGEST,
       { triggeredAt: new Date().toISOString() },
-      { repeat: { cron: "0 8 * * *" }, jobId: "daily-digest-cron" }
+      { repeat: { cron: "0 8 * * *" }, jobId: "daily-digest-cron" },
     );
     logger.info("Daily task digest cron scheduled for 08:00 UTC");
   } catch (err) {
-    logger.error("Failed to schedule daily task digest cron", { 
-      error: err instanceof Error ? err.message : String(err) 
+    logger.error("Failed to schedule daily task digest cron", {
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 
   // Monthly usage reset processor
   emailQueue.process(JobNames.MONTHLY_USAGE_RESET, async (job) => {
     const data = job.data as MonthlyUsageResetJobData;
-    logger.info("Processing monthly usage reset job", { triggeredAt: data.triggeredAt });
+    logger.info("Processing monthly usage reset job", {
+      triggeredAt: data.triggeredAt,
+    });
     try {
       const count = await runMonthlyReset();
       return { success: true, usersReset: count };
@@ -511,9 +584,11 @@ export const startWorker = async (): Promise<void> => {
     await emailQueue.add(
       JobNames.MONTHLY_USAGE_RESET,
       { triggeredAt: new Date().toISOString() },
-      { repeat: { cron: "0 0 1 * *" }, jobId: "monthly-usage-reset-cron" }
+      { repeat: { cron: "0 0 1 * *" }, jobId: "monthly-usage-reset-cron" },
     );
-    logger.info("Monthly usage reset cron scheduled for 00:00 UTC on 1st of each month");
+    logger.info(
+      "Monthly usage reset cron scheduled for 00:00 UTC on 1st of each month",
+    );
   } catch (err) {
     logger.error("Failed to schedule monthly usage reset cron", {
       error: err instanceof Error ? err.message : String(err),
@@ -540,7 +615,9 @@ export const startWorker = async (): Promise<void> => {
   // GCal channel renewal cron (daily at 02:00 UTC)
   emailQueue.process(JobNames.GCAL_PUSH_SYNC + ":renewal", async (job) => {
     const data = job.data as GCalPushRenewalJobData;
-    logger.info("Processing GCal channel renewal job", { triggeredAt: data.triggeredAt });
+    logger.info("Processing GCal channel renewal job", {
+      triggeredAt: data.triggeredAt,
+    });
     try {
       const renewed = await renewExpiringChannels();
       return { success: true, renewed };

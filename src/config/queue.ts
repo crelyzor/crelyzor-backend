@@ -86,7 +86,13 @@ let transcriptionQueue: Bull.Queue<TranscriptionJobData> | null = null;
 let aiProcessingQueue: Bull.Queue<AIProcessingJobData> | null = null;
 let recallBotQueue: Bull.Queue<RecallBotJobData> | null = null;
 let recallRecordingQueue: Bull.Queue<RecallRecordingJobData> | null = null;
-let emailQueue: Bull.Queue<BookingReminderJobData | DailyDigestJobData | MonthlyUsageResetJobData | GCalPushSyncJobData | GCalPushRenewalJobData> | null = null;
+let emailQueue: Bull.Queue<
+  | BookingReminderJobData
+  | DailyDigestJobData
+  | MonthlyUsageResetJobData
+  | GCalPushSyncJobData
+  | GCalPushRenewalJobData
+> | null = null;
 
 // Redis config optimized for Upstash
 const getRedisConfig = () => ({
@@ -230,7 +236,8 @@ export const initializeQueues = async () => {
       logger.info(`📡 Redis ping: ${pong}`);
     } catch (pingError) {
       logger.warn("Redis ping test failed (non-critical)", {
-        error: pingError instanceof Error ? pingError.message : String(pingError),
+        error:
+          pingError instanceof Error ? pingError.message : String(pingError),
       });
     }
 
@@ -241,7 +248,9 @@ export const initializeQueues = async () => {
     setupQueueEvents(recallRecordingQueue, "Recall Recording");
     setupQueueEvents(emailQueue, "Email");
 
-    logger.info("📦 Queues initialized: transcription, ai-processing, recall-bot-deploy, recall-recording, email");
+    logger.info(
+      "📦 Queues initialized: transcription, ai-processing, recall-bot-deploy, recall-recording, email",
+    );
 
     return {
       transcriptionQueue,
@@ -303,16 +312,23 @@ export const getRecallBotQueue = (): Bull.Queue<RecallBotJobData> => {
   return recallBotQueue;
 };
 
-export const getRecallRecordingQueue = (): Bull.Queue<RecallRecordingJobData> => {
-  if (!recallRecordingQueue) {
-    throw new Error(
-      "Recall Recording queue not initialized. Call initializeQueues() first.",
-    );
-  }
-  return recallRecordingQueue;
-};
+export const getRecallRecordingQueue =
+  (): Bull.Queue<RecallRecordingJobData> => {
+    if (!recallRecordingQueue) {
+      throw new Error(
+        "Recall Recording queue not initialized. Call initializeQueues() first.",
+      );
+    }
+    return recallRecordingQueue;
+  };
 
-export const getEmailQueue = (): Bull.Queue<BookingReminderJobData | DailyDigestJobData | MonthlyUsageResetJobData | GCalPushSyncJobData | GCalPushRenewalJobData> => {
+export const getEmailQueue = (): Bull.Queue<
+  | BookingReminderJobData
+  | DailyDigestJobData
+  | MonthlyUsageResetJobData
+  | GCalPushSyncJobData
+  | GCalPushRenewalJobData
+> => {
   if (!emailQueue) {
     throw new Error(
       "Email queue not initialized. Call initializeQueues() first.",

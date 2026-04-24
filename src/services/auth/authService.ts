@@ -139,21 +139,24 @@ class AuthService {
   }
 
   async deactivateAccount(userId: string): Promise<{ message: string }> {
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: userId },
-        data: { isActive: false },
-      });
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.user.update({
+          where: { id: userId },
+          data: { isActive: false },
+        });
 
-      await tx.refreshToken.updateMany({
-        where: { userId },
-        data: { revoked: true },
-      });
+        await tx.refreshToken.updateMany({
+          where: { userId },
+          data: { revoked: true },
+        });
 
-      await tx.session.deleteMany({
-        where: { userId },
-      });
-    }, { timeout: 15000 });
+        await tx.session.deleteMany({
+          where: { userId },
+        });
+      },
+      { timeout: 15000 },
+    );
 
     return { message: "Account deactivated successfully" };
   }

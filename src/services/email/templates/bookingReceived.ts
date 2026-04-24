@@ -1,4 +1,10 @@
-import { emailLayout, infoRow, formatDateTime, ctaButton, secondaryLink } from "./helpers";
+import {
+  emailLayout,
+  infoRow,
+  formatDateTime,
+  ctaButton,
+  secondaryLink,
+} from "./helpers";
 
 export interface BookingReceivedParams {
   hostName: string;
@@ -41,6 +47,8 @@ export function bookingReceivedEmail(p: BookingReceivedParams): string {
   return emailLayout(body);
 }
 
-export function bookingReceivedSubject(p: Pick<BookingReceivedParams, "guestName" | "eventTypeTitle">): string {
+export function bookingReceivedSubject(
+  p: Pick<BookingReceivedParams, "guestName" | "eventTypeTitle">,
+): string {
   return `${p.guestName} booked ${p.eventTypeTitle}`;
 }

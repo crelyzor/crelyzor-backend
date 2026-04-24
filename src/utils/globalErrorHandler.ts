@@ -100,15 +100,10 @@ export class PaymentRequiredError extends BaseError {
       upgradeUrl?: string;
     },
   ) {
-    super(
-      402,
-      code,
-      "Plan limit reached — upgrade to continue",
-      {
-        ...(details ?? {}),
-        upgradeUrl: details?.upgradeUrl ?? "/pricing",
-      },
-    );
+    super(402, code, "Plan limit reached — upgrade to continue", {
+      ...(details ?? {}),
+      upgradeUrl: details?.upgradeUrl ?? "/pricing",
+    });
   }
 }
 

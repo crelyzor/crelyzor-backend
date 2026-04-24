@@ -247,7 +247,10 @@ export const deleteRecording = async (
       gcsPath: recording.gcsPath,
       error: err instanceof Error ? err.message : String(err),
     });
-    throw new AppError("Failed to delete recording file — please try again", 500);
+    throw new AppError(
+      "Failed to delete recording file — please try again",
+      500,
+    );
   }
 
   // Soft-delete the recording and its linked transcript atomically
@@ -313,7 +316,10 @@ export const triggerAIProcessing = async (
       meetingId,
       error: err instanceof Error ? err.message : String(err),
     });
-    throw new AppError("AI processing could not be queued — please try again", 503);
+    throw new AppError(
+      "AI processing could not be queued — please try again",
+      503,
+    );
   }
 };
 

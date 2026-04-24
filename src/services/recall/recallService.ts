@@ -52,7 +52,10 @@ export async function deployBot(
     });
 
     if (!res.ok) {
-      logger.error("Recall.ai bot deployment failed", { status: res.status, meetingLink });
+      logger.error("Recall.ai bot deployment failed", {
+        status: res.status,
+        meetingLink,
+      });
       throw new AppError("Failed to deploy Recall.ai bot", 502);
     }
 
@@ -81,14 +84,17 @@ export async function cancelBot(botId: string): Promise<void> {
   const apiKey = getRecallApiKey();
 
   try {
-    const leaveRes = await fetch(`${RECALL_API_BASE}/bot/${botId}/leave_call/`, {
-      method: "POST",
-      headers: {
-        Authorization: `Token ${apiKey}`,
-        "Content-Type": "application/json",
+    const leaveRes = await fetch(
+      `${RECALL_API_BASE}/bot/${botId}/leave_call/`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Token ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
       },
-      body: JSON.stringify({}),
-    });
+    );
 
     if (leaveRes.ok) {
       return;
@@ -97,10 +103,13 @@ export async function cancelBot(botId: string): Promise<void> {
     // Some bot states cannot receive leave commands and return method/status errors.
     // In these cases we continue with delete fallback for scheduled bots or no-op.
     if (leaveRes.status === 404 || leaveRes.status === 405) {
-      logger.info("Recall.ai bot leave_call skipped due to non-actionable status", {
-        status: leaveRes.status,
-        botId,
-      });
+      logger.info(
+        "Recall.ai bot leave_call skipped due to non-actionable status",
+        {
+          status: leaveRes.status,
+          botId,
+        },
+      );
     }
 
     let leaveBodyCode: string | undefined;
@@ -111,7 +120,11 @@ export async function cancelBot(botId: string): Promise<void> {
       // ignore JSON parse errors and fall through to error handling
     }
 
-    if (leaveBodyCode === "cannot_command_unstarted_bot" || leaveRes.status === 404 || leaveRes.status === 405) {
+    if (
+      leaveBodyCode === "cannot_command_unstarted_bot" ||
+      leaveRes.status === 404 ||
+      leaveRes.status === 405
+    ) {
       const deleteRes = await fetch(`${RECALL_API_BASE}/bot/${botId}/`, {
         method: "DELETE",
         headers: {
@@ -126,10 +139,13 @@ export async function cancelBot(botId: string): Promise<void> {
       // Bot may already be completed/not deletable depending on Recall state machine.
       // Treat as non-fatal so meeting reschedule flow can continue cleanly.
       if (deleteRes.status === 404 || deleteRes.status === 405) {
-        logger.info("Recall.ai bot delete skipped due to terminal/non-deletable state", {
-          status: deleteRes.status,
-          botId,
-        });
+        logger.info(
+          "Recall.ai bot delete skipped due to terminal/non-deletable state",
+          {
+            status: deleteRes.status,
+            botId,
+          },
+        );
         return;
       }
 
@@ -202,7 +218,9 @@ export async function getBotRecordingInfo(
         botId,
         hasVideoUrl: !!body.video_url,
         recordingsCount: body.recordings?.length ?? 0,
-        mediaShortcutKeys: Object.keys(body.recordings?.[0]?.media_shortcuts ?? {}),
+        mediaShortcutKeys: Object.keys(
+          body.recordings?.[0]?.media_shortcuts ?? {},
+        ),
       });
       throw new AppError("Recall.ai recording URL not available", 502);
     }
@@ -261,7 +279,9 @@ export async function getRecordingUrl(botId: string): Promise<string> {
         botId,
         hasVideoUrl: !!body.video_url,
         recordingsCount: body.recordings?.length ?? 0,
-        mediaShortcutKeys: Object.keys(body.recordings?.[0]?.media_shortcuts ?? {}),
+        mediaShortcutKeys: Object.keys(
+          body.recordings?.[0]?.media_shortcuts ?? {},
+        ),
       });
       throw new AppError("Recall.ai recording URL not available", 502);
     }

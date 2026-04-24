@@ -7,26 +7,30 @@ const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const safeUrl = z
   .string()
   .url("meetingLink must be a valid URL")
-  .refine(
-    (url) => {
-      try {
-        const { protocol } = new URL(url);
-        return protocol === "https:" || protocol === "http:";
-      } catch {
-        return false;
-      }
-    },
-    "meetingLink must use http or https",
-  );
+  .refine((url) => {
+    try {
+      const { protocol } = new URL(url);
+      return protocol === "https:" || protocol === "http:";
+    } catch {
+      return false;
+    }
+  }, "meetingLink must use http or https");
 
 export const createEventTypeSchema = z
   .object({
-    title: z.string().min(1, "Title is required").max(100, "Title too long").trim(),
+    title: z
+      .string()
+      .min(1, "Title is required")
+      .max(100, "Title too long")
+      .trim(),
     slug: z
       .string()
       .min(1, "Slug is required")
       .max(60, "Slug too long")
-      .regex(slugRegex, "Slug must be lowercase alphanumeric with hyphens (e.g. 30-min-call)"),
+      .regex(
+        slugRegex,
+        "Slug must be lowercase alphanumeric with hyphens (e.g. 30-min-call)",
+      ),
     description: z.string().max(500, "Description too long").trim().optional(),
     duration: z
       .number()

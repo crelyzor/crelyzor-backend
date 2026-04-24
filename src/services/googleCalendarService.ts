@@ -553,7 +553,9 @@ export async function insertCalendarEvent(
     const meetLink = shouldAutoGenerateMeet
       ? (event.data.conferenceData?.entryPoints?.find(
           (ep) => ep.entryPointType === "video",
-        )?.uri ?? event.data.hangoutLink ?? null)
+        )?.uri ??
+        event.data.hangoutLink ??
+        null)
       : null;
 
     logger.info("Google Calendar event created", {
@@ -656,7 +658,10 @@ export async function createTaskBlock(
       calendarId: "primary",
       requestBody: {
         summary: params.title,
-        start: { dateTime: params.scheduledTime.toISOString(), timeZone: "UTC" },
+        start: {
+          dateTime: params.scheduledTime.toISOString(),
+          timeZone: "UTC",
+        },
         end: { dateTime: endTime.toISOString(), timeZone: "UTC" },
       },
     });
@@ -819,7 +824,9 @@ export async function deleteGoogleTask(
  * It is used when Google sync is enabled or when the connection status is
  * checked, so users don't need to edit each item manually to backfill.
  */
-export async function backfillGoogleCalendarWrites(userId: string): Promise<void> {
+export async function backfillGoogleCalendarWrites(
+  userId: string,
+): Promise<void> {
   try {
     const settings = await prisma.userSettings.findUnique({
       where: { userId },
@@ -901,7 +908,9 @@ export async function backfillGoogleCalendarWrites(userId: string): Promise<void
             }
             return null;
           })
-          .filter((attendee) => attendee !== null && !!attendee.email) as Array<{
+          .filter(
+            (attendee) => attendee !== null && !!attendee.email,
+          ) as Array<{
           email: string;
           displayName?: string;
         }>,
@@ -994,7 +1003,9 @@ interface CalendarEventRaw {
   source: "GOOGLE";
 }
 
-function normalizeNullableString(value: string | null | undefined): string | null {
+function normalizeNullableString(
+  value: string | null | undefined,
+): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 }
@@ -1015,7 +1026,10 @@ async function syncLinkedMeetingsFromGoogle(
   items: Array<import("googleapis").calendar_v3.Schema$Event>,
 ): Promise<void> {
   try {
-    const activeById = new Map<string, import("googleapis").calendar_v3.Schema$Event>();
+    const activeById = new Map<
+      string,
+      import("googleapis").calendar_v3.Schema$Event
+    >();
     const cancelledIds = new Set<string>();
 
     for (const item of items) {
@@ -1204,7 +1218,13 @@ export async function fetchGCalEvents(
     await syncLinkedMeetingsFromGoogle(userId, res.data.items ?? []);
 
     const events: CalendarEvent[] = (res.data.items ?? [])
-      .filter((e) => e.id && e.status !== "cancelled" && e.start?.dateTime && e.end?.dateTime)
+      .filter(
+        (e) =>
+          e.id &&
+          e.status !== "cancelled" &&
+          e.start?.dateTime &&
+          e.end?.dateTime,
+      )
       .map((e) => ({
         id: e.id!,
         title: e.summary ?? "",
@@ -1233,7 +1253,7 @@ export interface GCalConnectionStatus {
   writable: boolean;
   email: string | null;
   syncEnabled: boolean;
-  pushEnabled: boolean;  // Phase 4.3: true when a valid push watch channel is registered
+  pushEnabled: boolean; // Phase 4.3: true when a valid push watch channel is registered
 }
 
 /**

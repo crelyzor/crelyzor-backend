@@ -152,8 +152,13 @@ export const userRateLimit = (
 ) => {
   const windowSeconds = Math.floor(windowMs / 1000);
 
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const identifier = req.user?.userId || req.ip || req.socket.remoteAddress || "unknown";
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    const identifier =
+      req.user?.userId || req.ip || req.socket.remoteAddress || "unknown";
     const key = `ratelimit:${endpointKey}:${identifier}`;
 
     try {

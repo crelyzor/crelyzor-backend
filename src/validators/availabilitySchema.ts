@@ -3,7 +3,10 @@ import { z } from "zod";
 // HH:MM 24-hour format: 00:00 – 23:59
 const timeString = z
   .string()
-  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Time must be in HH:MM format (e.g. 09:00)");
+  .regex(
+    /^([01]\d|2[0-3]):[0-5]\d$/,
+    "Time must be in HH:MM format (e.g. 09:00)",
+  );
 
 // YYYY-MM-DD with validity check (rejects "2025-02-30" etc.)
 const dateString = z
@@ -27,14 +30,13 @@ export const availabilityDaySchema = z
       d.isOff === true ||
       (d.startTime !== undefined && d.endTime !== undefined),
     {
-      message:
-        "Either isOff: true or both startTime and endTime are required",
+      message: "Either isOff: true or both startTime and endTime are required",
     },
   )
-  .refine(
-    (d) => !d.startTime || !d.endTime || d.startTime < d.endTime,
-    { message: "startTime must be before endTime", path: ["startTime"] },
-  );
+  .refine((d) => !d.startTime || !d.endTime || d.startTime < d.endTime, {
+    message: "startTime must be before endTime",
+    path: ["startTime"],
+  });
 
 export const patchAvailabilitySchema = z
   .object({

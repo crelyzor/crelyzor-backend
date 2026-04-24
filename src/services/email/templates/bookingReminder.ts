@@ -16,7 +16,8 @@ export interface BookingReminderParams {
  */
 export function bookingReminderEmail(p: BookingReminderParams): string {
   const when = formatDateTime(p.startTime, p.timezone);
-  const roleLabel = p.role === "host" ? `with ${p.otherPartyName}` : `with ${p.otherPartyName}`;
+  const roleLabel =
+    p.role === "host" ? `with ${p.otherPartyName}` : `with ${p.otherPartyName}`;
 
   const body = `
     <h1 style="margin:0 0 8px;color:#111827;font-size:22px;font-weight:700;line-height:1.3;">
@@ -37,6 +38,8 @@ export function bookingReminderEmail(p: BookingReminderParams): string {
   return emailLayout(body);
 }
 
-export function bookingReminderSubject(p: Pick<BookingReminderParams, "eventTypeTitle" | "otherPartyName">): string {
+export function bookingReminderSubject(
+  p: Pick<BookingReminderParams, "eventTypeTitle" | "otherPartyName">,
+): string {
   return `Reminder: ${p.eventTypeTitle} with ${p.otherPartyName} tomorrow`;
 }

@@ -19,7 +19,10 @@ const availabilityWriteLimit = userRateLimit(
 schedulingRouter.get("/event-types", eventTypeController.listEventTypes);
 schedulingRouter.post("/event-types", eventTypeController.createEventType);
 schedulingRouter.patch("/event-types/:id", eventTypeController.updateEventType);
-schedulingRouter.delete("/event-types/:id", eventTypeController.deleteEventType);
+schedulingRouter.delete(
+  "/event-types/:id",
+  eventTypeController.deleteEventType,
+);
 
 // ── Availability Schedules ────────────────────────────────────────────────────
 schedulingRouter.get("/schedules", scheduleController.listSchedules);
@@ -33,7 +36,10 @@ schedulingRouter.post(
 );
 
 // ── Schedule Slots ────────────────────────────────────────────────────────────
-schedulingRouter.get("/schedules/:id/availability", scheduleController.getSlots);
+schedulingRouter.get(
+  "/schedules/:id/availability",
+  scheduleController.getSlots,
+);
 schedulingRouter.patch(
   "/schedules/:id/availability",
   availabilityWriteLimit,

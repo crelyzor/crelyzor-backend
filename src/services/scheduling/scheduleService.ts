@@ -60,7 +60,10 @@ export async function listSchedules(userId: string) {
   });
 }
 
-export async function createSchedule(userId: string, data: CreateScheduleInput) {
+export async function createSchedule(
+  userId: string,
+  data: CreateScheduleInput,
+) {
   const existingCount = await prisma.availabilitySchedule.count({
     where: { userId, isDeleted: false },
   });
@@ -230,7 +233,10 @@ export async function patchSlots(
   await assertScheduleOwner(userId, scheduleId);
 
   // Validate no overlapping slots on same day
-  const dayMap = new Map<number, Array<{ startTime: string; endTime: string }>>();
+  const dayMap = new Map<
+    number,
+    Array<{ startTime: string; endTime: string }>
+  >();
   for (const slot of data.slots) {
     if (!dayMap.has(slot.dayOfWeek)) dayMap.set(slot.dayOfWeek, []);
     dayMap.get(slot.dayOfWeek)!.push(slot);
@@ -297,7 +303,11 @@ export async function createOverride(
     select: OVERRIDE_SELECT,
   });
 
-  logger.info("Schedule override created", { userId, scheduleId, date: data.date });
+  logger.info("Schedule override created", {
+    userId,
+    scheduleId,
+    date: data.date,
+  });
   return override;
 }
 

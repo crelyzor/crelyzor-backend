@@ -12,7 +12,8 @@ const uuidSchema = z.string().uuid();
  */
 export const getSpeakers = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user!.userId;
 
   const speakers = await speakerService.getSpeakers(meetingId, userId);
@@ -29,9 +30,11 @@ export const getSpeakers = async (req: Request, res: Response) => {
  */
 export const renameSpeaker = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const speakerId = req.params.speakerId as string;
-  if (!uuidSchema.safeParse(speakerId).success) throw new AppError("Invalid speakerId", 400);
+  if (!uuidSchema.safeParse(speakerId).success)
+    throw new AppError("Invalid speakerId", 400);
   const userId = req.user!.userId;
 
   const parsed = renameSpeakerSchema.safeParse(req.body);

@@ -93,7 +93,9 @@ export const meetingService = {
       notes,
     } = data;
 
-    const normalizedGuestEmails = [...new Set((guestEmails ?? []).map((email) => email.toLowerCase()))];
+    const normalizedGuestEmails = [
+      ...new Set((guestEmails ?? []).map((email) => email.toLowerCase())),
+    ];
 
     const isScheduled = type === MeetingType.SCHEDULED;
 
@@ -173,7 +175,9 @@ export const meetingService = {
               where: { id: { in: participantUserIds } },
               select: { id: true, email: true },
             });
-            const participantEmails = participantUsers.map(u => u.email).filter(Boolean) as string[];
+            const participantEmails = participantUsers
+              .map((u) => u.email)
+              .filter(Boolean) as string[];
 
             const matchedContacts = await tx.cardContact.findMany({
               where: {
@@ -183,14 +187,19 @@ export const meetingService = {
               select: { email: true, cardId: true },
             });
 
-            const emailToCardId = new Map(matchedContacts.map(c => [c.email, c.cardId]));
+            const emailToCardId = new Map(
+              matchedContacts.map((c) => [c.email, c.cardId]),
+            );
 
             await tx.meetingParticipant.createMany({
               data: participantUsers.map((u) => ({
                 meetingId: newMeeting.id,
                 userId: u.id,
                 participantType: "ATTENDEE" as const,
-                cardId: u.email && emailToCardId.has(u.email) ? emailToCardId.get(u.email) : null,
+                cardId:
+                  u.email && emailToCardId.has(u.email)
+                    ? emailToCardId.get(u.email)
+                    : null,
               })),
             });
           }
@@ -235,12 +244,16 @@ export const meetingService = {
       if (!participant.user?.email) return acc;
       acc.push({
         email: participant.user.email,
-        ...(participant.user.name ? { displayName: participant.user.name } : {}),
+        ...(participant.user.name
+          ? { displayName: participant.user.name }
+          : {}),
       });
       return acc;
     }, []);
 
-    const attendeeSet = new Set(attendeeEmails.map((attendee) => attendee.email.toLowerCase()));
+    const attendeeSet = new Set(
+      attendeeEmails.map((attendee) => attendee.email.toLowerCase()),
+    );
     for (const guestEmail of normalizedGuestEmails) {
       if (attendeeSet.has(guestEmail)) continue;
       attendeeEmails.push({ email: guestEmail });
@@ -290,7 +303,8 @@ export const meetingService = {
           });
 
           if (settings?.recallEnabled) {
-            const deployAt = committedMeeting.startTime.getTime() - 5 * 60 * 1000;
+            const deployAt =
+              committedMeeting.startTime.getTime() - 5 * 60 * 1000;
             const delay = Math.max(0, deployAt - Date.now());
 
             await getRecallBotQueue().add(
@@ -424,7 +438,9 @@ export const meetingService = {
 
         if (data.participantUserIds) {
           const currentParticipantIds = meeting.participants
-            .filter((p) => p.userId !== meeting.createdById && p.userId !== null)
+            .filter(
+              (p) => p.userId !== meeting.createdById && p.userId !== null,
+            )
             .map((p) => p.userId!);
 
           const toRemove = currentParticipantIds.filter(
@@ -445,7 +461,9 @@ export const meetingService = {
               where: { id: { in: toAdd } },
               select: { id: true, email: true },
             });
-            const addedEmails = addedUsers.map(u => u.email).filter(Boolean) as string[];
+            const addedEmails = addedUsers
+              .map((u) => u.email)
+              .filter(Boolean) as string[];
 
             const matchedContacts = await tx.cardContact.findMany({
               where: {
@@ -455,14 +473,19 @@ export const meetingService = {
               select: { email: true, cardId: true },
             });
 
-            const emailToCardId = new Map(matchedContacts.map(c => [c.email, c.cardId]));
+            const emailToCardId = new Map(
+              matchedContacts.map((c) => [c.email, c.cardId]),
+            );
 
             await tx.meetingParticipant.createMany({
               data: addedUsers.map((u) => ({
                 meetingId,
                 userId: u.id,
                 participantType: "ATTENDEE" as const,
-                cardId: u.email && emailToCardId.has(u.email) ? emailToCardId.get(u.email) : null,
+                cardId:
+                  u.email && emailToCardId.has(u.email)
+                    ? emailToCardId.get(u.email)
+                    : null,
               })),
             });
           }
@@ -501,7 +524,10 @@ export const meetingService = {
         location: data.location,
         description: data.description,
       });
-    } else if (meeting.status === MeetingStatus.CREATED && data.addToCalendar !== false) {
+    } else if (
+      meeting.status === MeetingStatus.CREATED &&
+      data.addToCalendar !== false
+    ) {
       try {
         const gcalResult = await createGCalEventForMeeting(updatedByUserId, {
           title: updatedMeeting.title,
@@ -532,7 +558,11 @@ export const meetingService = {
     const shouldRescheduleRecall =
       data.startTime !== undefined || data.location !== undefined;
 
-    if (meeting.status === MeetingStatus.CREATED && env.RECALL_API_KEY && shouldRescheduleRecall) {
+    if (
+      meeting.status === MeetingStatus.CREATED &&
+      env.RECALL_API_KEY &&
+      shouldRescheduleRecall
+    ) {
       try {
         await removeExistingRecallDeployJobs(updatedMeeting.id);
 
@@ -555,11 +585,14 @@ export const meetingService = {
           try {
             await cancelBot(latestMeeting.recallBotId);
           } catch (err) {
-            logger.warn("Failed to cancel existing Recall bot during meeting edit", {
-              meetingId: latestMeeting.id,
-              botId: latestMeeting.recallBotId,
-              error: err instanceof Error ? err.message : String(err),
-            });
+            logger.warn(
+              "Failed to cancel existing Recall bot during meeting edit",
+              {
+                meetingId: latestMeeting.id,
+                botId: latestMeeting.recallBotId,
+                error: err instanceof Error ? err.message : String(err),
+              },
+            );
           }
 
           await prisma.meeting.update({
@@ -574,7 +607,11 @@ export const meetingService = {
         });
 
         const videoLink = latestMeeting.meetLink ?? latestMeeting.location;
-        if (settings?.recallEnabled && videoLink && isVideoMeetingUrl(videoLink)) {
+        if (
+          settings?.recallEnabled &&
+          videoLink &&
+          isVideoMeetingUrl(videoLink)
+        ) {
           const deployAt = latestMeeting.startTime.getTime() - 5 * 60 * 1000;
           const delay = Math.max(0, deployAt - Date.now());
 
@@ -589,10 +626,13 @@ export const meetingService = {
           });
         }
       } catch (err) {
-        logger.warn("Recall bot reschedule on meeting edit failed (fail-open)", {
-          meetingId: updatedMeeting.id,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        logger.warn(
+          "Recall bot reschedule on meeting edit failed (fail-open)",
+          {
+            meetingId: updatedMeeting.id,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
       }
     }
 
@@ -972,7 +1012,9 @@ export const meetingService = {
   },
 };
 
-async function removeExistingRecallDeployJobs(meetingId: string): Promise<void> {
+async function removeExistingRecallDeployJobs(
+  meetingId: string,
+): Promise<void> {
   const queue = getRecallBotQueue();
   const jobs = await queue.getJobs([
     "waiting",

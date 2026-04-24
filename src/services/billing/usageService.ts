@@ -7,9 +7,9 @@ import { logger } from "../../utils/logging/logger";
 
 export interface PlanLimits {
   transcriptionMinutes: number; // -1 = unlimited
-  recallHours: number;          // -1 = unlimited
-  aiCredits: number;            // -1 = unlimited
-  storageGb: number;            // -1 = unlimited
+  recallHours: number; // -1 = unlimited
+  aiCredits: number; // -1 = unlimited
+  storageGb: number; // -1 = unlimited
 }
 
 /**
@@ -19,11 +19,26 @@ export interface PlanLimits {
 export function getLimitsForPlan(plan: Plan): PlanLimits {
   switch (plan) {
     case "FREE":
-      return { transcriptionMinutes: 120, recallHours: 0, aiCredits: 50, storageGb: 2 };
+      return {
+        transcriptionMinutes: 120,
+        recallHours: 0,
+        aiCredits: 50,
+        storageGb: 2,
+      };
     case "PRO":
-      return { transcriptionMinutes: 600, recallHours: 5, aiCredits: 1000, storageGb: 20 };
+      return {
+        transcriptionMinutes: 600,
+        recallHours: 5,
+        aiCredits: 1000,
+        storageGb: 20,
+      };
     case "BUSINESS":
-      return { transcriptionMinutes: -1, recallHours: -1, aiCredits: -1, storageGb: -1 };
+      return {
+        transcriptionMinutes: -1,
+        recallHours: -1,
+        aiCredits: -1,
+        storageGb: -1,
+      };
   }
 }
 
@@ -34,7 +49,10 @@ export function getLimitsForPlan(plan: Plan): PlanLimits {
  * Formula from pricing doc: credits = (inputTokens × 0.00075) + (outputTokens × 0.0045)
  * Rounded up to nearest integer. Minimum 1 credit per call.
  */
-export function calculateCredits(inputTokens: number, outputTokens: number): number {
+export function calculateCredits(
+  inputTokens: number,
+  outputTokens: number,
+): number {
   const raw = inputTokens * 0.00075 + outputTokens * 0.0045;
   return Math.max(1, Math.ceil(raw));
 }
@@ -83,11 +101,16 @@ async function getPlanAndUsage(userId: string) {
  * Throws 402 if the user has exceeded their monthly transcription minutes.
  * Call BEFORE starting a Deepgram transcription job.
  */
-export async function checkTranscription(userId: string, estimatedMinutes: number): Promise<void> {
+export async function checkTranscription(
+  userId: string,
+  estimatedMinutes: number,
+): Promise<void> {
   const { limits, usage } = await getPlanAndUsage(userId);
   if (limits.transcriptionMinutes === -1) return; // unlimited
 
-  const wouldExceed = usage.transcriptionMinutesUsed + estimatedMinutes > limits.transcriptionMinutes;
+  const wouldExceed =
+    usage.transcriptionMinutesUsed + estimatedMinutes >
+    limits.transcriptionMinutes;
   if (wouldExceed) {
     logger.warn("Transcription limit reached", {
       userId,
@@ -103,13 +126,21 @@ export async function checkTranscription(userId: string, estimatedMinutes: numbe
  * Deducts actual transcription minutes after a successful Deepgram call.
  * Call AFTER transcription succeeds. Fail-open: logs error but never throws.
  */
-export async function deductTranscription(userId: string, actualMinutes: number): Promise<void> {
+export async function deductTranscription(
+  userId: string,
+  actualMinutes: number,
+): Promise<void> {
   try {
     await prisma.userUsage.update({
       where: { userId },
-      data: { transcriptionMinutesUsed: { increment: Math.ceil(actualMinutes) } },
+      data: {
+        transcriptionMinutesUsed: { increment: Math.ceil(actualMinutes) },
+      },
     });
-    logger.info("Transcription minutes deducted", { userId, minutes: Math.ceil(actualMinutes) });
+    logger.info("Transcription minutes deducted", {
+      userId,
+      minutes: Math.ceil(actualMinutes),
+    });
   } catch (err) {
     logger.error("Failed to deduct transcription minutes (non-fatal)", {
       userId,
@@ -126,7 +157,10 @@ export async function deductTranscription(userId: string, actualMinutes: number)
  * Call BEFORE deploying a Recall bot. estimatedHours is typically the
  * meeting duration in hours (e.g. 1.0 for a 60-min meeting).
  */
-export async function checkRecall(userId: string, estimatedHours: number): Promise<void> {
+export async function checkRecall(
+  userId: string,
+  estimatedHours: number,
+): Promise<void> {
   const { limits, usage } = await getPlanAndUsage(userId);
 
   if (limits.recallHours === -1) return; // unlimited (BUSINESS)
@@ -136,7 +170,8 @@ export async function checkRecall(userId: string, estimatedHours: number): Promi
     throw new AppError("RECALL_LIMIT_REACHED", 402);
   }
 
-  const wouldExceed = usage.recallHoursUsed + estimatedHours > limits.recallHours;
+  const wouldExceed =
+    usage.recallHoursUsed + estimatedHours > limits.recallHours;
   if (wouldExceed) {
     logger.warn("Recall hours limit reached", {
       userId,
@@ -152,7 +187,10 @@ export async function checkRecall(userId: string, estimatedHours: number): Promi
  * Deducts Recall hours after a bot session completes.
  * Fail-open: logs error but never throws.
  */
-export async function deductRecall(userId: string, actualHours: number): Promise<void> {
+export async function deductRecall(
+  userId: string,
+  actualHours: number,
+): Promise<void> {
   try {
     await prisma.userUsage.update({
       where: { userId },
