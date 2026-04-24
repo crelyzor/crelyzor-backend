@@ -115,10 +115,7 @@ export const cardController = {
 
       const cardId = parseUuidParam(req.params.cardId as string, "cardId");
 
-      const card = await cardService.getCardById(
-        userId,
-        cardId,
-      );
+      const card = await cardService.getCardById(userId, cardId);
 
       apiResponse(res, {
         statusCode: 200,
@@ -140,11 +137,7 @@ export const cardController = {
       const parsed = updateCardSchema.safeParse(req.body);
       if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
-      const card = await cardService.updateCard(
-        userId,
-        cardId,
-        parsed.data,
-      );
+      const card = await cardService.updateCard(userId, cardId, parsed.data);
 
       apiResponse(res, {
         statusCode: 200,
@@ -235,7 +228,10 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
-      const contactId = parseUuidParam(req.params.contactId as string, "contactId");
+      const contactId = parseUuidParam(
+        req.params.contactId as string,
+        "contactId",
+      );
 
       const parsed = updateContactTagsSchema.safeParse(req.body);
       if (!parsed.success) throw ErrorFactory.validation(parsed.error);
@@ -261,7 +257,10 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
-      const contactId = parseUuidParam(req.params.contactId as string, "contactId");
+      const contactId = parseUuidParam(
+        req.params.contactId as string,
+        "contactId",
+      );
 
       await cardService.deleteContact(userId, contactId);
 
@@ -280,10 +279,16 @@ export const cardController = {
       if (!userId) throw ErrorFactory.unauthorized();
 
       const { cardId } = req.query;
-      if (cardId !== undefined && !z.string().uuid().safeParse(cardId).success) {
+      if (
+        cardId !== undefined &&
+        !z.string().uuid().safeParse(cardId).success
+      ) {
         throw ErrorFactory.validation("Invalid cardId");
       }
-      const csv = await cardService.exportContacts(userId, cardId as string | undefined);
+      const csv = await cardService.exportContacts(
+        userId,
+        cardId as string | undefined,
+      );
 
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", "attachment; filename=contacts.csv");
@@ -360,10 +365,7 @@ export const cardController = {
 
       const cardId = parseUuidParam(req.params.cardId as string, "cardId");
 
-      const meetings = await cardService.getCardMeetings(
-        userId,
-        cardId,
-      );
+      const meetings = await cardService.getCardMeetings(userId, cardId);
 
       apiResponse(res, {
         statusCode: 200,
@@ -410,10 +412,7 @@ export const cardController = {
 
       const cardId = parseUuidParam(req.params.cardId as string, "cardId");
 
-      const contact = await cardService.submitContact(
-        cardId,
-        parsed.data,
-      );
+      const contact = await cardService.submitContact(cardId, parsed.data);
 
       apiResponse(res, {
         statusCode: 201,

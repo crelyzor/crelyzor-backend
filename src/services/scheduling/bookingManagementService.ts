@@ -134,7 +134,10 @@ export async function confirmBooking(userId: string, bookingId: string) {
 
   if (!booking) throw new AppError("Booking not found", 404);
   if (booking.status !== "PENDING") {
-    throw new AppError(`Cannot confirm a booking with status ${booking.status}`, 409);
+    throw new AppError(
+      `Cannot confirm a booking with status ${booking.status}`,
+      409,
+    );
   }
 
   await prisma.booking.update({
@@ -175,7 +178,10 @@ export async function confirmBooking(userId: string, bookingId: string) {
         isDeleted: false,
       },
     });
-    logger.info("Prepare task created for confirmed booking", { bookingId, userId });
+    logger.info("Prepare task created for confirmed booking", {
+      bookingId,
+      userId,
+    });
   } catch (err) {
     logger.error("Failed to create prepare task for booking (non-critical)", {
       bookingId,
@@ -231,15 +237,22 @@ export async function confirmBooking(userId: string, bookingId: string) {
     }
   } else {
     // Fail-open: booking is already confirmed in DB regardless of GCal outcome
-    logger.warn("GCal event creation returned no event ID — booking confirmed without calendar event", {
-      bookingId,
-      userId,
-    });
+    logger.warn(
+      "GCal event creation returned no event ID — booking confirmed without calendar event",
+      {
+        bookingId,
+        userId,
+      },
+    );
   }
 
   // Recall bot — fail-open
   const recallEnabled = user?.settings?.recallEnabled ?? false;
-  if (recallEnabled && booking.meetingId && booking.eventType.locationType === "ONLINE") {
+  if (
+    recallEnabled &&
+    booking.meetingId &&
+    booking.eventType.locationType === "ONLINE"
+  ) {
     const deployAt = booking.startTime.getTime() - 5 * 60 * 1000;
     const delay = deployAt - Date.now();
 
@@ -311,10 +324,13 @@ export async function confirmBooking(userId: string, bookingId: string) {
         }),
       });
     } catch (err) {
-      logger.error("Failed to send booking confirmation emails (non-critical)", {
-        bookingId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      logger.error(
+        "Failed to send booking confirmation emails (non-critical)",
+        {
+          bookingId,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
     }
 
     // 3. Queue a 24h reminder for BOTH host and guest
@@ -351,7 +367,6 @@ export async function declineBooking(
   bookingId: string,
   reason?: string,
 ) {
-
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, userId, isDeleted: false },
     select: {
@@ -369,7 +384,10 @@ export async function declineBooking(
 
   if (!booking) throw new AppError("Booking not found", 404);
   if (booking.status !== "PENDING") {
-    throw new AppError(`Cannot decline a booking with status ${booking.status}`, 409);
+    throw new AppError(
+      `Cannot decline a booking with status ${booking.status}`,
+      409,
+    );
   }
 
   await prisma.$transaction(
@@ -401,7 +419,12 @@ export async function declineBooking(
       where: { id: userId },
       select: {
         name: true,
-        settings: { select: { emailNotificationsEnabled: true, bookingEmailsEnabled: true } },
+        settings: {
+          select: {
+            emailNotificationsEnabled: true,
+            bookingEmailsEnabled: true,
+          },
+        },
       },
     });
     const emailsEnabled =
@@ -411,7 +434,9 @@ export async function declineBooking(
     if (emailsEnabled) {
       await sendEmail({
         to: booking.guestEmail,
-        subject: bookingCancelledSubject({ eventTypeTitle: booking.eventType.title }),
+        subject: bookingCancelledSubject({
+          eventTypeTitle: booking.eventType.title,
+        }),
         html: bookingCancelledEmail({
           recipientName: booking.guestName,
           cancelledByName: host?.name ?? "the host",
@@ -423,10 +448,13 @@ export async function declineBooking(
       });
     }
   } catch (err) {
-    logger.error("Failed to send booking decline email to guest (non-critical)", {
-      bookingId,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    logger.error(
+      "Failed to send booking decline email to guest (non-critical)",
+      {
+        bookingId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
   }
 
   return prisma.booking.findUnique({
@@ -507,7 +535,12 @@ export async function cancelBooking(
       select: {
         name: true,
         email: true,
-        settings: { select: { emailNotificationsEnabled: true, bookingEmailsEnabled: true } },
+        settings: {
+          select: {
+            emailNotificationsEnabled: true,
+            bookingEmailsEnabled: true,
+          },
+        },
       },
     });
     const emailsEnabled =
@@ -515,7 +548,9 @@ export async function cancelBooking(
       (host?.settings?.bookingEmailsEnabled ?? true);
 
     if (emailsEnabled) {
-      const cancelledSubject = bookingCancelledSubject({ eventTypeTitle: booking.eventType.title });
+      const cancelledSubject = bookingCancelledSubject({
+        eventTypeTitle: booking.eventType.title,
+      });
       const hostName = host?.name ?? "the host";
       const sharedParams = {
         cancelledByName: hostName,
@@ -529,13 +564,19 @@ export async function cancelBooking(
           ? sendEmail({
               to: host.email,
               subject: cancelledSubject,
-              html: bookingCancelledEmail({ recipientName: hostName, ...sharedParams }),
+              html: bookingCancelledEmail({
+                recipientName: hostName,
+                ...sharedParams,
+              }),
             })
           : Promise.resolve(),
         sendEmail({
           to: booking.guestEmail,
           subject: cancelledSubject,
-          html: bookingCancelledEmail({ recipientName: booking.guestName, ...sharedParams }),
+          html: bookingCancelledEmail({
+            recipientName: booking.guestName,
+            ...sharedParams,
+          }),
         }),
       ]);
     }

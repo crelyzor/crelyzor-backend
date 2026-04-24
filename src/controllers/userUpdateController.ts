@@ -16,12 +16,20 @@ export const userController = {
 
       const q = String(req.query.q ?? "").trim();
       if (!q) {
-        apiResponse(res, { statusCode: 200, message: "Users found", data: { users: [] } });
+        apiResponse(res, {
+          statusCode: 200,
+          message: "Users found",
+          data: { users: [] },
+        });
         return;
       }
 
       const users = await userService.searchUsers(q, userId);
-      apiResponse(res, { statusCode: 200, message: "Users found", data: { users } });
+      apiResponse(res, {
+        statusCode: 200,
+        message: "Users found",
+        data: { users },
+      });
     } catch (error) {
       globalErrorHandler(error as BaseError, req, res);
     }

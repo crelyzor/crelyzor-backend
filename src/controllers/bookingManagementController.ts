@@ -15,7 +15,10 @@ export const listBookings = async (req: Request, res: Response) => {
   const query = listBookingsQuerySchema.safeParse(req.query);
   if (!query.success) throw new AppError("Validation failed", 400);
 
-  const result = await bookingManagementService.listBookings(userId, query.data);
+  const result = await bookingManagementService.listBookings(
+    userId,
+    query.data,
+  );
 
   return apiResponse(res, {
     statusCode: 200,

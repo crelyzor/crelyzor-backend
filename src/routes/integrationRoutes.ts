@@ -13,8 +13,14 @@ integrationRouter.get(
   userRateLimit(60, 60 * 60 * 1000, "gcal:events"),
   integrationController.getGoogleCalendarEvents,
 );
-integrationRouter.get("/google/status", integrationController.getGoogleCalendarStatus);
-integrationRouter.delete("/google/disconnect", integrationController.disconnectGoogleCalendar);
+integrationRouter.get(
+  "/google/status",
+  integrationController.getGoogleCalendarStatus,
+);
+integrationRouter.delete(
+  "/google/disconnect",
+  integrationController.disconnectGoogleCalendar,
+);
 
 // Phase 4.3: manual push channel backfill (called silently by frontend on Settings load)
 integrationRouter.post(

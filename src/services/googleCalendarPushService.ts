@@ -16,7 +16,10 @@ const CHANNEL_LIFESPAN_DAYS = 29; // Google max is 30 — 1 day buffer for renew
  */
 export async function registerWatchChannel(userId: string): Promise<void> {
   if (!WEBHOOK_BASE_URL || !WEBHOOK_SECRET) {
-    logger.warn("GCal push: GOOGLE_WEBHOOK_BASE_URL or GCAL_WEBHOOK_SECRET not set — skipping watch registration", { userId });
+    logger.warn(
+      "GCal push: GOOGLE_WEBHOOK_BASE_URL or GCAL_WEBHOOK_SECRET not set — skipping watch registration",
+      { userId },
+    );
     return;
   }
 
@@ -25,7 +28,9 @@ export async function registerWatchChannel(userId: string): Promise<void> {
     const calendar = google.calendar({ version: "v3", auth: client });
 
     const channelId = uuidv4();
-    const expiration = new Date(Date.now() + CHANNEL_LIFESPAN_DAYS * 24 * 60 * 60 * 1000);
+    const expiration = new Date(
+      Date.now() + CHANNEL_LIFESPAN_DAYS * 24 * 60 * 60 * 1000,
+    );
     const address = `${WEBHOOK_BASE_URL}/api/v1/webhooks/google/calendar`;
 
     const watchRes = await calendar.events.watch({
@@ -47,7 +52,11 @@ export async function registerWatchChannel(userId: string): Promise<void> {
       update: { channelId, resourceId, expiration, syncToken: null },
     });
 
-    logger.info("GCal push: watch channel registered", { userId, channelId, expiration });
+    logger.info("GCal push: watch channel registered", {
+      userId,
+      channelId,
+      expiration,
+    });
   } catch (err) {
     logger.warn("GCal push: registerWatchChannel failed — fail-open", {
       userId,
@@ -62,21 +71,29 @@ export async function registerWatchChannel(userId: string): Promise<void> {
  */
 export async function stopWatchChannel(userId: string): Promise<void> {
   try {
-    const syncState = await prisma.gCalSyncState.findUnique({ where: { userId } });
+    const syncState = await prisma.gCalSyncState.findUnique({
+      where: { userId },
+    });
     if (!syncState) return;
 
     try {
       const { client } = await getAuthedCalendarClient(userId, false);
       const calendar = google.calendar({ version: "v3", auth: client });
       await calendar.channels.stop({
-        requestBody: { id: syncState.channelId, resourceId: syncState.resourceId ?? undefined },
+        requestBody: {
+          id: syncState.channelId,
+          resourceId: syncState.resourceId ?? undefined,
+        },
       });
     } catch (stopErr) {
       // Log but continue — we still delete the local state
-      logger.warn("GCal push: channels.stop failed (continuing with local delete)", {
-        userId,
-        error: stopErr instanceof Error ? stopErr.message : String(stopErr),
-      });
+      logger.warn(
+        "GCal push: channels.stop failed (continuing with local delete)",
+        {
+          userId,
+          error: stopErr instanceof Error ? stopErr.message : String(stopErr),
+        },
+      );
     }
 
     await prisma.gCalSyncState.delete({ where: { userId } });
@@ -96,7 +113,9 @@ export async function stopWatchChannel(userId: string): Promise<void> {
  */
 export async function refreshSyncToken(userId: string): Promise<string | null> {
   try {
-    const syncState = await prisma.gCalSyncState.findUnique({ where: { userId } });
+    const syncState = await prisma.gCalSyncState.findUnique({
+      where: { userId },
+    });
     if (!syncState) return null;
 
     const { client } = await getAuthedCalendarClient(userId, false);
@@ -113,10 +132,14 @@ export async function refreshSyncToken(userId: string): Promise<string | null> {
       newSyncToken = res.data.nextSyncToken ?? null;
     } catch (tokenErr: unknown) {
       // 410 Gone = sync token expired → full re-sync
-      const status = (tokenErr as { response?: { status?: number } })?.response?.status;
+      const status = (tokenErr as { response?: { status?: number } })?.response
+        ?.status;
       if (status === 410) {
         logger.warn("GCal push: sync token expired — full re-sync", { userId });
-        const res = await calendar.events.list({ calendarId: "primary", maxResults: 1 });
+        const res = await calendar.events.list({
+          calendarId: "primary",
+          maxResults: 1,
+        });
         newSyncToken = res.data.nextSyncToken ?? null;
       } else {
         throw tokenErr;
@@ -145,10 +168,17 @@ export async function refreshSyncToken(userId: string): Promise<string | null> {
  * Fetches changed events using the stored syncToken and passes them
  * to the existing syncLinkedMeetingsFromGoogle logic.
  */
-export async function processIncomingNotification(channelId: string): Promise<void> {
-  const syncState = await prisma.gCalSyncState.findUnique({ where: { channelId } });
+export async function processIncomingNotification(
+  channelId: string,
+): Promise<void> {
+  const syncState = await prisma.gCalSyncState.findUnique({
+    where: { channelId },
+  });
   if (!syncState) {
-    logger.warn("GCal push: unknown channelId — stale or unregistered channel", { channelId });
+    logger.warn(
+      "GCal push: unknown channelId — stale or unregistered channel",
+      { channelId },
+    );
     return;
   }
 
@@ -170,10 +200,17 @@ export async function processIncomingNotification(channelId: string): Promise<vo
       items = res.data.items ?? [];
       newSyncToken = res.data.nextSyncToken ?? null;
     } catch (tokenErr: unknown) {
-      const status = (tokenErr as { response?: { status?: number } })?.response?.status;
+      const status = (tokenErr as { response?: { status?: number } })?.response
+        ?.status;
       if (status === 410) {
-        logger.warn("GCal push: sync token expired during notify — full re-sync", { userId });
-        const res = await calendar.events.list({ calendarId: "primary", showDeleted: true });
+        logger.warn(
+          "GCal push: sync token expired during notify — full re-sync",
+          { userId },
+        );
+        const res = await calendar.events.list({
+          calendarId: "primary",
+          showDeleted: true,
+        });
         items = res.data.items ?? [];
         newSyncToken = res.data.nextSyncToken ?? null;
       } else {
@@ -182,7 +219,8 @@ export async function processIncomingNotification(channelId: string): Promise<vo
     }
 
     // Dynamic import avoids circular dep (googleCalendarService imports googleCalendarPushService)
-    const { syncLinkedMeetingsFromGooglePush } = await import("./googleCalendarService");
+    const { syncLinkedMeetingsFromGooglePush } =
+      await import("./googleCalendarService");
     await syncLinkedMeetingsFromGooglePush(userId, items);
 
     if (newSyncToken) {
@@ -192,7 +230,11 @@ export async function processIncomingNotification(channelId: string): Promise<vo
       });
     }
 
-    logger.info("GCal push: notification processed", { channelId, userId, eventCount: items.length });
+    logger.info("GCal push: notification processed", {
+      channelId,
+      userId,
+      eventCount: items.length,
+    });
   } catch (err) {
     logger.warn("GCal push: processIncomingNotification failed — fail-open", {
       channelId,

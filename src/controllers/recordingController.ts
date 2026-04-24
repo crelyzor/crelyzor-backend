@@ -15,7 +15,8 @@ interface MulterRequest extends Request {
  */
 export const uploadRecording = async (req: MulterRequest, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw ErrorFactory.validation("Invalid meetingId");
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw ErrorFactory.validation("Invalid meetingId");
   const memberId = req.user?.userId;
 
   if (!req.file) {
@@ -54,7 +55,8 @@ export const uploadRecording = async (req: MulterRequest, res: Response) => {
  */
 export const getRecordings = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw ErrorFactory.validation("Invalid meetingId");
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw ErrorFactory.validation("Invalid meetingId");
   const userId = req.user?.userId;
 
   if (!userId) {
@@ -75,7 +77,8 @@ export const getRecordings = async (req: Request, res: Response) => {
  */
 export const deleteRecording = async (req: Request, res: Response) => {
   const recordingId = req.params.recordingId as string;
-  if (!uuidSchema.safeParse(recordingId).success) throw ErrorFactory.validation("Invalid recordingId");
+  if (!uuidSchema.safeParse(recordingId).success)
+    throw ErrorFactory.validation("Invalid recordingId");
   const userId = req.user?.userId;
 
   if (!userId) {
@@ -95,7 +98,8 @@ export const deleteRecording = async (req: Request, res: Response) => {
  */
 export const triggerAIProcessing = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
-  if (!uuidSchema.safeParse(meetingId).success) throw ErrorFactory.validation("Invalid meetingId");
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw ErrorFactory.validation("Invalid meetingId");
   const userId = req.user?.userId;
 
   if (!userId) {

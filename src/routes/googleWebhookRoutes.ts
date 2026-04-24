@@ -35,18 +35,24 @@ googleWebhookRouter.post(
 
     const token = req.headers["x-goog-channel-token"] as string | undefined;
     const channelId = req.headers["x-goog-channel-id"] as string | undefined;
-    const resourceState = req.headers["x-goog-resource-state"] as string | undefined;
+    const resourceState = req.headers["x-goog-resource-state"] as
+      | string
+      | undefined;
 
     // Verify shared secret
     const secret = process.env.GCAL_WEBHOOK_SECRET;
     if (!secret || token !== secret) {
-      logger.warn("GCal webhook: token mismatch — ignoring", { tokenPresent: !!token });
+      logger.warn("GCal webhook: token mismatch — ignoring", {
+        tokenPresent: !!token,
+      });
       return;
     }
 
     // Initial handshake from Google — nothing to process
     if (resourceState === "sync") {
-      logger.info("GCal webhook: initial sync handshake received", { channelId });
+      logger.info("GCal webhook: initial sync handshake received", {
+        channelId,
+      });
       return;
     }
 

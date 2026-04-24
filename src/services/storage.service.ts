@@ -21,7 +21,6 @@ const getStorage = (): Storage => {
 
 const getBucket = () => getStorage().bucket(GCS_BUCKET_NAME);
 
-
 interface GenerateUploadUrlRequest {
   fileName: string;
   fileType: string;

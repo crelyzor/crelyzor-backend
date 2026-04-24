@@ -12,7 +12,14 @@ const dateString = z
 export const listBookingsQuerySchema = z
   .object({
     status: z
-      .enum(["PENDING", "CONFIRMED", "DECLINED", "CANCELLED", "RESCHEDULED", "NO_SHOW"])
+      .enum([
+        "PENDING",
+        "CONFIRMED",
+        "DECLINED",
+        "CANCELLED",
+        "RESCHEDULED",
+        "NO_SHOW",
+      ])
       .optional(),
     // Date range filters use UTC midnight boundaries (V1 simplification).
     // Hosts in non-UTC timezones may see slight boundary differences — acceptable for V1.

@@ -47,8 +47,10 @@ publicCardRouter.get("/card/:username/vcard", publicReadLimiter, (req, res) =>
 );
 
 /** GET /api/v1/public/card/:username/:slug/vcard — Download vCard for specific card */
-publicCardRouter.get("/card/:username/:slug/vcard", publicReadLimiter, (req, res) =>
-  cardController.getVCard(req, res),
+publicCardRouter.get(
+  "/card/:username/:slug/vcard",
+  publicReadLimiter,
+  (req, res) => cardController.getVCard(req, res),
 );
 
 /** GET /api/v1/public/card/:username — Get user's default card */

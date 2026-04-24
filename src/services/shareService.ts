@@ -166,7 +166,10 @@ export async function getPublicMeetingByShortId(shortId: string) {
   const [transcriptData, summaryData, tasksData] = await Promise.all([
     showTranscript
       ? prisma.meetingTranscript.findFirst({
-          where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
+          where: {
+            isDeleted: false,
+            recording: { meetingId, isDeleted: false },
+          },
           select: {
             segments: {
               select: {

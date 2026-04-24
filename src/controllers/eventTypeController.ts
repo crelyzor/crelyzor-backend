@@ -37,7 +37,10 @@ export const createEventType = async (req: Request, res: Response) => {
     validated.data,
   );
 
-  logger.info("Event type created via API", { eventTypeId: eventType.id, userId });
+  logger.info("Event type created via API", {
+    eventTypeId: eventType.id,
+    userId,
+  });
 
   return apiResponse(res, {
     statusCode: 201,

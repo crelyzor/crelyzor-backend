@@ -2,7 +2,10 @@ import { z } from "zod";
 
 const timeString = z
   .string()
-  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Time must be in HH:MM format (e.g. 09:00)");
+  .regex(
+    /^([01]\d|2[0-3]):[0-5]\d$/,
+    "Time must be in HH:MM format (e.g. 09:00)",
+  );
 
 const dateString = z
   .string()
@@ -66,4 +69,6 @@ export type UpdateScheduleInput = z.infer<typeof updateScheduleSchema>;
 export type CopyScheduleInput = z.infer<typeof copyScheduleSchema>;
 export type SlotInput = z.infer<typeof slotSchema>;
 export type PatchSlotsInput = z.infer<typeof patchSlotsSchema>;
-export type CreateScheduleOverrideInput = z.infer<typeof createScheduleOverrideSchema>;
+export type CreateScheduleOverrideInput = z.infer<
+  typeof createScheduleOverrideSchema
+>;

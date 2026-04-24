@@ -13,7 +13,11 @@ const publicBookingsRouter = Router();
  * prevent calendar flooding. Slot availability is re-validated inside a
  * Serializable transaction — a 409 response means the slot was taken.
  */
-publicBookingsRouter.post("/bookings", bookingLimiter, bookingController.createBooking);
+publicBookingsRouter.post(
+  "/bookings",
+  bookingLimiter,
+  bookingController.createBooking,
+);
 
 /**
  * PATCH /api/v1/public/bookings/:id/cancel

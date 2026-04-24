@@ -14,7 +14,10 @@ export const patchUserSettingsSchema = z
     autoAIProcess: z.boolean().optional(),
     defaultLanguage: z
       .string()
-      .regex(languageRegex, "Must be a valid BCP-47 language tag (e.g. en, en-US)")
+      .regex(
+        languageRegex,
+        "Must be a valid BCP-47 language tag (e.g. en, en-US)",
+      )
       .optional(),
     emailNotificationsEnabled: z.boolean().optional(),
     bookingEmailsEnabled: z.boolean().optional(),

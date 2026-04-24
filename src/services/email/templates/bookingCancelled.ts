@@ -36,6 +36,8 @@ export function bookingCancelledEmail(p: BookingCancelledParams): string {
   return emailLayout(body);
 }
 
-export function bookingCancelledSubject(p: Pick<BookingCancelledParams, "eventTypeTitle">): string {
+export function bookingCancelledSubject(
+  p: Pick<BookingCancelledParams, "eventTypeTitle">,
+): string {
   return `Booking cancelled: ${p.eventTypeTitle}`;
 }
