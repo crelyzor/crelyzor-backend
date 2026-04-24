@@ -1,0 +1,45 @@
+# ── crelyzor-backend PR Checks ────────────────────────────────────────────────
+#
+# Runs on every PR targeting dev, staging, or main.
+# Must pass before merge. No deploy — checks only.
+
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - staging
+      - main
+
+jobs:
+  checks:
+    name: Lint · Typecheck · Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: TypeScript check
+        run: pnpm tsc --noEmit
+
+      - name: Build
+        run: pnpm build
