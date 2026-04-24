@@ -1,8 +1,9 @@
 # ── crelyzor-backend CI/CD ────────────────────────────────────────────────────
 #
 # Checks:
-#   1. TypeScript typecheck
-#   (lint runs locally via commit hook)
+#   1. Lint
+#   2. TypeScript typecheck
+#   3. Build
 #
 # Deploy (only if checks pass):
 #   push to main      → production
@@ -25,8 +26,8 @@ on:
 jobs:
 
   # ── Checks ──────────────────────────────────────────────────────────────────
-  typecheck:
-    name: Typecheck
+  checks:
+    name: Checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,14 +46,20 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      - name: Lint
+        run: pnpm lint
+
       - name: TypeScript check
         run: pnpm tsc --noEmit
+
+      - name: Build
+        run: pnpm build
 
   # ── Deploy — only runs if checks pass ────────────────────────────────────────
   deploy:
     name: Deploy — ${{ github.ref_name == 'main' && 'production' || 'staging' }}
     runs-on: ubuntu-latest
-    needs: [typecheck]
+    needs: [checks]
 
     environment:
       name: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
