@@ -81,6 +81,7 @@ jobs:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
+          command_timeout: 20m
           script: |
             cd ${{ secrets.VM_WORKSPACE_PATH }}
             ./deploy.sh ${{ steps.env.outputs.name }}
