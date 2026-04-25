@@ -187,6 +187,7 @@ export async function getTagItems(userId: string, tagId: string) {
           },
         },
       },
+      take: 100,
     }),
     prisma.cardTag.findMany({
       where: { tagId, card: { userId: userId, isDeleted: false } },
@@ -201,6 +202,7 @@ export async function getTagItems(userId: string, tagId: string) {
           },
         },
       },
+      take: 100,
     }),
     prisma.taskTag.findMany({
       where: { tagId, task: { userId: userId, isDeleted: false } },
@@ -215,6 +217,7 @@ export async function getTagItems(userId: string, tagId: string) {
           },
         },
       },
+      take: 100,
     }),
     prisma.contactTag.findMany({
       where: {
@@ -232,6 +235,7 @@ export async function getTagItems(userId: string, tagId: string) {
           },
         },
       },
+      take: 100,
     }),
   ]);
 

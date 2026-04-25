@@ -204,6 +204,7 @@ export const getTasks = async (req: Request, res: Response) => {
   const tasks = await prisma.task.findMany({
     where: { meetingId, userId, isDeleted: false },
     orderBy: { createdAt: "asc" },
+    take: 200,
   });
 
   return apiResponse(res, {
@@ -760,6 +761,7 @@ export const getSubtasks = async (req: Request, res: Response) => {
     where: { parentTaskId: taskId, userId, isDeleted: false },
     orderBy: { sortOrder: "asc" },
     include: taskInclude,
+    take: 100,
   });
 
   return apiResponse(res, {

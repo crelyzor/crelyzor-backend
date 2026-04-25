@@ -984,6 +984,7 @@ export const cardService = {
         },
       },
       orderBy: { startTime: "desc" },
+      take: 50,
     });
 
     return meetings;

@@ -18,6 +18,7 @@ export const getSpeakers = async (meetingId: string, userId: string) => {
   return prisma.meetingSpeaker.findMany({
     where: { meetingId },
     orderBy: { speakerLabel: "asc" },
+    take: 100,
   });
 };
 

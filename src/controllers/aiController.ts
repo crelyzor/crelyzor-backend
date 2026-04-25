@@ -295,6 +295,7 @@ export const deleteNote = async (req: Request, res: Response) => {
   const note = await prisma.meetingNote.findFirst({
     where: {
       id: noteId,
+      isDeleted: false,
       meeting: { createdById: userId, isDeleted: false },
     },
     select: { id: true },

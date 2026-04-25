@@ -862,6 +862,7 @@ export async function backfillGoogleCalendarWrites(
         },
       },
       orderBy: { startTime: "asc" },
+      take: 50,
     });
 
     const tasks = await prisma.task.findMany({
@@ -883,6 +884,7 @@ export async function backfillGoogleCalendarWrites(
         durationMinutes: true,
       },
       orderBy: { scheduledTime: "asc" },
+      take: 50,
     });
 
     let meetingCount = 0;

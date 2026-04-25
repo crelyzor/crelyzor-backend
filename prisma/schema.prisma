@@ -206,6 +206,7 @@ model Meeting {
   @@index([transcriptionStatus])
   @@index([type, isDeleted])
   @@index([recallBotId])
+  @@index([googleEventId])
 }
 
 model MeetingParticipant {
@@ -269,6 +270,7 @@ model MeetingRecording {
   transcript MeetingTranscript?
 
   @@index([meetingId])
+  @@index([uploadedBy])
 }
 
 model MeetingTranscript {
