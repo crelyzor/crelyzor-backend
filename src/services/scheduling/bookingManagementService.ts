@@ -140,30 +140,33 @@ export async function confirmBooking(userId: string, bookingId: string) {
     );
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.booking.update({
-      where: { id: bookingId },
-      data: { status: "CONFIRMED" },
-    });
-
-    if (booking.meetingId) {
-      await tx.meetingParticipant.createMany({
-        data: [
-          {
-            meetingId: booking.meetingId,
-            userId,
-            participantType: "ORGANIZER",
-          },
-          {
-            meetingId: booking.meetingId,
-            guestEmail: booking.guestEmail,
-            participantType: "ATTENDEE",
-          },
-        ],
-        skipDuplicates: true,
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: { status: "CONFIRMED" },
       });
-    }
-  }, { timeout: 15000 });
+
+      if (booking.meetingId) {
+        await tx.meetingParticipant.createMany({
+          data: [
+            {
+              meetingId: booking.meetingId,
+              userId,
+              participantType: "ORGANIZER",
+            },
+            {
+              meetingId: booking.meetingId,
+              guestEmail: booking.guestEmail,
+              participantType: "ATTENDEE",
+            },
+          ],
+          skipDuplicates: true,
+        });
+      }
+    },
+    { timeout: 15000 },
+  );
 
   logger.info("Booking confirmed", { bookingId, userId });
 

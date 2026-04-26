@@ -506,8 +506,18 @@ export const startWorker = async (): Promise<void> => {
       );
       userNow.setHours(0, 0, 0, 0);
 
-      const overdueTasks: Array<{ title: string; priority: string | null; dueDate: Date; isOverdue: boolean }> = [];
-      const todayTasks: Array<{ title: string; priority: string | null; dueDate: Date; isOverdue: boolean }> = [];
+      const overdueTasks: Array<{
+        title: string;
+        priority: string | null;
+        dueDate: Date;
+        isOverdue: boolean;
+      }> = [];
+      const todayTasks: Array<{
+        title: string;
+        priority: string | null;
+        dueDate: Date;
+        isOverdue: boolean;
+      }> = [];
 
       user.tasks.forEach((task) => {
         if (!task.dueDate) return;

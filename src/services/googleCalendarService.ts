@@ -440,7 +440,12 @@ export async function getCalendarBusyIntervals(
         endTime: new Date(b.end!),
       }));
 
-    await redis.set(cacheKey, JSON.stringify(intervals), "EX", CACHE_TTL_SECONDS);
+    await redis.set(
+      cacheKey,
+      JSON.stringify(intervals),
+      "EX",
+      CACHE_TTL_SECONDS,
+    );
 
     return intervals;
   } catch (err) {

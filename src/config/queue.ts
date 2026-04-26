@@ -178,7 +178,9 @@ export const initializeQueues = async () => {
 
 const getQueue = (): Bull.Queue<AnyJobData> => {
   if (!queue) {
-    throw new Error("Queue not initialized. Call initializeQueues() or initializeProducerQueues() first.");
+    throw new Error(
+      "Queue not initialized. Call initializeQueues() or initializeProducerQueues() first.",
+    );
   }
   return queue;
 };
@@ -201,13 +203,14 @@ export const getEmailQueue = (): Bull.Queue<
   | MonthlyUsageResetJobData
   | GCalPushSyncJobData
   | GCalPushRenewalJobData
-> => getQueue() as unknown as Bull.Queue<
-  | BookingReminderJobData
-  | DailyDigestJobData
-  | MonthlyUsageResetJobData
-  | GCalPushSyncJobData
-  | GCalPushRenewalJobData
->;
+> =>
+  getQueue() as unknown as Bull.Queue<
+    | BookingReminderJobData
+    | DailyDigestJobData
+    | MonthlyUsageResetJobData
+    | GCalPushSyncJobData
+    | GCalPushRenewalJobData
+  >;
 
 // ── Cleanup ──────────────────────────────────────────────────────────────────
 
