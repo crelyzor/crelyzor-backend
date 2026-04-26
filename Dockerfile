@@ -14,14 +14,17 @@ COPY . .
 RUN pnpm build
 
 
-# ── Stage 3: runner — minimal production image ────────────────────────────────
+# ── Stage 3: pruned — remove devDependencies, keep generated Prisma client ───
+FROM builder AS pruned
+RUN pnpm prune --prod
+
+
+# ── Stage 4: runner — minimal production image ────────────────────────────────
 FROM node:20-alpine AS runner
 WORKDIR /app
-RUN npm install -g pnpm
 COPY --from=builder /app/dist ./dist
+COPY --from=pruned /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
-COPY --from=builder /app/pnpm-lock.yaml ./
 COPY --from=builder /app/prisma ./prisma
-RUN pnpm install --prod --frozen-lockfile && pnpm db:generate
 EXPOSE 4000
 CMD ["node", "dist/index.js"]
