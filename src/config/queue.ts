@@ -98,7 +98,7 @@ let emailQueue: Bull.Queue<
 // All 5 queues reuse this single connection instead of creating 15.
 let sharedProducerClient: IORedis | null = null;
 
-// Redis config optimized for Upstash
+// Redis connection config
 const getRedisConfig = () => ({
   maxRetriesPerRequest: null,
   enableReadyCheck: false,

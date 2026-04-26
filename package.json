@@ -30,7 +30,6 @@
     "@deepgram/sdk": "^4.11.3",
     "@google-cloud/storage": "^7.18.0",
     "@prisma/client": "^6.19.0",
-    "@upstash/redis": "^1.35.6",
     "axios": "^1.9.0",
     "bull": "^4.16.5",
     "compression": "^1.8.0",

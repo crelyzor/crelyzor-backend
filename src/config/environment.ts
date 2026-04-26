@@ -28,12 +28,6 @@ const envSchema = z.object({
   GCS_BUCKET_NAME: z.string().min(1, "GCS_BUCKET_NAME is required"),
 
   // Redis
-  UPSTASH_REDIS_REST_URL: z
-    .string()
-    .min(1, "UPSTASH_REDIS_REST_URL is required"),
-  UPSTASH_REDIS_REST_TOKEN: z
-    .string()
-    .min(1, "UPSTASH_REDIS_REST_TOKEN is required"),
   REDIS_URL: z.string().min(1, "REDIS_URL is required"),
 
   // Recall.ai integration
