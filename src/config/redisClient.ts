@@ -1,25 +1,25 @@
-import { Redis } from "@upstash/redis";
+import IORedis from "ioredis";
 
-let _redisClient: Redis | null = null;
+let _client: IORedis | null = null;
 
-/**
- * Lazy Redis client initializer.
- * Returns the singleton Upstash Redis instance, creating it on first call.
- * Throws if env vars are not configured. Callers should fail-open for
- * non-critical paths (e.g. rate limiting) and fail-closed for critical paths.
- */
-export function getRedisClient(): Redis {
-  if (_redisClient) return _redisClient;
+export function getRedisClient(): IORedis {
+  if (_client) return _client;
 
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-
-  if (!url || !token) {
-    throw new Error(
-      "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required",
-    );
+  const url = process.env.REDIS_URL;
+  if (!url) {
+    throw new Error("REDIS_URL environment variable is required");
   }
 
-  _redisClient = new Redis({ url, token });
-  return _redisClient;
+  _client = new IORedis(url, {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+  });
+  return _client;
+}
+
+export function closeRedisClient(): void {
+  if (_client) {
+    _client.disconnect();
+    _client = null;
+  }
 }

@@ -4,8 +4,8 @@ dotenv.config();
 import app from "./app";
 import { logger } from "./utils/logging/logger";
 import prisma from "./db/prismaClient";
-import { getRedisClient } from "./config/redisClient";
-import { initializeQueues, closeQueues } from "./config/queue";
+import { getRedisClient, closeRedisClient } from "./config/redisClient";
+import { initializeProducerQueues, closeQueues } from "./config/queue";
 
 const PORT = process.env.PORT || 3000;
 
@@ -23,10 +23,10 @@ const startServer = async () => {
     process.exit(1);
   }
 
-  // Test Redis connection (Upstash cache)
+  // Test Redis connection
   try {
     await getRedisClient().ping();
-    logger.info("✅ Redis cache connected successfully (Upstash)");
+    logger.info("✅ Redis cache connected successfully");
   } catch (error) {
     logger.warn("⚠️ Redis cache connection failed (caching disabled):", {
       error: error instanceof Error ? error.message : String(error),
@@ -35,7 +35,7 @@ const startServer = async () => {
 
   // Initialize Bull Queues (Redis for job processing)
   try {
-    await initializeQueues();
+    await initializeProducerQueues();
   } catch (error) {
     logger.error("❌ Queue initialization failed (job processing disabled):", {
       error: error instanceof Error ? error.message : String(error),
@@ -55,8 +55,8 @@ const startServer = async () => {
   // Log configured services
   logger.info("📦 Services configured:", {
     database: "Neon PostgreSQL",
-    cache: process.env.UPSTASH_REDIS_REST_URL ? "Upstash Redis" : "None",
-    queues: process.env.REDIS_URL ? "Bull (Upstash)" : "None",
+    cache: process.env.REDIS_URL ? "Redis" : "None",
+    queues: process.env.REDIS_URL ? "Bull (Redis)" : "None",
     storage: process.env.GCS_BUCKET_NAME
       ? `GCS (${process.env.GCS_BUCKET_NAME})`
       : "None",
@@ -89,6 +89,7 @@ const startServer = async () => {
 process.on("SIGTERM", async () => {
   logger.info("SIGTERM received, shutting down gracefully...");
   await closeQueues();
+  closeRedisClient();
   await prisma.$disconnect();
   process.exit(0);
 });
@@ -96,6 +97,7 @@ process.on("SIGTERM", async () => {
 process.on("SIGINT", async () => {
   logger.info("SIGINT received, shutting down gracefully...");
   await closeQueues();
+  closeRedisClient();
   await prisma.$disconnect();
   process.exit(0);
 });

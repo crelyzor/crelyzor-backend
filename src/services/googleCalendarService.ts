@@ -408,9 +408,10 @@ export async function getCalendarBusyIntervals(
   try {
     const redis = getRedisClient();
 
-    // Check cache — Upstash deserializes JSON natively; dates come back as strings
-    const cached = await redis.get<BusyIntervalRaw[]>(cacheKey);
-    if (cached) {
+    // Check cache — ioredis returns raw strings; parse JSON manually
+    const raw = await redis.get(cacheKey);
+    if (raw) {
+      const cached: BusyIntervalRaw[] = JSON.parse(raw);
       return cached.map((b) => ({
         startTime: new Date(b.startTime),
         endTime: new Date(b.endTime),
@@ -439,8 +440,7 @@ export async function getCalendarBusyIntervals(
         endTime: new Date(b.end!),
       }));
 
-    // Cache the result (Upstash serializes Date → ISO string automatically)
-    await redis.set(cacheKey, intervals, { ex: CACHE_TTL_SECONDS });
+    await redis.set(cacheKey, JSON.stringify(intervals), "EX", CACHE_TTL_SECONDS);
 
     return intervals;
   } catch (err) {
@@ -1184,8 +1184,9 @@ export async function fetchGCalEvents(
   try {
     const redis = getRedisClient();
 
-    const cached = await redis.get<CalendarEventRaw[]>(cacheKey);
-    if (cached) {
+    const raw = await redis.get(cacheKey);
+    if (raw) {
+      const cached: CalendarEventRaw[] = JSON.parse(raw);
       return cached.map((e) => ({
         ...e,
         startTime: new Date(e.startTime),
@@ -1237,7 +1238,7 @@ export async function fetchGCalEvents(
         source: "GOOGLE" as const,
       }));
 
-    await redis.set(cacheKey, events, { ex: CACHE_TTL_SECONDS });
+    await redis.set(cacheKey, JSON.stringify(events), "EX", CACHE_TTL_SECONDS);
     return events;
   } catch (err) {
     logger.warn("fetchGCalEvents failed — fail-open", {
