@@ -22,6 +22,7 @@ RUN pnpm prune --prod --ignore-scripts
 # ── Stage 4: runner — minimal production image ────────────────────────────────
 FROM node:20-alpine AS runner
 WORKDIR /app
+RUN npm install -g pnpm
 COPY --from=builder /app/dist ./dist
 COPY --from=pruned /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
