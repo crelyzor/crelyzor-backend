@@ -16,7 +16,7 @@ RUN pnpm build
 
 # ── Stage 3: pruned — remove devDependencies, keep generated Prisma client ───
 FROM builder AS pruned
-RUN pnpm prune --prod
+RUN pnpm prune --prod --ignore-scripts
 
 
 # ── Stage 4: runner — minimal production image ────────────────────────────────
