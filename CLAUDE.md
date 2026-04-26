@@ -11,7 +11,7 @@ The single backend for all of Crelyzor. Serves both `calendar-frontend` and `car
 - Express 5 + TypeScript 5
 - Prisma 6 + PostgreSQL
 - OpenAI (GPT-5.4-mini) + Deepgram (Nova-3 Multilingual)
-- Bull + Upstash Redis (job queues)
+- Bull + Redis (job queues + caching)
 - Google Cloud Storage (recordings, files)
 - Google OAuth 2.0 + JWT
 
@@ -153,8 +153,8 @@ const openai = getOpenAIClient();
 import { getDeepgramClient } from "../config/deepgram";
 const deepgram = getDeepgramClient();
 
-// Redis (Upstash)
-import { redis } from "../config/redisClient";
+// Redis
+import { getRedisClient } from "../config/redisClient";
 
 // Never import process.env directly for these — use the config files
 ```
