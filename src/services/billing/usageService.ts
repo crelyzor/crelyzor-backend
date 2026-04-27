@@ -53,7 +53,8 @@ export function calculateCredits(
   inputTokens: number,
   outputTokens: number,
 ): number {
-  const raw = inputTokens * 0.00075 + outputTokens * 0.0045;
+  // Gemini 2.0 Flash: $0.10/1M input, $0.40/1M output. 1 credit = $0.001.
+  const raw = inputTokens * 0.0001 + outputTokens * 0.0004;
   return Math.max(1, Math.ceil(raw));
 }
 

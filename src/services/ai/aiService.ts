@@ -1,53 +1,53 @@
 import type { Response } from "express";
 import type { AIContentType } from "@prisma/client";
 import prisma from "../../db/prismaClient";
-import { getOpenAIClient } from "../../config/openai";
+import { getGeminiModel, GEMINI_MODEL } from "../../config/gemini";
 import { logger } from "../../utils/logging/logger";
 import { AppError } from "../../utils/errors/AppError";
 import { getRedisClient } from "../../config/redisClient";
 import { checkAndDeductCredits } from "../billing/usageService";
 import * as conversationService from "./askAIConversationService";
 
-const OPENAI_MODEL = "gpt-5.4-mini"; // Upgraded to gpt-5.4-mini at Phase 4 start — better summaries, task extraction, Ask AI quality
-const MAX_PIPELINE_CHARS = 30000; // ~7.5k tokens — balances quality and cost
+const MAX_PIPELINE_CHARS = 150000; // ~37.5k tokens — Gemini 1M context handles full meetings
+const MAX_ASK_AI_CHARS = 50000; // ~12.5k tokens for Ask AI context
 
-type OpenAIUsageStats = {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
+type AIUsageStats = {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  totalTokenCount?: number;
 };
 
-type OpenAIUsageMeta = {
+type AIUsageMeta = {
   operation: string;
   model: string;
   promptChars: number;
   completionChars: number;
-  usage?: OpenAIUsageStats;
+  usage?: AIUsageStats;
   streamed?: boolean;
 };
 
 const estimateTokensFromChars = (chars: number): number =>
   Math.max(1, Math.ceil(chars / 4));
 
-const logOpenAIUsage = (meta: OpenAIUsageMeta): void => {
+const logAIUsage = (meta: AIUsageMeta): void => {
   const estimatedPromptTokens = estimateTokensFromChars(meta.promptChars);
   const estimatedCompletionTokens = estimateTokensFromChars(
     meta.completionChars,
   );
 
-  logger.info("OpenAI token usage", {
+  logger.info("Gemini token usage", {
     operation: meta.operation,
     model: meta.model,
     streamed: meta.streamed ?? false,
     promptChars: meta.promptChars,
     completionChars: meta.completionChars,
-    promptTokens: meta.usage?.prompt_tokens ?? estimatedPromptTokens,
+    promptTokens: meta.usage?.promptTokenCount ?? estimatedPromptTokens,
     completionTokens:
-      meta.usage?.completion_tokens ?? estimatedCompletionTokens,
+      meta.usage?.candidatesTokenCount ?? estimatedCompletionTokens,
     totalTokens:
-      meta.usage?.total_tokens ??
+      meta.usage?.totalTokenCount ??
       estimatedPromptTokens + estimatedCompletionTokens,
-    usageSource: meta.usage?.total_tokens ? "openai" : "estimated",
+    usageSource: meta.usage?.totalTokenCount ? "gemini" : "estimated",
   });
 };
 
@@ -68,15 +68,12 @@ export interface SummaryAndKeyPointsResult {
   keyPoints: string[];
 }
 
-/**
- * Generate AI summary from transcript
- */
 export const generateSummary = async (
   meetingId: string,
   transcriptText: string,
 ): Promise<string> => {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new AppError("OPENAI_API_KEY is required for AI features", 503);
+  if (!process.env.GEMINI_API_KEY) {
+    throw new AppError("GEMINI_API_KEY is required for AI features", 503);
   }
 
   const meeting = await prisma.meeting.findFirst({
@@ -97,57 +94,42 @@ ${capped}
 
 Provide a summary in 2-3 paragraphs.`;
 
-  const openai = getOpenAIClient();
-  const response = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages: [
-      { role: "system", content: systemContent },
-      { role: "user", content: prompt },
-    ],
-    max_completion_tokens: 1000,
-    temperature: 0.3,
+  const model = getGeminiModel();
+  const result = await model.generateContent({
+    systemInstruction: systemContent,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { maxOutputTokens: 1000, temperature: 0.3 },
   });
 
-  const summary = response.choices[0]?.message?.content?.trim() ?? "";
+  const summary = result.response.text().trim();
   if (!summary) {
-    throw new AppError("OpenAI returned empty summary content", 502);
+    throw new AppError("Gemini returned empty summary content", 502);
   }
 
-  logOpenAIUsage({
+  logAIUsage({
     operation: "generateSummary",
-    model: OPENAI_MODEL,
+    model: GEMINI_MODEL,
     promptChars: systemContent.length + prompt.length,
     completionChars: summary.length,
-    usage: response.usage,
+    usage: result.response.usageMetadata,
   });
 
-  // Save summary to database
   await prisma.meetingAISummary.upsert({
     where: { meetingId },
-    create: {
-      meetingId,
-      summary,
-    },
-    update: {
-      summary,
-      updatedAt: new Date(),
-    },
+    create: { meetingId, summary },
+    update: { summary, updatedAt: new Date() },
   });
 
   logger.info(`Summary generated for meeting ${meetingId}`);
-
   return summary;
 };
 
-/**
- * Extract key points from transcript
- */
 export const extractKeyPoints = async (
   meetingId: string,
   transcriptText: string,
 ): Promise<string[]> => {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new AppError("OPENAI_API_KEY is required for AI features", 503);
+  if (!process.env.GEMINI_API_KEY) {
+    throw new AppError("GEMINI_API_KEY is required for AI features", 503);
   }
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
@@ -162,65 +144,50 @@ ${capped}
 
 Return ONLY a JSON array, no other text.`;
 
-  const openai = getOpenAIClient();
-  const response = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages: [
-      {
-        role: "system",
-        content: systemContent,
-      },
-      { role: "user", content: prompt },
-    ],
-    max_completion_tokens: 1000,
-    temperature: 0.3,
+  const model = getGeminiModel();
+  const result = await model.generateContent({
+    systemInstruction: systemContent,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { maxOutputTokens: 1000, temperature: 0.3 },
   });
 
-  const rawKeyPointsContent = response.choices[0]?.message?.content?.trim();
-  if (!rawKeyPointsContent) {
-    throw new AppError("OpenAI returned empty key points content", 502);
+  const rawContent = result.response.text().trim();
+  if (!rawContent) {
+    throw new AppError("Gemini returned empty key points content", 502);
   }
-  logOpenAIUsage({
+
+  logAIUsage({
     operation: "extractKeyPoints",
-    model: OPENAI_MODEL,
+    model: GEMINI_MODEL,
     promptChars: systemContent.length + prompt.length,
-    completionChars: rawKeyPointsContent.length,
-    usage: response.usage,
+    completionChars: rawContent.length,
+    usage: result.response.usageMetadata,
   });
-  const content = rawKeyPointsContent;
 
   let keyPoints: string[];
   try {
-    keyPoints = JSON.parse(stripMarkdownJson(content));
+    keyPoints = JSON.parse(stripMarkdownJson(rawContent));
   } catch {
     logger.error("Failed to parse key points JSON", {
-      rawContent: content.slice(0, 200),
+      rawContent: rawContent.slice(0, 200),
     });
     throw new AppError(
-      "Failed to parse key points JSON from OpenAI response",
+      "Failed to parse key points JSON from Gemini response",
       502,
     );
   }
 
-  // Update the summary with key points (separate from parse — let DB errors propagate)
   await prisma.meetingAISummary.upsert({
     where: { meetingId },
-    create: {
-      meetingId,
-      summary: "",
-      keyPoints,
-    },
-    update: {
-      keyPoints,
-      updatedAt: new Date(),
-    },
+    create: { meetingId, summary: "", keyPoints },
+    update: { keyPoints, updatedAt: new Date() },
   });
 
   logger.info(`Key points extracted for meeting ${meetingId}`);
   return keyPoints;
 };
 
-/** Strip markdown code fences that GPT sometimes wraps JSON in */
+/** Strip markdown code fences that models sometimes wrap JSON in */
 const stripMarkdownJson = (content: string): string => {
   const match = content.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (match) return match[1].trim();
@@ -235,17 +202,13 @@ const deriveKeyPointsFromSummary = (summary: string): string[] => {
     .slice(0, 6);
 };
 
-/**
- * Generate summary + key points in one model call to reduce transcript re-send cost.
- * Summary remains hard-requirement; key points are best-effort via fallback behavior.
- */
 export const generateSummaryAndKeyPoints = async (
   meetingId: string,
   transcriptText: string,
   options?: { requireKeyPoints?: boolean },
 ): Promise<SummaryAndKeyPointsResult> => {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new AppError("OPENAI_API_KEY is required for AI features", 503);
+  if (!process.env.GEMINI_API_KEY) {
+    throw new AppError("GEMINI_API_KEY is required for AI features", 503);
   }
 
   const meeting = await prisma.meeting.findFirst({
@@ -273,31 +236,24 @@ Meeting Description: ${meeting?.description ?? "No description"}
 Transcript:
 ${capped}`;
 
-  const openai = getOpenAIClient();
-  const response = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages: [
-      {
-        role: "system",
-        content: systemContent,
-      },
-      { role: "user", content: prompt },
-    ],
-    max_completion_tokens: 1300,
-    temperature: 0.3,
+  const model = getGeminiModel();
+  const result = await model.generateContent({
+    systemInstruction: systemContent,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { maxOutputTokens: 1300, temperature: 0.3 },
   });
 
-  const raw = response.choices[0]?.message?.content?.trim();
+  const raw = result.response.text().trim();
   if (!raw) {
-    throw new AppError("OpenAI returned empty summary content", 502);
+    throw new AppError("Gemini returned empty summary content", 502);
   }
 
-  logOpenAIUsage({
+  logAIUsage({
     operation: "generateSummaryAndKeyPoints",
-    model: OPENAI_MODEL,
+    model: GEMINI_MODEL,
     promptChars: systemContent.length + prompt.length,
     completionChars: raw.length,
-    usage: response.usage,
+    usage: result.response.usageMetadata,
   });
 
   let summary = "";
@@ -345,16 +301,8 @@ ${capped}`;
 
   await prisma.meetingAISummary.upsert({
     where: { meetingId },
-    create: {
-      meetingId,
-      summary,
-      keyPoints,
-    },
-    update: {
-      summary,
-      keyPoints,
-      updatedAt: new Date(),
-    },
+    create: { meetingId, summary, keyPoints },
+    update: { summary, keyPoints, updatedAt: new Date() },
   });
 
   logger.info(
@@ -363,16 +311,13 @@ ${capped}`;
   return { summary, keyPoints };
 };
 
-/**
- * Extract tasks from transcript and save as Task records
- */
 export const extractTasks = async (
   meetingId: string,
   transcriptText: string,
   userId: string,
 ): Promise<ExtractedTask[]> => {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new AppError("OPENAI_API_KEY is required for AI features", 503);
+  if (!process.env.GEMINI_API_KEY) {
+    throw new AppError("GEMINI_API_KEY is required for AI features", 503);
   }
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
@@ -389,32 +334,25 @@ ${capped}
 
 Return ONLY a JSON array, no other text.`;
 
-  const openai = getOpenAIClient();
-  const response = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages: [
-      {
-        role: "system",
-        content: systemContent,
-      },
-      { role: "user", content: prompt },
-    ],
-    max_completion_tokens: 1500,
-    temperature: 0.3,
+  const model = getGeminiModel();
+  const result = await model.generateContent({
+    systemInstruction: systemContent,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { maxOutputTokens: 1500, temperature: 0.3 },
   });
 
-  const rawTasksContent = response.choices[0]?.message?.content?.trim();
-  if (!rawTasksContent) {
-    throw new AppError("OpenAI returned empty tasks content", 502);
+  const rawContent = result.response.text().trim();
+  if (!rawContent) {
+    throw new AppError("Gemini returned empty tasks content", 502);
   }
-  logOpenAIUsage({
+
+  logAIUsage({
     operation: "extractTasks",
-    model: OPENAI_MODEL,
+    model: GEMINI_MODEL,
     promptChars: systemContent.length + prompt.length,
-    completionChars: rawTasksContent.length,
-    usage: response.usage,
+    completionChars: rawContent.length,
+    usage: result.response.usageMetadata,
   });
-  const content = rawTasksContent;
 
   let rawTasks: Array<{
     title: string;
@@ -422,12 +360,12 @@ Return ONLY a JSON array, no other text.`;
     assigneeHint?: string;
   }>;
   try {
-    rawTasks = JSON.parse(stripMarkdownJson(content));
+    rawTasks = JSON.parse(stripMarkdownJson(rawContent));
   } catch {
     logger.error("Failed to parse tasks JSON", {
-      rawContent: content.slice(0, 200),
+      rawContent: rawContent.slice(0, 200),
     });
-    throw new AppError("Failed to parse tasks JSON from OpenAI response", 502);
+    throw new AppError("Failed to parse tasks JSON from Gemini response", 502);
   }
 
   const tasks: ExtractedTask[] = rawTasks.map((item) => ({
@@ -436,7 +374,6 @@ Return ONLY a JSON array, no other text.`;
     assigneeHint: item.assigneeHint,
   }));
 
-  // Save tasks to database in a single transaction
   if (tasks.length > 0) {
     await prisma.$transaction(
       async (tx) => {
@@ -458,15 +395,11 @@ Return ONLY a JSON array, no other text.`;
   return tasks;
 };
 
-/**
- * Generate a short, meaningful meeting title from transcript
- * Called after transcription — silently replaces the timestamp default title
- */
 export const generateMeetingTitle = async (
   meetingId: string,
   transcriptText: string,
 ): Promise<string | null> => {
-  if (!process.env.OPENAI_API_KEY) return null;
+  if (!process.env.GEMINI_API_KEY) return null;
 
   let title: string | null = null;
 
@@ -480,30 +413,24 @@ Return ONLY the title text, nothing else.
 Transcript (first 2000 chars):
 ${transcriptText.slice(0, 2000)}`;
 
-    const openai = getOpenAIClient();
-    const response = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [
-        {
-          role: "system",
-          content: systemContent,
-        },
-        { role: "user", content: prompt },
-      ],
-      max_completion_tokens: 30,
-      temperature: 0.4,
+    const model = getGeminiModel();
+    const result = await model.generateContent({
+      systemInstruction: systemContent,
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 30, temperature: 0.4 },
     });
 
-    title = response.choices[0]?.message?.content?.trim() ?? null;
-    logOpenAIUsage({
+    title = result.response.text().trim() || null;
+
+    logAIUsage({
       operation: "generateMeetingTitle",
-      model: OPENAI_MODEL,
+      model: GEMINI_MODEL,
       promptChars: systemContent.length + prompt.length,
       completionChars: title?.length ?? 0,
-      usage: response.usage,
+      usage: result.response.usageMetadata,
     });
   } catch (err) {
-    logger.error(`OpenAI title generation failed for meeting ${meetingId}`, {
+    logger.error(`Gemini title generation failed for meeting ${meetingId}`, {
       error: err instanceof Error ? err.message : String(err),
     });
     return null;
@@ -512,7 +439,6 @@ ${transcriptText.slice(0, 2000)}`;
   if (!title) return null;
 
   try {
-    // Update meeting title in DB
     await prisma.meeting.update({
       where: { id: meetingId },
       data: { title },
@@ -531,9 +457,6 @@ ${transcriptText.slice(0, 2000)}`;
   return title;
 };
 
-/**
- * Process meeting with all AI features
- */
 export const processTranscriptWithAI = async (
   meetingId: string,
   userId: string,
@@ -546,29 +469,18 @@ export const processTranscriptWithAI = async (
     throw new AppError(`No transcript found for meeting ${meetingId}`, 422);
   }
 
-  // Partial-idempotency: reuse existing outputs and only backfill missing pieces.
   const [existingSummary, existingTasks] = await Promise.all([
     prisma.meetingAISummary.findFirst({
       where: { meetingId, isDeleted: false },
       select: { summary: true, keyPoints: true },
     }),
     prisma.task.findMany({
-      where: {
-        meetingId,
-        userId,
-        source: "AI_EXTRACTED",
-        isDeleted: false,
-      },
-      select: {
-        title: true,
-        description: true,
-      },
+      where: { meetingId, userId, source: "AI_EXTRACTED", isDeleted: false },
+      select: { title: true, description: true },
       take: 100,
     }),
   ]);
 
-  // Title generation is genuinely fire-and-forget — run outside Promise.all so a
-  // title failure cannot reject the entire pipeline.
   void generateMeetingTitle(meetingId, transcript.fullText).catch((err) =>
     logger.error("generateMeetingTitle failed (non-fatal)", {
       meetingId,
@@ -582,7 +494,6 @@ export const processTranscriptWithAI = async (
     : [];
 
   if (!summary) {
-    // No summary yet: generate summary + key points in one call.
     const summaryAndKeyPoints = await generateSummaryAndKeyPoints(
       meetingId,
       transcript.fullText,
@@ -590,7 +501,6 @@ export const processTranscriptWithAI = async (
     summary = summaryAndKeyPoints.summary;
     keyPoints = summaryAndKeyPoints.keyPoints;
   } else if (keyPoints.length === 0) {
-    // Backfill missing key points if summary exists but key points were not persisted.
     try {
       keyPoints = await extractKeyPoints(meetingId, transcript.fullText);
     } catch (err) {
@@ -607,15 +517,8 @@ export const processTranscriptWithAI = async (
       keyPoints = fallbackKeyPoints;
       await prisma.meetingAISummary.upsert({
         where: { meetingId },
-        create: {
-          meetingId,
-          summary,
-          keyPoints,
-        },
-        update: {
-          keyPoints,
-          updatedAt: new Date(),
-        },
+        create: { meetingId, summary, keyPoints },
+        update: { keyPoints, updatedAt: new Date() },
       });
       logger.info("Derived fallback key points from summary", {
         meetingId,
@@ -624,7 +527,6 @@ export const processTranscriptWithAI = async (
     }
   }
 
-  // Task extraction remains best-effort and isolated.
   let tasks: ExtractedTask[] = existingTasks.map((task) => ({
     title: task.title,
     description: task.description ?? undefined,
@@ -643,12 +545,8 @@ export const processTranscriptWithAI = async (
   return { summary, keyPoints, tasks };
 };
 
-const ASK_AI_RATE_LIMIT = 20; // max requests per user per hour
+const ASK_AI_RATE_LIMIT = 20;
 
-/**
- * Check and increment rate limit for Ask AI.
- * Uses Redis sliding window (hourly). Fails open if Redis is unavailable.
- */
 const checkAskAIRateLimit = async (userId: string): Promise<void> => {
   try {
     const key = `ask_ai:${userId}:${Math.floor(Date.now() / 3_600_000)}`;
@@ -664,14 +562,10 @@ const checkAskAIRateLimit = async (userId: string): Promise<void> => {
     }
   } catch (err) {
     if (err instanceof AppError) throw err;
-    // Redis unavailable — fail open
     logger.warn("Redis unavailable for Ask AI rate limit check", { userId });
   }
 };
 
-/**
- * Build transcript context string with speaker display names substituted.
- */
 const buildTranscriptContext = (
   segments: { speaker: string; text: string; startTime: number }[],
   speakers: { speakerLabel: string; displayName: string | null }[],
@@ -685,34 +579,11 @@ const buildTranscriptContext = (
 };
 
 const QUESTION_STOP_WORDS = new Set([
-  "what",
-  "when",
-  "where",
-  "which",
-  "who",
-  "with",
-  "from",
-  "this",
-  "that",
-  "about",
-  "were",
-  "have",
-  "does",
-  "please",
-  "could",
-  "would",
-  "should",
-  "into",
-  "your",
-  "their",
-  "there",
-  "meeting",
-  "transcript",
+  "what", "when", "where", "which", "who", "with", "from", "this", "that",
+  "about", "were", "have", "does", "please", "could", "would", "should",
+  "into", "your", "their", "there", "meeting", "transcript",
 ]);
 
-/**
- * Build compact Ask AI context by prioritizing lines relevant to the question.
- */
 const buildRelevantAskAIContext = (
   rawTranscript: string,
   question: string,
@@ -774,11 +645,6 @@ const buildRelevantAskAIContext = (
   return `${context.trim()}\n[relevance-filtered transcript context]`;
 };
 
-/**
- * Ask AI — streams an answer to a question about a specific meeting.
- * POST /sma/meetings/:meetingId/ask
- * Response: text/event-stream (SSE)
- */
 export const askAI = async (
   meetingId: string,
   userId: string,
@@ -787,7 +653,6 @@ export const askAI = async (
 ): Promise<void> => {
   await checkAskAIRateLimit(userId);
 
-  // Verify meeting belongs to user
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, createdById: userId, isDeleted: false },
     select: { id: true, title: true },
@@ -797,19 +662,14 @@ export const askAI = async (
     throw new AppError("Meeting not found", 404);
   }
 
-  // Fetch transcript with segments (capped to avoid loading megabytes for long meetings)
+  // No segment cap — Gemini 1M context handles full meetings
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
     select: {
       id: true,
       segments: {
         orderBy: { startTime: "asc" },
-        take: 500,
-        select: {
-          speaker: true,
-          text: true,
-          startTime: true,
-        },
+        select: { speaker: true, text: true, startTime: true },
       },
     },
   });
@@ -818,18 +678,16 @@ export const askAI = async (
     throw new AppError("No transcript available for this meeting", 400);
   }
 
-  // Fetch speakers for display name resolution
   const speakers = await prisma.meetingSpeaker.findMany({
     where: { meetingId },
     select: { speakerLabel: true, displayName: true },
   });
 
-  const MAX_TRANSCRIPT_CHARS = 12000; // ~3k tokens — relevance-filtered for lower cost
   const rawTranscript = buildTranscriptContext(transcript.segments, speakers);
   const transcriptContext = buildRelevantAskAIContext(
     rawTranscript,
     question,
-    MAX_TRANSCRIPT_CHARS,
+    MAX_ASK_AI_CHARS,
   );
 
   const systemPrompt = `You are an intelligent meeting assistant. You have access to the full transcript of a meeting titled "${meeting.title ?? "Untitled Meeting"}".
@@ -838,56 +696,52 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
 
   const userMessage = `Transcript:\n${transcriptContext}\n\nQuestion: ${question}`;
 
-  // Persist the conversation + user message BEFORE streaming
   const conversationId = await conversationService.getOrCreateConversation(
     userId,
     meetingId,
   );
 
-  // Fetch last 6 messages (3 exchanges) for conversational context
-  const priorMessages = await conversationService.getMessages(
-    userId,
-    meetingId,
-  );
+  const priorMessages = await conversationService.getMessages(userId, meetingId);
+
+  // Gemini uses "model" role instead of "assistant"
   const historyMessages = priorMessages
     .slice(-6)
-    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+    .map((m) => ({
+      role: (m.role === "assistant" ? "model" : "user") as "user" | "model",
+      parts: [{ text: m.content }],
+    }));
 
-  const historyChars = historyMessages.reduce(
-    (acc, m) => acc + m.content.length,
-    0,
-  );
+  const historyChars = priorMessages
+    .slice(-6)
+    .reduce((acc, m) => acc + m.content.length, 0);
   const askAIPromptChars =
     systemPrompt.length + userMessage.length + historyChars;
 
   await conversationService.appendMessage(conversationId, "user", question);
 
-  // Stream SSE headers
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
-  const openai = getOpenAIClient();
+  const model = getGeminiModel();
 
   try {
     let streamedCompletionChars = 0;
     let fullAssistantResponse = "";
-    const stream = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
+
+    const streamResult = await model.generateContentStream({
+      systemInstruction: systemPrompt,
+      contents: [
         ...historyMessages,
-        { role: "user", content: userMessage },
+        { role: "user", parts: [{ text: userMessage }] },
       ],
-      max_completion_tokens: 900,
-      temperature: 0.5,
-      stream: true,
+      generationConfig: { maxOutputTokens: 900, temperature: 0.5 },
     });
 
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content;
+    for await (const chunk of streamResult.stream) {
+      const delta = chunk.text();
       if (delta) {
         streamedCompletionChars += delta.length;
         fullAssistantResponse += delta;
@@ -895,15 +749,14 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
       }
     }
 
-    logOpenAIUsage({
+    logAIUsage({
       operation: "askAI:stream",
-      model: OPENAI_MODEL,
+      model: GEMINI_MODEL,
       promptChars: askAIPromptChars,
       completionChars: streamedCompletionChars,
       streamed: true,
     });
 
-    // Deduct AI credits based on estimated token usage (streamed — no exact counts)
     const estimatedInputTokens = Math.ceil(askAIPromptChars / 4);
     const estimatedOutputTokens = Math.ceil(streamedCompletionChars / 4);
     await checkAndDeductCredits(
@@ -912,7 +765,6 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
       estimatedOutputTokens,
     );
 
-    // Persist the assistant response
     if (fullAssistantResponse) {
       await conversationService.appendMessage(
         conversationId,
@@ -936,33 +788,28 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
   }
 };
 
-// ── AI Content Generation ──────────────────────────────────────────────────
+const CONTENT_PROMPTS: Record<AIContentType, (transcript: string) => string> =
+  {
+    MEETING_REPORT: (t) =>
+      `Based on this meeting transcript, write a formal meeting report/minutes document. Include: Participants (from who's speaking), Key Discussion Points, Decisions Made, and Action Items. Format it professionally with clear sections.\n\nTranscript:\n${t}\n\nMeeting Report:`,
 
-const CONTENT_PROMPTS: Record<AIContentType, (transcript: string) => string> = {
-  MEETING_REPORT: (t) =>
-    `Based on this meeting transcript, write a formal meeting report/minutes document. Include: Participants (from who's speaking), Key Discussion Points, Decisions Made, and Action Items. Format it professionally with clear sections.\n\nTranscript:\n${t}\n\nMeeting Report:`,
+    TWEET: (t) =>
+      `Write a short social media post (under 280 characters) that captures the main outcome or topic of this meeting. Be engaging and professional.\n\nTranscript excerpt:\n${t.slice(0, 3000)}\n\nSocial Media Post:`,
 
-  TWEET: (t) =>
-    `Write a short social media post (under 280 characters) that captures the main outcome or topic of this meeting. Be engaging and professional.\n\nTranscript excerpt:\n${t.slice(0, 3000)}\n\nSocial Media Post:`,
+    BLOG_POST: (t) =>
+      `Write a 300-400 word blog post about the topic discussed in this meeting. Give it a compelling title. Make it engaging and informative for a professional audience.\n\nTranscript:\n${t}\n\nBlog Post:`,
 
-  BLOG_POST: (t) =>
-    `Write a 300-400 word blog post about the topic discussed in this meeting. Give it a compelling title. Make it engaging and informative for a professional audience.\n\nTranscript:\n${t}\n\nBlog Post:`,
+    EMAIL: (t) =>
+      `Write a professional follow-up email to send to meeting participants. Include: brief summary of what was discussed, key decisions made, action items (with owners if mentioned), and a professional closing. Write only the email body — no subject line or headers.\n\nTranscript:\n${t}\n\nFollow-up Email:`,
+  };
 
-  EMAIL: (t) =>
-    `Write a professional follow-up email to send to meeting participants. Include: brief summary of what was discussed, key decisions made, action items (with owners if mentioned), and a professional closing. Write only the email body — no subject line or headers.\n\nTranscript:\n${t}\n\nFollow-up Email:`,
-};
-
-/**
- * Generate structured content from a meeting transcript.
- * Returns cached result if already generated for this (meetingId, type) pair.
- */
 export const generateContent = async (
   meetingId: string,
   userId: string,
   type: AIContentType,
 ): Promise<string> => {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new AppError("OPENAI_API_KEY is required for AI features", 500);
+  if (!process.env.GEMINI_API_KEY) {
+    throw new AppError("GEMINI_API_KEY is required for AI features", 500);
   }
 
   const meeting = await prisma.meeting.findFirst({
@@ -971,7 +818,6 @@ export const generateContent = async (
   });
   if (!meeting) throw new AppError("Meeting not found", 404);
 
-  // Return cached result if it exists
   const cached = await prisma.meetingAIContent.findUnique({
     where: { meetingId_type: { meetingId, type } },
   });
@@ -987,44 +833,41 @@ export const generateContent = async (
     );
   }
 
-  const openai = getOpenAIClient();
   const capped = transcript.fullText.slice(0, MAX_PIPELINE_CHARS);
   const prompt = CONTENT_PROMPTS[type](capped);
   const systemContent =
     "You are a professional meeting assistant that generates well-structured content from meeting transcripts. Be concise, accurate, and professional.";
 
-  const response = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages: [
-      {
-        role: "system",
-        content: systemContent,
-      },
-      { role: "user", content: prompt },
-    ],
-    max_completion_tokens: type === "TWEET" ? 100 : 1500,
-    temperature: 0.6,
+  const model = getGeminiModel();
+  const result = await model.generateContent({
+    systemInstruction: systemContent,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: {
+      maxOutputTokens: type === "TWEET" ? 100 : 1500,
+      temperature: 0.6,
+    },
   });
 
-  const content = response.choices[0]?.message?.content?.trim() ?? "";
+  const content = result.response.text().trim();
   if (!content) {
-    throw new AppError("OpenAI returned empty content", 502);
+    throw new AppError("Gemini returned empty content", 502);
   }
 
-  logOpenAIUsage({
+  const usage = result.response.usageMetadata;
+
+  logAIUsage({
     operation: `generateContent:${type}`,
-    model: OPENAI_MODEL,
+    model: GEMINI_MODEL,
     promptChars: systemContent.length + prompt.length,
     completionChars: content.length,
-    usage: response.usage,
+    usage,
   });
 
-  // Deduct AI credits using actual token counts from OpenAI response
   await checkAndDeductCredits(
     userId,
-    response.usage?.prompt_tokens ??
+    usage?.promptTokenCount ??
       Math.ceil((systemContent.length + prompt.length) / 4),
-    response.usage?.completion_tokens ?? Math.ceil(content.length / 4),
+    usage?.candidatesTokenCount ?? Math.ceil(content.length / 4),
   );
 
   await prisma.meetingAIContent.upsert({
@@ -1037,9 +880,6 @@ export const generateContent = async (
   return content;
 };
 
-/**
- * Get all previously generated content for a meeting.
- */
 export const getGeneratedContents = async (
   meetingId: string,
   userId: string,

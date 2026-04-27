@@ -21,7 +21,7 @@ const envSchema = z.object({
     .min(1, "GOOGLE_LOGIN_REDIRECT_URI is required"),
 
   // AI & Transcription
-  OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
+  GEMINI_API_KEY: z.string().min(1, "GEMINI_API_KEY is required"),
   DEEPGRAM_API_KEY: z.string().min(1, "DEEPGRAM_API_KEY is required"),
 
   // Storage
