@@ -81,7 +81,8 @@ export const generateSummary = async (
   });
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
-  const systemContent = "You are a professional meeting summarizer. Always respond in the same language as the transcript.";
+  const systemContent =
+    "You are a professional meeting summarizer. Always respond in the same language as the transcript.";
   const prompt = `You are an AI assistant that summarizes meeting transcripts.
 Provide a clear, professional summary of the following meeting transcript.
 Focus on key decisions, discussion points, and outcomes.
@@ -598,9 +599,29 @@ const buildTranscriptContext = (
 };
 
 const QUESTION_STOP_WORDS = new Set([
-  "what", "when", "where", "which", "who", "with", "from", "this", "that",
-  "about", "were", "have", "does", "please", "could", "would", "should",
-  "into", "your", "their", "there", "meeting", "transcript",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "with",
+  "from",
+  "this",
+  "that",
+  "about",
+  "were",
+  "have",
+  "does",
+  "please",
+  "could",
+  "would",
+  "should",
+  "into",
+  "your",
+  "their",
+  "there",
+  "meeting",
+  "transcript",
 ]);
 
 const buildRelevantAskAIContext = (
@@ -720,15 +741,16 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
     meetingId,
   );
 
-  const priorMessages = await conversationService.getMessages(userId, meetingId);
+  const priorMessages = await conversationService.getMessages(
+    userId,
+    meetingId,
+  );
 
   // Gemini uses "model" role instead of "assistant"
-  const historyMessages = priorMessages
-    .slice(-6)
-    .map((m) => ({
-      role: (m.role === "assistant" ? "model" : "user") as "user" | "model",
-      parts: [{ text: m.content }],
-    }));
+  const historyMessages = priorMessages.slice(-6).map((m) => ({
+    role: (m.role === "assistant" ? "model" : "user") as "user" | "model",
+    parts: [{ text: m.content }],
+  }));
 
   const historyChars = priorMessages
     .slice(-6)
@@ -807,20 +829,19 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
   }
 };
 
-const CONTENT_PROMPTS: Record<AIContentType, (transcript: string) => string> =
-  {
-    MEETING_REPORT: (t) =>
-      `Based on this meeting transcript, write a formal meeting report/minutes document. Include: Participants (from who's speaking), Key Discussion Points, Decisions Made, and Action Items. Format it professionally with clear sections.\n\nTranscript:\n${t}\n\nMeeting Report:`,
+const CONTENT_PROMPTS: Record<AIContentType, (transcript: string) => string> = {
+  MEETING_REPORT: (t) =>
+    `Based on this meeting transcript, write a formal meeting report/minutes document. Include: Participants (from who's speaking), Key Discussion Points, Decisions Made, and Action Items. Format it professionally with clear sections.\n\nTranscript:\n${t}\n\nMeeting Report:`,
 
-    TWEET: (t) =>
-      `Write a short social media post (under 280 characters) that captures the main outcome or topic of this meeting. Be engaging and professional.\n\nTranscript excerpt:\n${t.slice(0, 3000)}\n\nSocial Media Post:`,
+  TWEET: (t) =>
+    `Write a short social media post (under 280 characters) that captures the main outcome or topic of this meeting. Be engaging and professional.\n\nTranscript excerpt:\n${t.slice(0, 3000)}\n\nSocial Media Post:`,
 
-    BLOG_POST: (t) =>
-      `Write a 300-400 word blog post about the topic discussed in this meeting. Give it a compelling title. Make it engaging and informative for a professional audience.\n\nTranscript:\n${t}\n\nBlog Post:`,
+  BLOG_POST: (t) =>
+    `Write a 300-400 word blog post about the topic discussed in this meeting. Give it a compelling title. Make it engaging and informative for a professional audience.\n\nTranscript:\n${t}\n\nBlog Post:`,
 
-    EMAIL: (t) =>
-      `Write a professional follow-up email to send to meeting participants. Include: brief summary of what was discussed, key decisions made, action items (with owners if mentioned), and a professional closing. Write only the email body — no subject line or headers.\n\nTranscript:\n${t}\n\nFollow-up Email:`,
-  };
+  EMAIL: (t) =>
+    `Write a professional follow-up email to send to meeting participants. Include: brief summary of what was discussed, key decisions made, action items (with owners if mentioned), and a professional closing. Write only the email body — no subject line or headers.\n\nTranscript:\n${t}\n\nFollow-up Email:`,
+};
 
 export const generateContent = async (
   meetingId: string,
