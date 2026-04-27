@@ -17,7 +17,7 @@ class SessionService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7); // 7 days from now
 
-    const session = await prisma.session.create({
+    await prisma.session.create({
       data: {
         id: sessionId,
         userId,

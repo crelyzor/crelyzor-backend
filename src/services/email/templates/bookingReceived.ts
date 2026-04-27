@@ -1,10 +1,4 @@
-import {
-  emailLayout,
-  infoRow,
-  formatDateTime,
-  ctaButton,
-  secondaryLink,
-} from "./helpers";
+import { emailLayout, infoRow, formatDateTime, ctaButton } from "./helpers";
 
 export interface BookingReceivedParams {
   hostName: string;

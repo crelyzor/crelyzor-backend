@@ -45,7 +45,7 @@ class StorageService {
   }
 
   // Validate file type - Allow all common file types for all folders
-  private validateFileType(fileType: string, folder: string): boolean {
+  private validateFileType(fileType: string, _folder: string): boolean {
     // Common allowed file types across all folders
     const allowedTypes = [
       // Images

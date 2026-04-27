@@ -11,7 +11,6 @@ import {
   RecallBotJobData,
   RecallRecordingJobData,
   BookingReminderJobData,
-  DailyDigestJobData,
   MonthlyUsageResetJobData,
   GCalPushSyncJobData,
   GCalPushRenewalJobData,
@@ -52,8 +51,6 @@ import {
 
 /** Base URL for the dashboard app — used in email CTAs */
 const APP_BASE_URL = process.env.FRONTEND_URL ?? "https://app.crelyzor.com";
-/** Base URL for public-facing links */
-const PUBLIC_BASE_URL = process.env.PUBLIC_URL ?? "https://crelyzor.com";
 
 /**
  * Initialize and start all queue processors

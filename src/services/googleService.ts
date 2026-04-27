@@ -93,7 +93,7 @@ export const googleService = {
     try {
       const result = await client.getToken(code);
       tokens = result.tokens;
-    } catch (err) {
+    } catch {
       throw new AppError("Failed to exchange Google OAuth code", 502);
     }
 
@@ -104,7 +104,7 @@ export const googleService = {
     try {
       const result = await oauth2.userinfo.get();
       data = result.data as Record<string, string | null | undefined>;
-    } catch (err) {
+    } catch {
       throw new AppError("Failed to fetch Google user info", 502);
     }
 

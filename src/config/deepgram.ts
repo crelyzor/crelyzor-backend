@@ -1,5 +1,4 @@
 import { createClient, DeepgramClient } from "@deepgram/sdk";
-import { logger } from "../utils/logging/logger";
 
 // Lazy initialization to ensure dotenv.config() has run
 let deepgramClient: DeepgramClient | null = null;

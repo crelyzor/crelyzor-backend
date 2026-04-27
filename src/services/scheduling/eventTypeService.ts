@@ -1,4 +1,4 @@
-import { LocationType, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import prisma from "../../db/prismaClient";
 import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";

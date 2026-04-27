@@ -3,7 +3,6 @@ import { v7 as uuidv7 } from "uuid";
 import {
   TokenPayload,
   RefreshTokenPayload,
-  TokenResponse,
   AuthenticatedUser,
 } from "../../types/authTypes";
 import { ErrorFactory } from "../../utils/globalErrorHandler";
@@ -130,7 +129,7 @@ class TokenService {
         return null;
       }
       return new Date(decoded.exp * 1000);
-    } catch (error) {
+    } catch {
       return null;
     }
   }
