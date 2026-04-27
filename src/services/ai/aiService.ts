@@ -81,10 +81,11 @@ export const generateSummary = async (
   });
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
-  const systemContent = "You are a professional meeting summarizer.";
+  const systemContent = "You are a professional meeting summarizer. Always respond in the same language as the transcript.";
   const prompt = `You are an AI assistant that summarizes meeting transcripts.
 Provide a clear, professional summary of the following meeting transcript.
 Focus on key decisions, discussion points, and outcomes.
+Respond in the same language as the transcript.
 
 Meeting Title: ${meeting?.title || "Untitled Meeting"}
 Meeting Description: ${meeting?.description || "No description"}
@@ -134,10 +135,11 @@ export const extractKeyPoints = async (
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
   const systemContent =
-    "You extract key points from meetings and return them as JSON.";
+    "You extract key points from meetings and return them as JSON. Always respond in the same language as the transcript.";
   const prompt = `Extract the key points from this meeting transcript.
 Return them as a JSON array of strings, with each key point being concise (1-2 sentences).
 Focus on important decisions, agreements, and notable discussion items.
+Respond in the same language as the transcript.
 
 Transcript:
 ${capped}
@@ -189,8 +191,12 @@ Return ONLY a JSON array, no other text.`;
 
 /** Strip markdown code fences that models sometimes wrap JSON in */
 const stripMarkdownJson = (content: string): string => {
-  const match = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (match) return match[1].trim();
+  // Try complete fence first
+  const complete = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (complete) return complete[1].trim();
+  // Handle truncated response — fence opened but never closed (token limit hit)
+  const opened = content.match(/```(?:json)?\s*([\s\S]+)/);
+  if (opened) return opened[1].trim();
   return content.trim();
 };
 
@@ -218,7 +224,7 @@ export const generateSummaryAndKeyPoints = async (
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
   const systemContent =
-    "You are a professional meeting summarizer. Always return valid JSON.";
+    "You are a professional meeting summarizer. Always return valid JSON. Always respond in the same language as the transcript.";
   const prompt = `You are an AI assistant that summarizes meeting transcripts.
 Return ONLY valid JSON with this exact shape:
 {
@@ -229,6 +235,7 @@ Return ONLY valid JSON with this exact shape:
 Rules:
 - summary: 2-3 professional paragraphs, focused on decisions and outcomes.
 - keyPoints: 4-8 concise bullets as plain strings.
+- Respond in the same language as the transcript.
 
 Meeting Title: ${meeting?.title ?? "Untitled Meeting"}
 Meeting Description: ${meeting?.description ?? "No description"}
@@ -240,7 +247,7 @@ ${capped}`;
   const result = await model.generateContent({
     systemInstruction: systemContent,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: { maxOutputTokens: 1300, temperature: 0.3 },
+    generationConfig: { maxOutputTokens: 2000, temperature: 0.3 },
   });
 
   const raw = result.response.text().trim();
@@ -322,12 +329,17 @@ export const extractTasks = async (
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
   const systemContent =
-    "You extract tasks from meeting transcripts and return them as JSON.";
-  const prompt = `Extract action items and tasks from this meeting transcript.
-Return them as a JSON array of objects with these fields:
-- title: string (short, actionable task title)
+    "You extract tasks and action items from meeting transcripts and return them as JSON. Always respond in the same language as the transcript.";
+  const prompt = `Extract ALL action items, tasks, follow-ups, and to-dos from this meeting transcript.
+Respond in the same language as the transcript.
+Be generous: include anything that sounds like something someone needs to do, follow up on, review, send, schedule, or decide.
+
+Return a JSON array of objects with these fields:
+- title: string (short, actionable task title in English)
 - description: string (optional, more details)
 - assigneeHint: string (optional, name/role of person responsible if mentioned)
+
+If there are truly no action items, return [].
 
 Transcript:
 ${capped}
@@ -405,19 +417,26 @@ export const generateMeetingTitle = async (
 
   try {
     const systemContent =
-      "You generate concise, professional meeting titles. Return only the title, no quotes or punctuation at the end.";
-    const prompt = `Based on this meeting transcript, generate a short, descriptive meeting title (4-7 words max).
-The title should capture the main topic or purpose of the meeting.
-Return ONLY the title text, nothing else.
+      "You generate specific, descriptive meeting titles in English. Return only the title text — no quotes, no markdown, no labels like 'Title:'.";
+    const prompt = `Read this meeting transcript carefully and write a specific 6-9 word title that describes exactly what was discussed.
 
-Transcript (first 2000 chars):
-${transcriptText.slice(0, 2000)}`;
+Rules:
+- Mention the actual subject matter (not just "AI" or "technology" — be specific)
+- Include key topics, decisions, or people if relevant
+- Never use generic words like "Meeting", "Discussion", "Exploring", "Talk", "Conversation"
+- If transcript is in another language, still write title in English
+
+Examples of GOOD titles: "Using Claude AI for Stock Market Research and Coding", "Q3 Product Roadmap Review with Engineering Team", "Onboarding New Sales Reps for Enterprise Accounts"
+Examples of BAD titles: "AI Discussion", "Meeting About Technology", "Personal AI", "Team Sync"
+
+Transcript:
+${transcriptText.slice(0, 3000)}`;
 
     const model = getGeminiModel();
     const result = await model.generateContent({
       systemInstruction: systemContent,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { maxOutputTokens: 30, temperature: 0.4 },
+      generationConfig: { maxOutputTokens: 80, temperature: 0.5 },
     });
 
     title = result.response.text().trim() || null;

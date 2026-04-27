@@ -6,7 +6,7 @@ import {
 import { logger } from "../utils/logging/logger";
 import { AppError } from "../utils/errors/AppError";
 
-export const GEMINI_MODEL = "gemini-2.0-flash";
+export const GEMINI_MODEL = "gemini-2.5-flash";
 
 export const DEFAULT_GENERATION_CONFIG: GenerationConfig = {
   temperature: 0.3,

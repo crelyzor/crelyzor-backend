@@ -147,40 +147,6 @@ export const transcribeRecording = async (
 
     // Persist transcript, status update, and speakers atomically
     const distinctSpeakers = [...new Set(segments.map((seg) => seg.speaker))];
-    const priorSpeakerRows = await prisma.meetingSpeaker.findMany({
-      where: {
-        speakerLabel: { in: distinctSpeakers },
-        displayName: { not: null },
-        meeting: {
-          createdById: recording.meeting.createdById,
-          isDeleted: false,
-          id: { not: recording.meetingId },
-        },
-      },
-      select: {
-        speakerLabel: true,
-        displayName: true,
-        role: true,
-        meeting: { select: { createdAt: true } },
-      },
-      orderBy: {
-        meeting: { createdAt: "desc" },
-      },
-    });
-
-    const rememberedByLabel = new Map<
-      string,
-      { displayName: string; role: string | null }
-    >();
-    for (const row of priorSpeakerRows) {
-      if (!row.displayName) continue;
-      if (!rememberedByLabel.has(row.speakerLabel)) {
-        rememberedByLabel.set(row.speakerLabel, {
-          displayName: row.displayName,
-          role: row.role,
-        });
-      }
-    }
 
     const transcript = await prisma.$transaction(
       async (tx) => {
@@ -207,25 +173,18 @@ export const transcribeRecording = async (
         });
 
         await Promise.all(
-          distinctSpeakers.map((speakerLabel) => {
-            const remembered = rememberedByLabel.get(speakerLabel);
-
-            return tx.meetingSpeaker.upsert({
+          distinctSpeakers.map((speakerLabel) =>
+            tx.meetingSpeaker.upsert({
               where: {
                 meetingId_speakerLabel: {
                   meetingId: recording.meetingId,
                   speakerLabel,
                 },
               },
-              create: {
-                meetingId: recording.meetingId,
-                speakerLabel,
-                ...(remembered ? { displayName: remembered.displayName } : {}),
-                ...(remembered?.role ? { role: remembered.role } : {}),
-              },
+              create: { meetingId: recording.meetingId, speakerLabel },
               update: {},
-            });
-          }),
+            }),
+          ),
         );
 
         return created;

@@ -10,7 +10,7 @@ The single backend for all of Crelyzor. Serves both `calendar-frontend` and `car
 
 - Express 5 + TypeScript 5
 - Prisma 6 + PostgreSQL
-- OpenAI (GPT-5.4-mini) + Deepgram (Nova-3 Multilingual)
+- Gemini 2.5 Flash (`gemini-2.5-flash`) + Deepgram (Nova-3 Multilingual)
 - Bull + Redis (job queues + caching)
 - Google Cloud Storage (recordings, files)
 - Google OAuth 2.0 + JWT
@@ -145,9 +145,9 @@ router.get("/public/cards/:username", cardController.getPublicCard);
 Services are lazily initialized. Access via getter functions:
 
 ```typescript
-// OpenAI
-import { getOpenAIClient } from "../config/openai";
-const openai = getOpenAIClient();
+// Gemini
+import { getGeminiModel } from "../config/gemini";
+const model = getGeminiModel();
 
 // Deepgram
 import { getDeepgramClient } from "../config/deepgram";
@@ -185,7 +185,7 @@ pnpm db:generate   # regenerates Prisma client
 ```
 Upload → GCS → Deepgram Nova-3 Multilingual (diarize: true) → TranscriptSegment[]
                                                          ↓
-                                              OpenAI (parallel):
+                                              Gemini 2.5 Flash (parallel):
                                               ├── generateSummary()
                                               ├── extractKeyPoints()
                                               └── extractActionItems()
