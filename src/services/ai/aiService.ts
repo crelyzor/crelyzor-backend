@@ -417,14 +417,14 @@ export const generateMeetingTitle = async (
 
   try {
     const systemContent =
-      "You generate specific, descriptive meeting titles in English. Return only the title text — no quotes, no markdown, no labels like 'Title:'.";
+      "You generate specific, descriptive meeting titles. Return only the title text — no quotes, no markdown, no labels like 'Title:'.";
     const prompt = `Read this meeting transcript carefully and write a specific 6-9 word title that describes exactly what was discussed.
 
 Rules:
+- Respond in the same language as the transcript
 - Mention the actual subject matter (not just "AI" or "technology" — be specific)
 - Include key topics, decisions, or people if relevant
 - Never use generic words like "Meeting", "Discussion", "Exploring", "Talk", "Conversation"
-- If transcript is in another language, still write title in English
 
 Examples of GOOD titles: "Using Claude AI for Stock Market Research and Coding", "Q3 Product Roadmap Review with Engineering Team", "Onboarding New Sales Reps for Enterprise Accounts"
 Examples of BAD titles: "AI Discussion", "Meeting About Technology", "Personal AI", "Team Sync"
