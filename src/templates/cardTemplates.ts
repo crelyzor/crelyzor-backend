@@ -1,31 +1,34 @@
-export type TemplateId =
-  | "executive"
-  | "classic-bold"
-  | "minimal"
-  | "classic-centered"
-  | "left-minimal"
-  | "editorial"
-  | "dark-luxury"
-  | "split-panel"
-  | "ghost-outline"
-  | "monogram-hero"
-  | "horizontal-bands"
-  | "full-bleed"
-  | "diagonal-split"
-  | "terminal"
-  | "atmospheric"
-  | "ruled"
-  | "circle"
-  | "light"
-  | "deconstructed"
-  | "extreme-minimal"
-  | "blueprint"
-  | "neon-edge"
-  | "textile"
-  | "brutalist"
-  | "y2k"
-  | "earthy"
-  | "soft-pastel";
+export const TEMPLATE_IDS = [
+  "executive",
+  "classic-bold",
+  "minimal",
+  "classic-centered",
+  "left-minimal",
+  "editorial",
+  "dark-luxury",
+  "split-panel",
+  "ghost-outline",
+  "monogram-hero",
+  "horizontal-bands",
+  "full-bleed",
+  "diagonal-split",
+  "terminal",
+  "atmospheric",
+  "ruled",
+  "circle",
+  "light",
+  "deconstructed",
+  "extreme-minimal",
+  "blueprint",
+  "neon-edge",
+  "textile",
+  "brutalist",
+  "y2k",
+  "earthy",
+  "soft-pastel",
+] as const;
+
+export type TemplateId = (typeof TEMPLATE_IDS)[number];
 
 export type { CardTemplateData, TemplateRenderer } from "./helpers";
 

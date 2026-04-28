@@ -79,7 +79,7 @@ export const brutalist: TemplateRenderer = {
     <div style="font-size:28px;font-weight:700;color:#111;letter-spacing:-0.04em;line-height:0.95;text-transform:uppercase">${esc(first)}${last ? `<br/>${esc(last)}` : ""}</div>
   </div>
   <div style="display:flex;justify-content:space-between;align-items:flex-end">
-    ${title ? `<div style="font-size:10px;font-weight:600;color:#111;letter-spacing:0.06em;text-transform:uppercase;line-height:1.6">${esc(title.replace(" ", "<br/>"))}</div>` : "<div></div>"}
+    ${title ? `<div style="font-size:10px;font-weight:600;color:#111;letter-spacing:0.06em;text-transform:uppercase;line-height:1.6">${esc(title).replace(/\s+/g, "<br/>")}</div>` : "<div></div>"}
     <div style="background:#111;color:#f0ede8;padding:6px 10px;font-size:11px;font-family:${MONO};letter-spacing:0.04em">${esc(siteStr)}</div>
   </div>
 </div>`;

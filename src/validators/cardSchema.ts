@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TEMPLATE_IDS } from "../templates/cardTemplates";
 
 const emptyStringToUndefined = (value: unknown) => {
   if (typeof value !== "string") return value;
@@ -42,36 +43,6 @@ const slugField = z
   )
   .regex(/^(?!.*--)/, "No consecutive hyphens")
   .optional();
-
-const TEMPLATE_IDS = [
-  "executive",
-  "classic-bold",
-  "minimal",
-  "classic-centered",
-  "left-minimal",
-  "editorial",
-  "dark-luxury",
-  "split-panel",
-  "ghost-outline",
-  "monogram-hero",
-  "horizontal-bands",
-  "full-bleed",
-  "diagonal-split",
-  "terminal",
-  "atmospheric",
-  "ruled",
-  "circle",
-  "light",
-  "deconstructed",
-  "extreme-minimal",
-  "blueprint",
-  "neon-edge",
-  "textile",
-  "brutalist",
-  "y2k",
-  "earthy",
-  "soft-pastel",
-] as const;
 
 const templateIdField = z.enum(TEMPLATE_IDS).optional();
 

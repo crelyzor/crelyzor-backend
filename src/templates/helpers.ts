@@ -20,10 +20,14 @@ export interface CardTemplateData {
   showQr: boolean;
 }
 
-export interface TemplateRenderer {
+export interface TemplateRenderer<TId extends string = string> {
   front: (data: CardTemplateData) => string;
   back: (data: CardTemplateData, qrSvg: string) => string;
-  meta: { id: string; name: string; description: string };
+  meta: { id: TId; name: string; description: string };
+}
+
+export function safeColor(color: string): string {
+  return color.replace(/[^a-zA-Z0-9#()%.,/ ]/g, "");
 }
 
 // ── String helpers ────────────────────────────────────────
