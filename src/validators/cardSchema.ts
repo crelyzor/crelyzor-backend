@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TEMPLATE_IDS } from "../templates/cardTemplates";
 
 const emptyStringToUndefined = (value: unknown) => {
   if (typeof value !== "string") return value;
@@ -43,9 +44,7 @@ const slugField = z
   .regex(/^(?!.*--)/, "No consecutive hyphens")
   .optional();
 
-const templateIdField = z
-  .enum(["executive", "classic-bold", "minimal"])
-  .optional();
+const templateIdField = z.enum(TEMPLATE_IDS).optional();
 
 export const createCardSchema = z.object({
   slug: slugField,
@@ -79,7 +78,7 @@ export const updateCardSchema = z.object({
 });
 
 export const previewCardSchema = z.object({
-  templateId: z.enum(["executive", "classic-bold", "minimal"]),
+  templateId: z.enum(TEMPLATE_IDS),
   displayName: z.string().min(1).max(100),
   title: z.string().max(200).optional(),
   bio: z.string().max(500).optional(),
