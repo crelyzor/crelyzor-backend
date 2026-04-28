@@ -43,9 +43,37 @@ const slugField = z
   .regex(/^(?!.*--)/, "No consecutive hyphens")
   .optional();
 
-const templateIdField = z
-  .enum(["executive", "classic-bold", "minimal"])
-  .optional();
+const TEMPLATE_IDS = [
+  "executive",
+  "classic-bold",
+  "minimal",
+  "classic-centered",
+  "left-minimal",
+  "editorial",
+  "dark-luxury",
+  "split-panel",
+  "ghost-outline",
+  "monogram-hero",
+  "horizontal-bands",
+  "full-bleed",
+  "diagonal-split",
+  "terminal",
+  "atmospheric",
+  "ruled",
+  "circle",
+  "light",
+  "deconstructed",
+  "extreme-minimal",
+  "blueprint",
+  "neon-edge",
+  "textile",
+  "brutalist",
+  "y2k",
+  "earthy",
+  "soft-pastel",
+] as const;
+
+const templateIdField = z.enum(TEMPLATE_IDS).optional();
 
 export const createCardSchema = z.object({
   slug: slugField,
@@ -79,7 +107,7 @@ export const updateCardSchema = z.object({
 });
 
 export const previewCardSchema = z.object({
-  templateId: z.enum(["executive", "classic-bold", "minimal"]),
+  templateId: z.enum(TEMPLATE_IDS),
   displayName: z.string().min(1).max(100),
   title: z.string().max(200).optional(),
   bio: z.string().max(500).optional(),
