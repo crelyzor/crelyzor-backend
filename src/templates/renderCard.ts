@@ -3,6 +3,7 @@ import {
   type TemplateId,
   type CardTemplateData,
 } from "./cardTemplates";
+import { safeColor } from "./helpers";
 import { generateQrSvg } from "./qrGenerator";
 
 export async function renderCardHtml(
@@ -14,13 +15,17 @@ export async function renderCardHtml(
     throw new Error(`Unknown template: ${templateId}`);
   }
 
-  // Only generate QR if showQr is true
-  const qrSvg = data.showQr
+  const safeData: CardTemplateData = {
+    ...data,
+    accentColor: safeColor(data.accentColor),
+  };
+
+  const qrSvg = safeData.showQr
     ? await generateQrSvg(data.publicUrl, data.accentColor)
     : "";
 
   return {
-    htmlContent: template.front(data),
-    htmlBackContent: template.back(data, qrSvg),
+    htmlContent: template.front(safeData),
+    htmlBackContent: template.back(safeData, qrSvg),
   };
 }

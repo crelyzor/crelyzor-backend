@@ -17,6 +17,13 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio"
   },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,css,scss,md}": "prettier --write"
+  },
   "keywords": [
     "calendar",
     "meetings",
@@ -74,6 +81,7 @@
     "eslint": "^9.30.0",
     "eslint-plugin-prettier": "^5.5.5",
     "globals": "^16.2.0",
+    "lint-staged": "^16.4.0",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.35.0"
