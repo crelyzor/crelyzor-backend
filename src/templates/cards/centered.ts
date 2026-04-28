@@ -1,5 +1,4 @@
 import {
-  CardTemplateData,
   TemplateRenderer,
   esc,
   initial,
@@ -33,7 +32,13 @@ export const classicCentered: TemplateRenderer = {
 </div>`;
   },
   back(data, qrSvg) {
-    const { displayName, contactFields: cf, links, accentColor: a, showQr } = data;
+    const {
+      displayName,
+      contactFields: cf,
+      links,
+      accentColor: a,
+      showQr,
+    } = data;
     const contacts = [
       cf.email,
       cf.phone,

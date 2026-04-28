@@ -16,12 +16,17 @@ export const editorial: TemplateRenderer = {
   meta: {
     id: "editorial",
     name: "Editorial",
-    description: "Typographic layout with grid texture and bottom-anchored name",
+    description:
+      "Typographic layout with grid texture and bottom-anchored name",
   },
   front(data) {
     const { displayName, title, contactFields: cf, accentColor: a } = data;
     const [first, last] = firstLast(displayName);
-    const siteStr = cf.website ? stripUrl(cf.website) : data.publicUrl ? stripUrl(data.publicUrl) : "";
+    const siteStr = cf.website
+      ? stripUrl(cf.website)
+      : data.publicUrl
+        ? stripUrl(data.publicUrl)
+        : "";
     return `<div style="width:100%;aspect-ratio:1.586/1;position:relative;overflow:hidden;border-radius:16px;box-sizing:border-box;background:#060607;font-family:${DM};border:1px solid ${a}40">
   <div style="position:absolute;inset:0;border-radius:16px;background-image:linear-gradient(${a}0a 1px,transparent 1px),linear-gradient(90deg,${a}0a 1px,transparent 1px);background-size:32px 32px;pointer-events:none"></div>
   <div style="position:absolute;top:16px;right:20px;font-size:11px;font-weight:500;color:${a};letter-spacing:0.2em;text-transform:uppercase;font-family:${MONO}">${initial(displayName)}${last ? initial(last) : ""}</div>
@@ -92,7 +97,13 @@ export const monogramHero: TemplateRenderer = {
 </div>`;
   },
   back(data, qrSvg) {
-    const { displayName, contactFields: cf, links, accentColor: a, showQr } = data;
+    const {
+      displayName,
+      contactFields: cf,
+      links,
+      accentColor: a,
+      showQr,
+    } = data;
     const [first, last] = firstLast(displayName);
     const mono = `${initial(first)}${last ? initial(last) : ""}`;
     const contacts = [
@@ -139,7 +150,13 @@ export const fullBleed: TemplateRenderer = {
 </div>`;
   },
   back(data, qrSvg) {
-    const { displayName, contactFields: cf, links, accentColor: a, showQr } = data;
+    const {
+      displayName,
+      contactFields: cf,
+      links,
+      accentColor: a,
+      showQr,
+    } = data;
     const [first, last] = firstLast(displayName);
     const contacts = [cf.email, cf.phone, cf.location].filter(Boolean);
     return `<div style="width:100%;aspect-ratio:1.586/1;position:relative;overflow:hidden;border-radius:16px;box-sizing:border-box;background:#050507;font-family:${DM};display:flex;flex-direction:column;justify-content:flex-end;padding:0 0 16px 0">
@@ -162,7 +179,8 @@ export const deconstructed: TemplateRenderer = {
   meta: {
     id: "deconstructed",
     name: "Deconstructed",
-    description: "Deliberate layout tension with scattered typographic elements",
+    description:
+      "Deliberate layout tension with scattered typographic elements",
   },
   front(data) {
     const { displayName, title, contactFields: cf, accentColor: a } = data;

@@ -66,7 +66,8 @@ export const brutalist: TemplateRenderer = {
   meta: {
     id: "brutalist",
     name: "Brutalist",
-    description: "Raw bold typography on light background with black structural bars",
+    description:
+      "Raw bold typography on light background with black structural bars",
   },
   front(data) {
     const { displayName, title, contactFields: cf } = data;

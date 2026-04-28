@@ -1,12 +1,10 @@
 import { socialIconMap } from "../icons";
 import {
-  CardTemplateData,
   TemplateRenderer,
   esc,
   initial,
   icon,
   socialIcon,
-  contactRow,
   stripUrl,
   cardStyle,
   textureOverlay,
@@ -23,7 +21,13 @@ export const executive: TemplateRenderer = {
   },
 
   front(data) {
-    const { displayName, title, avatarUrl, contactFields, accentColor: a } = data;
+    const {
+      displayName,
+      title,
+      avatarUrl,
+      contactFields,
+      accentColor: a,
+    } = data;
     const avatar = avatarUrl
       ? `<img src="${esc(avatarUrl)}" alt="" style="width:100%;height:100%;object-fit:cover" />`
       : `<span style="font-size:18px;font-weight:600;color:${a}">${initial(displayName)}</span>`;
@@ -83,7 +87,7 @@ export const executive: TemplateRenderer = {
     ${bioSection}
     ${bookingRow}
     ${socialRow}
-    ${(websiteRow || qrBlock) ? `<div style="display:flex;align-items:center;justify-content:space-between">${websiteRow}<div style="flex:1"></div>${qrBlock}</div>` : ""}
+    ${websiteRow || qrBlock ? `<div style="display:flex;align-items:center;justify-content:space-between">${websiteRow}<div style="flex:1"></div>${qrBlock}</div>` : ""}
   </div>
   ${accentBar(a, "top")}
 </div>`;

@@ -42,7 +42,13 @@ export const leftMinimal: TemplateRenderer = {
 </div>`;
   },
   back(data, qrSvg) {
-    const { displayName, contactFields: cf, links, accentColor: a, showQr } = data;
+    const {
+      displayName,
+      contactFields: cf,
+      links,
+      accentColor: a,
+      showQr,
+    } = data;
     const contacts = [
       cf.email,
       cf.phone,
@@ -101,7 +107,14 @@ export const splitPanel: TemplateRenderer = {
 </div>`;
   },
   back(data, qrSvg) {
-    const { displayName, bio, contactFields: cf, links, accentColor: a, showQr } = data;
+    const {
+      displayName,
+      bio,
+      contactFields: cf,
+      links,
+      accentColor: a,
+      showQr,
+    } = data;
     const siteStr = cf.website ? stripUrl(cf.website) : "";
     return `<div style="width:100%;aspect-ratio:1.586/1;position:relative;overflow:hidden;border-radius:16px;box-sizing:border-box;background:#07070a;font-family:${DM};border:1px solid ${a}33;display:flex">
   <div style="flex:1;padding:18px;display:flex;flex-direction:column;justify-content:space-between">
@@ -151,14 +164,24 @@ export const horizontalBands: TemplateRenderer = {
 </div>`;
   },
   back(data, qrSvg) {
-    const { displayName, title, contactFields: cf, links, accentColor: a, showQr } = data;
+    const {
+      displayName,
+      title,
+      contactFields: cf,
+      links,
+      accentColor: a,
+      showQr,
+    } = data;
     const contacts = [
       cf.email,
       cf.phone,
       cf.website ? stripUrl(cf.website) : null,
       cf.location,
     ].filter(Boolean);
-    const footer = [displayName, title].filter(Boolean).join(" · ").toUpperCase();
+    const footer = [displayName, title]
+      .filter(Boolean)
+      .join(" · ")
+      .toUpperCase();
     return `<div style="width:100%;aspect-ratio:1.586/1;position:relative;overflow:hidden;border-radius:16px;box-sizing:border-box;background:#08080b;font-family:${DM};display:flex;flex-direction:column">
   <div style="padding:10px 18px;border-bottom:1px solid ${a}26;display:flex;align-items:center;justify-content:space-between">
     <div style="font-size:10px;letter-spacing:0.18em;color:${a}88;text-transform:uppercase;font-family:${MONO}">Contact</div>

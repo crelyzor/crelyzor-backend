@@ -63,7 +63,10 @@ export function icon(name: string, size: string, color: string): string {
 export function socialIcon(type: string, size: string, color: string): string {
   const svg = socialIconMap[type];
   if (!svg) return "";
-  return svg.replace(/<svg /, `<svg style="width:${size};height:${size};color:${color};fill:${color}" `);
+  return svg.replace(
+    /<svg /,
+    `<svg style="width:${size};height:${size};color:${color};fill:${color}" `,
+  );
 }
 
 export function socialBtns(
@@ -82,7 +85,11 @@ export function socialBtns(
     .join("")}</div>`;
 }
 
-export function contactRow(iconName: string, value: string, accent: string): string {
+export function contactRow(
+  iconName: string,
+  value: string,
+  accent: string,
+): string {
   return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
     ${icon(iconName, "10px", accent)}
     <span style="font-size:9px;color:#d1d5db;letter-spacing:0.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(value)}</span>
@@ -91,7 +98,12 @@ export function contactRow(iconName: string, value: string, accent: string): str
 
 // ── QR helper ─────────────────────────────────────────────
 
-export function qrImg(qrSvg: string, showQr: boolean, size: number, extra = ""): string {
+export function qrImg(
+  qrSvg: string,
+  showQr: boolean,
+  size: number,
+  extra = "",
+): string {
   if (!showQr || !qrSvg) return "";
   return `<div style="width:${size}px;height:${size}px;flex-shrink:0${extra ? ";" + extra : ""}">${qrSvg.replace(/<svg /, `<svg style="width:${size}px;height:${size}px" `)}</div>`;
 }
@@ -104,8 +116,7 @@ export const MONO = "'DM Mono',monospace";
 export const cardStyle = (bg = "#0a0a0a") =>
   `position:relative;aspect-ratio:1.586/1;background:${bg};font-family:Inter,system-ui,-apple-system,sans-serif;overflow:hidden;border-radius:16px;box-sizing:border-box`;
 
-export const textureOverlay =
-  `<div style="position:absolute;inset:0;opacity:0.03;background-image:repeating-linear-gradient(135deg,transparent,transparent 8px,rgba(255,255,255,0.1) 8px,rgba(255,255,255,0.1) 9px);pointer-events:none"></div>`;
+export const textureOverlay = `<div style="position:absolute;inset:0;opacity:0.03;background-image:repeating-linear-gradient(135deg,transparent,transparent 8px,rgba(255,255,255,0.1) 8px,rgba(255,255,255,0.1) 9px);pointer-events:none"></div>`;
 
 export const accentBar = (color: string, position: "top" | "bottom") =>
   `<div style="position:absolute;${position}:0;left:0;right:0;height:2px;background:linear-gradient(90deg,${color},${color}88)"></div>`;
