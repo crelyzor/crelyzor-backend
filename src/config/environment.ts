@@ -38,9 +38,7 @@ const envSchema = z.object({
 
   // Email (Resend) — optional; emails are skipped gracefully if absent
   RESEND_API_KEY: z.string().min(1).optional(),
-  RESEND_FROM_EMAIL: z
-    .string()
-    .default("Crelyzor <notifications@crelyzor.com>"),
+  RESEND_FROM_EMAIL: z.string().default("Crelyzor <harshkeshari100@gmail.com>"),
 });
 
 export type Environment = z.infer<typeof envSchema>;

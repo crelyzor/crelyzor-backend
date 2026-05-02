@@ -81,7 +81,7 @@ export interface LogoutRequest {
 
 export interface SessionInfo {
   id: string;
-  deviceInfo?: string;
+  userAgent?: string;
   ipAddress?: string;
   createdAt: Date;
   lastAccessedAt: Date;

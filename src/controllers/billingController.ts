@@ -69,8 +69,8 @@ export const createCheckoutSession = async (req: Request, res: Response) => {
     data: {
       status: "deferred",
       message:
-        "Online payments are not yet available. To upgrade to Pro, please contact support@crelyzor.com and we will upgrade your account manually.",
-      supportEmail: "support@crelyzor.com",
+        "Online payments are not yet available. To upgrade to Pro, please contact harshkeshari100@gmail.com and we will upgrade your account manually.",
+      supportEmail: "harshkeshari100@gmail.com",
     },
   });
 };
@@ -90,8 +90,8 @@ export const createBillingPortalSession = async (
     data: {
       status: "deferred",
       message:
-        "Billing portal is not yet available. For subscription changes, please contact support@crelyzor.com.",
-      supportEmail: "support@crelyzor.com",
+        "Billing portal is not yet available. For subscription changes, please contact harshkeshari100@gmail.com.",
+      supportEmail: "harshkeshari100@gmail.com",
     },
   });
 };

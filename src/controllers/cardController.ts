@@ -278,17 +278,18 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
-      const { cardId } = req.query;
+      const { cardId, search, tags } = req.query;
       if (
         cardId !== undefined &&
         !z.string().uuid().safeParse(cardId).success
       ) {
         throw ErrorFactory.validation("Invalid cardId");
       }
-      const csv = await cardService.exportContacts(
-        userId,
-        cardId as string | undefined,
-      );
+      const csv = await cardService.exportContacts(userId, {
+        cardId: cardId as string | undefined,
+        search: search as string | undefined,
+        tags: tags as string | undefined,
+      });
 
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", "attachment; filename=contacts.csv");
