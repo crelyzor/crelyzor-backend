@@ -709,7 +709,12 @@ export const cardService = {
     filters: { cardId?: string; search?: string; tags?: string } = {},
   ) {
     const { cardId, search, tags } = filters;
-    const tagList = tags ? tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
+    const tagList = tags
+      ? tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : [];
 
     const contacts = await prisma.cardContact.findMany({
       where: {
@@ -725,9 +730,7 @@ export const cardService = {
               ],
             }
           : {}),
-        ...(tagList.length > 0
-          ? { tags: { hasSome: tagList } }
-          : {}),
+        ...(tagList.length > 0 ? { tags: { hasSome: tagList } } : {}),
       },
       include: { card: { select: { slug: true } } },
       orderBy: { scannedAt: "desc" },

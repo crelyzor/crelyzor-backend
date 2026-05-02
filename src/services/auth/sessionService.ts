@@ -14,7 +14,8 @@ function parseUserAgent(ua: string | null | undefined): string {
 
   if (/iPhone/i.test(s)) device = "iPhone";
   else if (/iPad/i.test(s)) device = "iPad";
-  else if (/Android/i.test(s)) device = isPhone ? "Android Phone" : "Android Tablet";
+  else if (/Android/i.test(s))
+    device = isPhone ? "Android Phone" : "Android Tablet";
 
   let browser = "Browser";
   if (/Edg\//i.test(s)) browser = "Edge";
