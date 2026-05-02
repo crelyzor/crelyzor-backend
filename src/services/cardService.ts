@@ -21,8 +21,7 @@ import {
   type CardTemplateData,
 } from "../templates/cardTemplates";
 
-const CARDS_PUBLIC_URL =
-  process.env.CARDS_PUBLIC_URL ?? "http://localhost:5174";
+const CARDS_PUBLIC_URL = process.env.PUBLIC_URL ?? "";
 
 // Helper: build public URL for a card
 function buildPublicUrl(
@@ -705,12 +704,31 @@ export const cardService = {
   /**
    * Export contacts as CSV
    */
-  async exportContacts(userId: string, cardId?: string) {
-    const where: Record<string, unknown> = { userId, isDeleted: false };
-    if (cardId) where.cardId = cardId;
+  async exportContacts(
+    userId: string,
+    filters: { cardId?: string; search?: string; tags?: string } = {},
+  ) {
+    const { cardId, search, tags } = filters;
+    const tagList = tags ? tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
 
     const contacts = await prisma.cardContact.findMany({
-      where,
+      where: {
+        userId,
+        isDeleted: false,
+        ...(cardId ? { cardId } : {}),
+        ...(search
+          ? {
+              OR: [
+                { name: { contains: search, mode: "insensitive" } },
+                { email: { contains: search, mode: "insensitive" } },
+                { company: { contains: search, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+        ...(tagList.length > 0
+          ? { tags: { hasSome: tagList } }
+          : {}),
+      },
       include: { card: { select: { slug: true } } },
       orderBy: { scannedAt: "desc" },
       take: 10000,

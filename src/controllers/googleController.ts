@@ -218,7 +218,12 @@ export const googleController = {
         { timeout: 15000 },
       );
 
-      const jwtTokens = await authService.generateTokens(user);
+      const deviceInfo = req.headers["user-agent"] ?? "Unknown Device";
+      const ipAddress =
+        (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ??
+        req.ip ??
+        "Unknown IP";
+      const jwtTokens = await authService.generateTokens(user, deviceInfo, ipAddress);
       // Use hash fragment to keep tokens out of server logs and referrer headers
       const finalRedirectUrl = `${redirectUrl}#accessToken=${jwtTokens.accessToken}&refreshToken=${jwtTokens.refreshToken}`;
 

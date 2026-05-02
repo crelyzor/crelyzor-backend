@@ -3,6 +3,35 @@ import { tokenService } from "./tokenService";
 import { ErrorFactory } from "../../utils/globalErrorHandler";
 import { SessionInfo } from "../../types/authTypes";
 import prisma from "../../db/prismaClient";
+
+function parseUserAgent(ua: string | null | undefined): string {
+  if (!ua) return "Unknown device";
+  const s = ua;
+  const isPhone = /iPhone|Android.*Mobile|Windows Phone/i.test(s);
+  const isTablet = /iPad|Android(?!.*Mobile)/i.test(s);
+
+  let device = isPhone ? "Phone" : isTablet ? "Tablet" : "Desktop";
+
+  if (/iPhone/i.test(s)) device = "iPhone";
+  else if (/iPad/i.test(s)) device = "iPad";
+  else if (/Android/i.test(s)) device = isPhone ? "Android Phone" : "Android Tablet";
+
+  let browser = "Browser";
+  if (/Edg\//i.test(s)) browser = "Edge";
+  else if (/OPR\//i.test(s)) browser = "Opera";
+  else if (/Chrome\//i.test(s)) browser = "Chrome";
+  else if (/Firefox\//i.test(s)) browser = "Firefox";
+  else if (/Safari\//i.test(s)) browser = "Safari";
+
+  let os = "";
+  if (/Windows NT/i.test(s)) os = "Windows";
+  else if (/Mac OS X/i.test(s)) os = isPhone || isTablet ? "" : "macOS";
+  else if (/Linux/i.test(s)) os = "Linux";
+  else if (/Android/i.test(s)) os = "";
+  else if (/iOS|iPhone OS/i.test(s)) os = "";
+
+  return os ? `${browser} on ${os}` : `${browser} · ${device}`;
+}
 class SessionService {
   async createSession(
     userId: string,
@@ -185,7 +214,7 @@ class SessionService {
 
     return sessions.map((session) => ({
       id: session.id,
-      deviceInfo: session.deviceInfo || undefined,
+      userAgent: parseUserAgent(session.deviceInfo),
       ipAddress: session.ipAddress || undefined,
       createdAt: session.createdAt,
       lastAccessedAt: session.lastAccessedAt,
@@ -260,7 +289,7 @@ class SessionService {
 
     return {
       id: session.id,
-      deviceInfo: session.deviceInfo || undefined,
+      userAgent: parseUserAgent(session.deviceInfo),
       ipAddress: session.ipAddress || undefined,
       createdAt: session.createdAt,
       lastAccessedAt: session.lastAccessedAt,

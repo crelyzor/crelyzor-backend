@@ -40,7 +40,7 @@ const envSchema = z.object({
   RESEND_API_KEY: z.string().min(1).optional(),
   RESEND_FROM_EMAIL: z
     .string()
-    .default("Crelyzor <notifications@crelyzor.com>"),
+    .default("Crelyzor <harshkeshari100@gmail.com>"),
 });
 
 export type Environment = z.infer<typeof envSchema>;
