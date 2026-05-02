@@ -15,8 +15,7 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:studio": "prisma studio",
-    "prepare": "cd .. && npx husky crelyzor-backend/.husky"
+    "db:studio": "prisma studio"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
