@@ -3,8 +3,9 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 RUN npm install -g pnpm
 COPY package.json pnpm-lock.yaml ./
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
 COPY prisma ./prisma
-RUN pnpm install --frozen-lockfile
 RUN pnpm db:generate
 
 
