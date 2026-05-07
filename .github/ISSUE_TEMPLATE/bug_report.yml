@@ -1,0 +1,78 @@
+name: Bug Report
+description: Something is broken or behaving unexpectedly
+title: "[Bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. The more detail, the faster we fix it.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the product is affected?
+      options:
+        - Backend (API / database)
+        - Frontend (dashboard)
+        - Public site (card page, booking, public meeting)
+        - Infrastructure (deploy, CI/CD)
+        - Billing
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: "When I do X, Y happens instead of Z."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps to reproduce the bug.
+      placeholder: |
+        1. Go to ...
+        2. Click on ...
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, browser, device — anything relevant.
+      placeholder: "macOS 14, Chrome 124, iPhone 15 Pro, etc."
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Paste any error messages, stack traces, or attach screenshots.
+      render: shell
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: How bad is this?
+      options:
+        - Critical — app is unusable / data loss
+        - High — major feature broken
+        - Medium — annoying but workaround exists
+        - Low — cosmetic / minor
+    validations:
+      required: true
