@@ -18,7 +18,7 @@ updates:
       interval: weekly
       day: monday
     labels:
-      - area: infra
+      - 'area: infra'
       - chore
     commit-message:
       prefix: chore(actions)
