@@ -34,7 +34,7 @@ Closes #
 - [ ] No `any` types introduced
 - [ ] New endpoints have `verifyJWT` + Zod validation (backend only)
 - [ ] Dark mode tested (frontend only)
-- [ ] I've read [CONTRIBUTING.md](../CONTRIBUTING.md)
+- [ ] I've read [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ---
 
