@@ -1,0 +1,67 @@
+name: Feature Request
+description: Propose a brand new capability or product surface
+title: "[Feature] "
+labels: ["feature", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A good feature request explains the **problem first**, not the solution.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Backend (API / database)
+        - Frontend (dashboard)
+        - Public site (card page, booking, public meeting)
+        - Infrastructure
+        - Billing
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the pain point or gap. Be specific — who hits this and when?
+      placeholder: "As a [user type], I need to [do X] but currently I have to [workaround Y]."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How do you imagine this working? Rough sketches, flows, or API shapes are welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Did you consider other approaches? Why did you land on this one?
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - Critical — blocking users
+        - High — high-value, tackle soon
+        - Medium — normal backlog
+        - Low — nice to have
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked that this feature doesn't already exist
+          required: true
+        - label: This is not a Teams feature (future scope — not being built now)
+          required: true

@@ -1,0 +1,57 @@
+name: Enhancement
+description: Improve something that already exists — UX, performance, DX
+title: "[Enhancement] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for improvements to existing features — not net-new capabilities (use **Feature Request** for those).
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Backend (API / database)
+        - Frontend (dashboard)
+        - Public site (card page, booking, public meeting)
+        - Infrastructure
+        - Billing
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current behavior
+      description: What does it do today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: desired
+    attributes:
+      label: Desired improvement
+      description: What should it do instead? Or what should be added to the existing flow?
+    validations:
+      required: true
+
+  - type: textarea
+    id: value
+    attributes:
+      label: Why is this valuable?
+      description: What does this unlock or fix for users?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - High — significant improvement
+        - Medium — normal backlog
+        - Low — polish / nice to have
+    validations:
+      required: true
