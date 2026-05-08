@@ -9,6 +9,7 @@ declare global {
         type: string;
         scopes: string[];
       };
+      adminId?: string;
     }
   }
 }

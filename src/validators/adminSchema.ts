@@ -14,3 +14,13 @@ export const adminListUsersSchema = z.object({
 export const adminUpdatePlanSchema = z.object({
   plan: z.enum(["FREE", "PRO", "BUSINESS"]),
 });
+
+export const adminInviteSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1).max(100),
+});
+
+export const adminAcceptInviteSchema = z.object({
+  token: z.string().min(1),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});

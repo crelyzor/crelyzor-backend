@@ -10,6 +10,7 @@ import {
 
 interface AdminTokenPayload {
   role: string;
+  adminId: string;
   email: string;
 }
 
@@ -38,6 +39,7 @@ export const verifyAdmin = (
       throw new AppError("Insufficient permissions", 403);
     }
 
+    req.adminId = decoded.adminId;
     next();
   } catch (error) {
     if (

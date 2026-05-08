@@ -2,6 +2,11 @@ import { Router } from "express";
 import { verifyAdmin } from "../middleware/verifyAdmin";
 import {
   login,
+  getTeam,
+  deleteTeamMember,
+  invite,
+  checkInvite,
+  acceptInviteHandler,
   getUsers,
   getUser,
   updatePlan,
@@ -11,13 +16,20 @@ import {
 
 const adminRouter = Router();
 
-// Public — no verifyAdmin (this is how you get the token)
+// ─── Public (no auth) ────────────────────────────────────────────────────────
 adminRouter.post("/auth/login", login);
+adminRouter.get("/auth/invite/:token", checkInvite);
+adminRouter.post("/auth/accept-invite", acceptInviteHandler);
 
-// All routes below require a valid admin JWT
+// ─── Protected (requires admin JWT) ──────────────────────────────────────────
 adminRouter.use(verifyAdmin);
 
 adminRouter.get("/stats", getStats);
+
+adminRouter.get("/team", getTeam);
+adminRouter.post("/team/invite", invite);
+adminRouter.delete("/team/:id", deleteTeamMember);
+
 adminRouter.get("/users", getUsers);
 adminRouter.get("/users/:id", getUser);
 adminRouter.patch("/users/:id/plan", updatePlan);
