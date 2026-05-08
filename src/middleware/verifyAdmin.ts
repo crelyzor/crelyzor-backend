@@ -5,6 +5,7 @@ import { logger } from "../utils/logging/logger";
 import {
   globalErrorHandler,
   BaseError,
+  ErrorFactory,
 } from "../utils/globalErrorHandler";
 
 interface AdminTokenPayload {
@@ -45,7 +46,7 @@ export const verifyAdmin = (
         error.name === "JsonWebTokenError")
     ) {
       return globalErrorHandler(
-        new AppError("Invalid or expired admin token", 401) as BaseError,
+        ErrorFactory.unauthorized("Invalid or expired admin token"),
         req,
         res,
       );
