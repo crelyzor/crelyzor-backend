@@ -27,9 +27,13 @@ export async function adminLogin(
   const valid = await bcrypt.compare(password, admin.passwordHash);
   if (!valid) throw new AppError("Invalid credentials", 401);
 
-  return jwt.sign({ role: "admin", adminId: admin.id, email: admin.email }, secret, {
-    expiresIn: "24h",
-  });
+  return jwt.sign(
+    { role: "admin", adminId: admin.id, email: admin.email },
+    secret,
+    {
+      expiresIn: "24h",
+    },
+  );
 }
 
 // ─── Team ────────────────────────────────────────────────────────────────────
@@ -62,12 +66,14 @@ export async function sendInvite(
   invitedById: string,
 ) {
   const existing = await prisma.adminUser.findUnique({ where: { email } });
-  if (existing) throw new AppError("An admin with this email already exists", 409);
+  if (existing)
+    throw new AppError("An admin with this email already exists", 409);
 
   const pending = await prisma.adminInvite.findFirst({
     where: { email, usedAt: null, expiresAt: { gt: new Date() } },
   });
-  if (pending) throw new AppError("An active invite already exists for this email", 409);
+  if (pending)
+    throw new AppError("An active invite already exists for this email", 409);
 
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
@@ -104,8 +110,10 @@ export async function validateInviteToken(token: string) {
   });
 
   if (!invite) throw new AppError("Invalid invite link", 404);
-  if (invite.usedAt) throw new AppError("This invite has already been used", 410);
-  if (invite.expiresAt < new Date()) throw new AppError("This invite has expired", 410);
+  if (invite.usedAt)
+    throw new AppError("This invite has already been used", 410);
+  if (invite.expiresAt < new Date())
+    throw new AppError("This invite has expired", 410);
 
   return { email: invite.email };
 }
@@ -114,24 +122,36 @@ export async function acceptInvite(token: string, password: string) {
   const invite = await prisma.adminInvite.findUnique({ where: { token } });
 
   if (!invite) throw new AppError("Invalid invite link", 404);
-  if (invite.usedAt) throw new AppError("This invite has already been used", 410);
-  if (invite.expiresAt < new Date()) throw new AppError("This invite has expired", 410);
+  if (invite.usedAt)
+    throw new AppError("This invite has already been used", 410);
+  if (invite.expiresAt < new Date())
+    throw new AppError("This invite has expired", 410);
 
-  const existing = await prisma.adminUser.findUnique({ where: { email: invite.email } });
-  if (existing) throw new AppError("An admin with this email already exists", 409);
+  const existing = await prisma.adminUser.findUnique({
+    where: { email: invite.email },
+  });
+  if (existing)
+    throw new AppError("An admin with this email already exists", 409);
 
   const passwordHash = await bcrypt.hash(password, 12);
 
-  const admin = await prisma.$transaction(async (tx) => {
-    const newAdmin = await tx.adminUser.create({
-      data: { email: invite.email, passwordHash, name: invite.email.split("@")[0] },
-    });
-    await tx.adminInvite.update({
-      where: { id: invite.id },
-      data: { usedAt: new Date() },
-    });
-    return newAdmin;
-  }, { timeout: 10000 });
+  const admin = await prisma.$transaction(
+    async (tx) => {
+      const newAdmin = await tx.adminUser.create({
+        data: {
+          email: invite.email,
+          passwordHash,
+          name: invite.email.split("@")[0],
+        },
+      });
+      await tx.adminInvite.update({
+        where: { id: invite.id },
+        data: { usedAt: new Date() },
+      });
+      return newAdmin;
+    },
+    { timeout: 10000 },
+  );
 
   const secret = process.env.ADMIN_JWT_SECRET!;
   const jwtToken = jwt.sign(
@@ -140,7 +160,10 @@ export async function acceptInvite(token: string, password: string) {
     { expiresIn: "24h" },
   );
 
-  logger.info("Admin invite accepted", { email: invite.email, adminId: admin.id });
+  logger.info("Admin invite accepted", {
+    email: invite.email,
+    adminId: admin.id,
+  });
   return { token: jwtToken };
 }
 
