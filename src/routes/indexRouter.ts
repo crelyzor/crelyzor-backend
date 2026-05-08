@@ -17,6 +17,7 @@ import billingRouter from "./billingRoutes";
 import integrationRouter from "./integrationRoutes";
 import searchRouter from "./searchRoutes";
 import googleWebhookRouter from "./googleWebhookRoutes";
+import adminRouter from "./adminRoutes";
 
 const indexRouter = Router();
 
@@ -89,6 +90,11 @@ indexRouter.use("/search", searchRouter);
 // 📦 STORAGE ROUTES
 // ========================================
 indexRouter.use("/storage", storageRouter);
+
+// ========================================
+// 🔐 ADMIN ROUTES (founder/ops only)
+// ========================================
+indexRouter.use("/admin", adminRouter);
 
 // ========================================
 // 🔔 WEBHOOK ROUTES (public — no JWT)
