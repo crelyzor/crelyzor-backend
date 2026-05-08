@@ -49,6 +49,9 @@ export async function removeAdmin(targetId: string, requestingAdminId: string) {
   const admin = await prisma.adminUser.findUnique({ where: { id: targetId } });
   if (!admin) throw new AppError("Admin not found", 404);
 
+  const total = await prisma.adminUser.count();
+  if (total <= 1) throw new AppError("Cannot remove the last admin", 400);
+
   await prisma.adminUser.delete({ where: { id: targetId } });
   logger.info("Admin removed", { targetId, removedBy: requestingAdminId });
 }
