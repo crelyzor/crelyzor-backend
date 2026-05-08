@@ -13,7 +13,9 @@ async function main() {
   const name = process.env.ADMIN_SEED_NAME ?? "Admin";
 
   if (!email || !password) {
-    console.error("❌  ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD must be set in .env.local");
+    console.error(
+      "❌  ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD must be set in .env.local",
+    );
     process.exit(1);
   }
 
@@ -29,7 +31,9 @@ async function main() {
   });
 
   console.log(`✓  Admin created: ${admin.email} (id: ${admin.id})`);
-  console.log("   You can now delete ADMIN_SEED_EMAIL, ADMIN_SEED_PASSWORD, and ADMIN_SEED_NAME from your env.");
+  console.log(
+    "   You can now delete ADMIN_SEED_EMAIL, ADMIN_SEED_PASSWORD, and ADMIN_SEED_NAME from your env.",
+  );
 }
 
 main()

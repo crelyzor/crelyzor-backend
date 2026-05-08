@@ -44,8 +44,7 @@ export const verifyAdmin = (
   } catch (error) {
     if (
       error instanceof Error &&
-      (error.name === "TokenExpiredError" ||
-        error.name === "JsonWebTokenError")
+      (error.name === "TokenExpiredError" || error.name === "JsonWebTokenError")
     ) {
       return globalErrorHandler(
         ErrorFactory.unauthorized("Invalid or expired admin token"),
