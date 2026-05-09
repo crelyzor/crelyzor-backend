@@ -20,14 +20,19 @@ export const verifyAdmin = (
   next: NextFunction,
 ): void => {
   try {
+    // Read from httpOnly cookie (preferred). Fall back to Authorization header
+    // for backward compatibility during local development.
+    const cookieToken = req.cookies?.admin_token as string | undefined;
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
+    const headerToken =
+      authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : undefined;
+
+    const token = cookieToken ?? headerToken;
+    if (!token) {
       throw new AppError("Admin token required", 401);
     }
 
-    const token = authHeader.substring(7);
     const secret = process.env.ADMIN_JWT_SECRET;
-
     if (!secret) {
       logger.error("ADMIN_JWT_SECRET is not set");
       throw new AppError("Admin portal not configured", 500);

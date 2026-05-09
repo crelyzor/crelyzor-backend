@@ -1,6 +1,8 @@
 import type { Request, Response } from "express";
+import jwt from "jsonwebtoken";
 import { AppError } from "../utils/errors/AppError";
 import { apiResponse } from "../utils/globalResponseHandler";
+import { logger } from "../utils/logging/logger";
 import {
   adminLoginSchema,
   adminListUsersSchema,
@@ -22,16 +24,58 @@ import {
   acceptInvite,
 } from "../services/adminService";
 
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "strict" as const,
+  path: "/",
+  maxAge: 2 * 60 * 60 * 1000, // 2 hours (matches JWT expiry)
+};
+
 export const login = async (req: Request, res: Response) => {
   const parsed = adminLoginSchema.safeParse(req.body);
   if (!parsed.success) throw new AppError("Invalid credentials format", 400);
 
   const token = await adminLogin(parsed.data.email, parsed.data.password);
-  return apiResponse(res, {
-    statusCode: 200,
-    message: "Admin login successful",
-    data: { token },
-  });
+  res.cookie("admin_token", token, COOKIE_OPTIONS);
+  return apiResponse(res, { statusCode: 200, message: "Admin login successful" });
+};
+
+export const me = (req: Request, res: Response) => {
+  const cookieToken = req.cookies?.admin_token as string | undefined;
+  const authHeader = req.headers.authorization;
+  const headerToken =
+    authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : undefined;
+  const token = cookieToken ?? headerToken;
+
+  if (!token) throw new AppError("Admin token required", 401);
+
+  const secret = process.env.ADMIN_JWT_SECRET;
+  if (!secret) {
+    logger.error("ADMIN_JWT_SECRET is not set");
+    throw new AppError("Admin portal not configured", 500);
+  }
+
+  try {
+    const decoded = jwt.verify(token, secret) as {
+      role: string;
+      adminId: string;
+      email: string;
+    };
+    if (decoded.role !== "admin") throw new AppError("Insufficient permissions", 403);
+    return apiResponse(res, {
+      statusCode: 200,
+      message: "Authenticated",
+      data: { adminId: decoded.adminId, email: decoded.email },
+    });
+  } catch {
+    throw new AppError("Invalid or expired admin token", 401);
+  }
+};
+
+export const logout = (_req: Request, res: Response) => {
+  res.clearCookie("admin_token", { path: "/" });
+  return apiResponse(res, { statusCode: 200, message: "Logged out" });
 };
 
 // ─── Team ────────────────────────────────────────────────────────────────────
@@ -81,12 +125,9 @@ export const acceptInviteHandler = async (req: Request, res: Response) => {
   const parsed = adminAcceptInviteSchema.safeParse(req.body);
   if (!parsed.success) throw new AppError(parsed.error.issues[0].message, 400);
 
-  const result = await acceptInvite(parsed.data.token, parsed.data.password);
-  return apiResponse(res, {
-    statusCode: 200,
-    message: "Invite accepted",
-    data: result,
-  });
+  const { token: jwtToken } = await acceptInvite(parsed.data.token, parsed.data.password);
+  res.cookie("admin_token", jwtToken, COOKIE_OPTIONS);
+  return apiResponse(res, { statusCode: 200, message: "Invite accepted" });
 };
 
 // ─── Users ───────────────────────────────────────────────────────────────────
