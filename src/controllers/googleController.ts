@@ -230,8 +230,16 @@ export const googleController = {
         deviceInfo,
         ipAddress,
       );
-      // Use hash fragment to keep tokens out of server logs and referrer headers
-      const finalRedirectUrl = `${redirectUrl}#accessToken=${jwtTokens.accessToken}&refreshToken=${jwtTokens.refreshToken}`;
+      // Set refresh token as httpOnly cookie — never exposed to JS
+      res.cookie("refresh_token", jwtTokens.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/api/v1/auth",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+      // Pass only access token in hash fragment (refresh token no longer sent to client JS)
+      const finalRedirectUrl = `${redirectUrl}#accessToken=${jwtTokens.accessToken}`;
 
       res.redirect(finalRedirectUrl);
     } catch (error) {

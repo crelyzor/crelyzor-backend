@@ -6,14 +6,9 @@ import { logger } from "../utils/logging/logger";
 import { AppError } from "../utils/errors/AppError";
 import { askAISchema } from "../validators/askAISchema";
 import { generateContentSchema } from "../validators/generateContentSchema";
-import { noteSchema } from "../validators/noteSchema";
+import { noteSchema, notesQuerySchema } from "../validators/noteSchema";
 import { apiResponse } from "../utils/globalResponseHandler";
 import * as conversationService from "../services/ai/askAIConversationService";
-
-const notesQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  offset: z.coerce.number().int().min(0).default(0),
-});
 
 const uuidSchema = z.string().uuid();
 

@@ -71,7 +71,7 @@ export interface ChangePasswordRequest {
 }
 
 export interface RefreshTokenRequest {
-  refreshToken: string;
+  refreshToken: string; // sourced from cookie or body
 }
 
 export interface LogoutRequest {

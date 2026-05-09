@@ -17,21 +17,41 @@ import { getClientIP } from "../middleware/authMiddleware";
 import prisma from "../db/prismaClient";
 import { logger } from "../utils/logging/logger";
 
+// Refresh token cookie — httpOnly so it's not readable by JS
+const REFRESH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "strict" as const,
+  path: "/api/v1/auth",
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days — matches JWT expiry in tokenService
+};
+
 export const authController = {
   refreshToken: async (req: Request, res: Response): Promise<void> => {
     try {
-      const parsedData = refreshTokenSchema.safeParse(req.body);
-      if (!parsedData.success) {
-        throw ErrorFactory.validation(parsedData.error);
+      // Read from httpOnly cookie (preferred) or body (backward compat for existing sessions)
+      const cookieToken = req.cookies?.refresh_token as string | undefined;
+      const bodyToken = refreshTokenSchema.safeParse(req.body).data?.refreshToken;
+      const refreshToken = cookieToken ?? bodyToken;
+
+      if (!refreshToken) {
+        throw ErrorFactory.unauthorized("Refresh token required");
       }
 
       const ipAddress = getClientIP(req);
-      const result = await authService.refreshToken(parsedData.data, ipAddress);
+      const result = await authService.refreshToken(
+        { refreshToken },
+        ipAddress,
+      );
 
+      // Rotate the cookie
+      res.cookie("refresh_token", result.refreshToken, REFRESH_COOKIE_OPTIONS);
+
+      // Return only the access token in the body — never expose the refresh token to JS
       apiResponse(res, {
         statusCode: 200,
         message: "Token refreshed successfully",
-        data: result,
+        data: { accessToken: result.accessToken, expiresIn: result.expiresIn },
       });
     } catch (err) {
       logger.error("Token refresh error", {
@@ -43,10 +63,11 @@ export const authController = {
 
   logout: async (req: Request, res: Response): Promise<void> => {
     try {
-      const parsedData = logoutSchema.safeParse(req.body);
-      if (!parsedData.success) {
-        throw ErrorFactory.validation(parsedData.error);
-      }
+      // Accept refresh token from cookie or body for session revocation
+      const cookieToken = req.cookies?.refresh_token as string | undefined;
+      const parsedBody = logoutSchema.safeParse(req.body);
+      const bodyToken = parsedBody.success ? parsedBody.data.refreshToken : undefined;
+      const logoutAll = parsedBody.success ? parsedBody.data.logoutAll : false;
 
       const userId = req.user?.userId;
       const sessionId = req.sessionId;
@@ -57,9 +78,12 @@ export const authController = {
 
       const result = await authService.logout(
         userId,
-        parsedData.data,
+        { refreshToken: cookieToken ?? bodyToken, logoutAll },
         sessionId,
       );
+
+      // Clear the cookie regardless
+      res.clearCookie("refresh_token", { path: "/api/v1/auth" });
 
       apiResponse(res, {
         statusCode: 200,
