@@ -31,7 +31,7 @@ export async function adminLogin(
     { role: "admin", adminId: admin.id, email: admin.email },
     secret,
     {
-      expiresIn: "24h",
+      expiresIn: "2h",
     },
   );
 }

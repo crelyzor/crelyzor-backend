@@ -156,12 +156,12 @@ export const getNotes = async (req: Request, res: Response) => {
 
   const [notes, total] = await Promise.all([
     prisma.meetingNote.findMany({
-      where: { meetingId, isDeleted: false },
+      where: { meetingId, author: userId, isDeleted: false },
       orderBy: { createdAt: "desc" },
       take: limit,
       skip: offset,
     }),
-    prisma.meetingNote.count({ where: { meetingId, isDeleted: false } }),
+    prisma.meetingNote.count({ where: { meetingId, author: userId, isDeleted: false } }),
   ]);
 
   return apiResponse(res, {
