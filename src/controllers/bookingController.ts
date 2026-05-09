@@ -62,7 +62,10 @@ export const getPublicBookingDetails = async (req: Request, res: Response) => {
   const params = guestCancelParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid booking ID", 400);
 
-  const booking = await bookingService.getPublicBooking(params.data.id);
+  const username = typeof req.query.username === "string" ? req.query.username : undefined;
+  const slug = typeof req.query.slug === "string" ? req.query.slug : undefined;
+
+  const booking = await bookingService.getPublicBooking(params.data.id, username, slug);
 
   return apiResponse(res, {
     statusCode: 200,
