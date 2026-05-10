@@ -149,7 +149,7 @@ export const cardService = {
       isDefault,
     };
     const publicUrl = buildPublicUrl(username, slug, isDefault);
-    const templateData = buildTemplateData(draftData as any, publicUrl);
+    const templateData = buildTemplateData(draftData, publicUrl);
     const { htmlContent, htmlBackContent } = await renderCardHtml(
       templateId,
       templateData,
@@ -716,36 +716,49 @@ export const cardService = {
           .filter(Boolean)
       : [];
 
-    const contacts = await prisma.cardContact.findMany({
-      where: {
-        userId,
-        isDeleted: false,
-        ...(cardId ? { cardId } : {}),
-        ...(search
-          ? {
-              OR: [
-                { name: { contains: search, mode: "insensitive" } },
-                { email: { contains: search, mode: "insensitive" } },
-                { company: { contains: search, mode: "insensitive" } },
-              ],
-            }
-          : {}),
-        ...(tagList.length > 0 ? { tags: { hasSome: tagList } } : {}),
-      },
-      include: { card: { select: { slug: true } } },
-      orderBy: { scannedAt: "desc" },
-      take: 10000,
-    });
+    const where = {
+      userId,
+      isDeleted: false,
+      ...(cardId ? { cardId } : {}),
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: "insensitive" as const } },
+              { email: { contains: search, mode: "insensitive" as const } },
+              { company: { contains: search, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+      ...(tagList.length > 0 ? { tags: { hasSome: tagList } } : {}),
+    };
+
+    const BATCH_SIZE = 500;
+    const csvRows: string[] = [];
+    let cursor: string | undefined;
+
+    while (true) {
+      const batch = await prisma.cardContact.findMany({
+        where,
+        include: { card: { select: { slug: true } } },
+        orderBy: { id: "asc" },
+        take: BATCH_SIZE,
+        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      });
+
+      if (batch.length === 0) break;
+
+      for (const c of batch) {
+        csvRows.push(
+          `"${c.name}","${c.email || ""}","${c.phone || ""}","${c.company || ""}","${c.note || ""}","${c.card.slug}","${c.tags.join("; ")}","${c.scannedAt.toISOString()}"`,
+        );
+      }
+
+      cursor = batch[batch.length - 1].id;
+      if (batch.length < BATCH_SIZE) break;
+    }
 
     const header = "Name,Email,Phone,Company,Note,Card,Tags,Date\n";
-    const rows = contacts
-      .map(
-        (c) =>
-          `"${c.name}","${c.email || ""}","${c.phone || ""}","${c.company || ""}","${c.note || ""}","${c.card.slug}","${c.tags.join("; ")}","${c.scannedAt.toISOString()}"`,
-      )
-      .join("\n");
-
-    return header + rows;
+    return header + csvRows.join("\n");
   },
 
   /**

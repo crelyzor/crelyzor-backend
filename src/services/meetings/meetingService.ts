@@ -1,12 +1,6 @@
 import prisma from "../../db/prismaClient";
 import { ErrorFactory } from "../../utils/globalErrorHandler";
-import {
-  Meeting,
-  MeetingStatus,
-  MeetingType,
-  MeetingParticipant,
-  Prisma,
-} from "@prisma/client";
+import { MeetingStatus, MeetingType, Prisma } from "@prisma/client";
 import {
   createGCalEventForMeeting,
   updateGCalEventForMeeting,
@@ -51,6 +45,41 @@ const meetingInclude = {
   },
 } satisfies Prisma.MeetingInclude;
 
+type MeetingWithDetails = Prisma.MeetingGetPayload<{
+  include: typeof meetingInclude;
+}>;
+
+// Lighter include for list endpoints — uses _count instead of full participant objects
+const meetingListInclude = {
+  _count: {
+    select: { participants: true },
+  },
+  participants: {
+    select: { userId: true },
+  },
+  tags: {
+    include: {
+      tag: {
+        select: { id: true, name: true, color: true },
+      },
+    },
+  },
+  booking: {
+    select: { id: true, status: true },
+  },
+} satisfies Prisma.MeetingInclude;
+
+type MeetingListItem = Prisma.MeetingGetPayload<{
+  include: typeof meetingListInclude;
+}>;
+
+interface ConflictResult {
+  type: "MEETING";
+  startTime: Date;
+  endTime: Date;
+  details: string;
+}
+
 export interface CreateMeetingDTO {
   createdById: string;
   title?: string;
@@ -81,7 +110,9 @@ export interface ConflictDetectionParams {
 }
 
 export const meetingService = {
-  async createMeeting(data: CreateMeetingDTO): Promise<Meeting> {
+  async createMeeting(
+    data: CreateMeetingDTO,
+  ): Promise<{ meeting: MeetingWithDetails; gcalSynced: boolean }> {
     const {
       createdById,
       description,
@@ -263,6 +294,7 @@ export const meetingService = {
     // Create Google Calendar event for SCHEDULED meetings when requested.
     // Includes conference data to generate a Meet URL in a single API call.
     // Fail-open: GCal failure never prevents the meeting from being created.
+    let gcalSynced = false;
     if (isScheduled && data.addToCalendar !== false) {
       try {
         const gcalResult = await createGCalEventForMeeting(createdById, {
@@ -285,6 +317,7 @@ export const meetingService = {
             include: meetingInclude,
           });
           committedMeeting = updatedMeeting;
+          gcalSynced = true;
         }
       } catch {
         // fail-open — meeting is already committed
@@ -323,7 +356,7 @@ export const meetingService = {
       }
     }
 
-    return committedMeeting;
+    return { meeting: committedMeeting, gcalSynced };
   },
 
   async updateMeeting(
@@ -340,7 +373,7 @@ export const meetingService = {
       notes?: string;
       addToCalendar?: boolean;
     },
-  ): Promise<Meeting> {
+  ): Promise<MeetingWithDetails> {
     const meeting = await prisma.meeting.findFirst({
       where: { id: meetingId, createdById: updatedByUserId, isDeleted: false },
       select: {
@@ -639,7 +672,7 @@ export const meetingService = {
     return updatedMeeting;
   },
 
-  async cancelMeeting(data: UpdateMeetingStatusDTO): Promise<Meeting> {
+  async cancelMeeting(data: UpdateMeetingStatusDTO): Promise<MeetingWithDetails> {
     const { meetingId, requesterUserId, reason } = data;
 
     const meeting = await prisma.meeting.findFirst({
@@ -701,7 +734,7 @@ export const meetingService = {
     return cancelled;
   },
 
-  async completeMeeting(data: UpdateMeetingStatusDTO): Promise<Meeting> {
+  async completeMeeting(data: UpdateMeetingStatusDTO): Promise<MeetingWithDetails> {
     const { meetingId, requesterUserId } = data;
 
     const meeting = await prisma.meeting.findFirst({
@@ -763,7 +796,7 @@ export const meetingService = {
     limit?: number;
     offset?: number;
   }): Promise<{
-    meetings: (Meeting & { participants: MeetingParticipant[] })[];
+    meetings: MeetingListItem[];
     total: number;
   }> {
     const {
@@ -794,11 +827,11 @@ export const meetingService = {
     const [meetings, total] = await Promise.all([
       prisma.meeting.findMany({
         where,
-        include: meetingInclude,
+        include: meetingListInclude,
         orderBy: { createdAt: "desc" },
         take: limit,
         skip: offset,
-      }) as any,
+      }),
       prisma.meeting.count({ where }),
     ]);
 
@@ -812,7 +845,7 @@ export const meetingService = {
     startDate?: Date;
     endDate?: Date;
   }): Promise<{
-    meetings: (Meeting & { participants: MeetingParticipant[] })[];
+    meetings: MeetingListItem[];
     truncated: boolean;
   }> {
     const { userId, status, type, startDate, endDate } = params;
@@ -840,12 +873,12 @@ export const meetingService = {
     }
 
     const MAX_CALENDAR_MEETINGS = 200;
-    const rows = (await prisma.meeting.findMany({
+    const rows = await prisma.meeting.findMany({
       where,
-      include: meetingInclude,
+      include: meetingListInclude,
       orderBy: { createdAt: "desc" },
       take: MAX_CALENDAR_MEETINGS + 1,
-    })) as any[];
+    });
 
     const truncated = rows.length > MAX_CALENDAR_MEETINGS;
     return {
@@ -854,7 +887,7 @@ export const meetingService = {
     };
   },
 
-  async detectConflicts(params: ConflictDetectionParams): Promise<any[]> {
+  async detectConflicts(params: ConflictDetectionParams): Promise<ConflictResult[]> {
     const { userId, startTime, endTime, excludeMeetingId } = params;
 
     const CONFLICT_DETECTION_LIMIT = 20;
@@ -917,14 +950,39 @@ export const meetingService = {
       throw ErrorFactory.validation("No calendar events found in ICS file");
     }
 
+    // Pre-batch dedup: collect all UIDs, find existing in one query
+    const allUids = events
+      .map((c) => new ICAL.Event(c).uid?.trim())
+      .filter((uid): uid is string => !!uid);
+
+    const existingMeetings = allUids.length > 0
+      ? await prisma.meeting.findMany({
+          where: {
+            createdById: userId,
+            googleEventId: { in: allUids },
+            isDeleted: false,
+          },
+          select: { googleEventId: true },
+        })
+      : [];
+    const existingUids = new Set(
+      existingMeetings.map((m) => m.googleEventId).filter(Boolean) as string[],
+    );
+
     let created = 0;
-    let skipped = 0;
+    let skipped = existingMeetings.length;
     const errors: string[] = [];
 
     for (const component of events) {
       try {
         const event = new ICAL.Event(component);
         const uid = event.uid?.trim();
+
+        // Skip already-existing UIDs (resolved from batch dedup above)
+        if (uid && existingUids.has(uid)) {
+          continue;
+        }
+
         const startTime = event.startDate?.toJSDate();
 
         if (!startTime) {
@@ -938,22 +996,6 @@ export const meetingService = {
           parsedEnd && parsedEnd > startTime
             ? parsedEnd
             : new Date(startTime.getTime() + 30 * 60 * 1000);
-
-        if (uid) {
-          const existing = await prisma.meeting.findFirst({
-            where: {
-              createdById: userId,
-              googleEventId: uid,
-              isDeleted: false,
-            },
-            select: { id: true },
-          });
-
-          if (existing) {
-            skipped += 1;
-            continue;
-          }
-        }
 
         const title = event.summary?.trim() || "Imported meeting";
         const description = event.description?.trim() || undefined;

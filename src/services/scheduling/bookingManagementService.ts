@@ -3,6 +3,7 @@ import prisma from "../../db/prismaClient";
 import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
 import type { ListBookingsFilters } from "../../validators/bookingManagementSchema";
+import { env } from "../../config/environment";
 import {
   insertCalendarEvent,
   deleteCalendarEvent,
@@ -23,9 +24,9 @@ import {
 } from "../email/templates/bookingCancelled";
 
 /** Base URL for the dashboard app — used in email CTAs */
-const APP_BASE_URL = process.env.FRONTEND_URL ?? "https://app.crelyzor.com";
+const APP_BASE_URL = env.FRONTEND_URL;
 /** Base URL for public-facing links (cancel, reschedule) */
-const PUBLIC_BASE_URL = process.env.PUBLIC_URL ?? "https://crelyzor.com";
+const PUBLIC_BASE_URL = env.PUBLIC_URL;
 
 // Fields returned for each booking in the list
 const BOOKING_LIST_SELECT = {
@@ -287,8 +288,8 @@ export async function confirmBooking(userId: string, bookingId: string) {
     (user?.settings?.bookingEmailsEnabled ?? true);
 
   if (emailsEnabled && user?.email) {
+    // 1. Host: "New booking from [guest]" — fail-open, independent of guest email
     try {
-      // 1. Host: "New booking from [guest]"
       await sendEmail({
         to: user.email,
         subject: bookingReceivedSubject({
@@ -308,8 +309,15 @@ export async function confirmBooking(userId: string, bookingId: string) {
           appBaseUrl: APP_BASE_URL,
         }),
       });
+    } catch (err) {
+      logger.error("Failed to send booking-received email to host (non-critical)", {
+        bookingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
-      // 2. Guest: "Your [event] with [host] is confirmed"
+    // 2. Guest: "Your [event] with [host] is confirmed" — fail-open, independent of host email
+    try {
       await sendEmail({
         to: booking.guestEmail,
         subject: bookingConfirmationSubject({
@@ -329,13 +337,10 @@ export async function confirmBooking(userId: string, bookingId: string) {
         }),
       });
     } catch (err) {
-      logger.error(
-        "Failed to send booking confirmation emails (non-critical)",
-        {
-          bookingId,
-          error: err instanceof Error ? err.message : String(err),
-        },
-      );
+      logger.error("Failed to send booking-confirmation email to guest (non-critical)", {
+        bookingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     // 3. Queue a 24h reminder for BOTH host and guest

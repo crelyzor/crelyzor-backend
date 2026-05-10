@@ -635,7 +635,6 @@ export async function getPublicBooking(
       status: true,
       timezone: true,
       guestName: true,
-      guestEmail: true,
       eventType: {
         select: {
           title: true,

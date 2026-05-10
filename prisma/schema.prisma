@@ -62,6 +62,8 @@ model User {
   meetingShares         MeetingShare[]
   tags                  Tag[]
   meetingAttachments    MeetingAttachment[]
+  meetingNotes          MeetingNote[]
+  recordings            MeetingRecording[]
 
   // Scheduling (Phase 1.2)
   settings               UserSettings?
@@ -266,6 +268,7 @@ model MeetingRecording {
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
 
+  uploader   User              @relation(fields: [uploadedBy], references: [id], onDelete: Restrict)
   meeting    Meeting           @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   transcript MeetingTranscript?
 
@@ -309,6 +312,7 @@ model TranscriptSegment {
   @@index([transcriptId])
   @@index([speaker])
   @@index([startTime])
+  @@index([transcriptId, startTime])
 }
 
 model MeetingSpeaker {
@@ -408,7 +412,7 @@ model MeetingNote {
   meetingId String @db.Uuid
 
   content   String
-  author    String @db.Uuid // userId
+  author    String? @db.Uuid // userId — nullable so notes survive user deletion
   timestamp Float? // seconds into the meeting
 
   // Soft delete
@@ -418,7 +422,8 @@ model MeetingNote {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  meeting    Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  authorUser User?   @relation(fields: [author], references: [id], onDelete: SetNull)
 
   @@index([meetingId])
   @@index([author])
@@ -1094,4 +1099,8 @@ model AdminInvite {
   expiresAt   DateTime
   usedAt      DateTime?
   createdAt   DateTime  @default(now())
+
+  @@index([invitedById])
+  @@index([email])
+  @@index([expiresAt])
 }

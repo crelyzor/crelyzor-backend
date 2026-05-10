@@ -39,6 +39,11 @@ const envSchema = z.object({
   // Email (Resend) — optional; emails are skipped gracefully if absent
   RESEND_API_KEY: z.string().min(1).optional(),
   RESEND_FROM_EMAIL: z.string().default("Crelyzor <harshkeshari100@gmail.com>"),
+
+  // App URLs — used in email CTAs, OAuth redirects, and CORS
+  FRONTEND_URL: z.string().url().default("https://app.crelyzor.com"),
+  PUBLIC_URL: z.string().url().default("https://crelyzor.com"),
+  ALLOWED_ORIGINS: z.string().optional(),
 });
 
 export type Environment = z.infer<typeof envSchema>;

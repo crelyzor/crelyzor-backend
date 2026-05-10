@@ -138,22 +138,24 @@ export async function getSlots(
   // 6. Get day of week in schedule's timezone
   const dayOfWeek = getDayOfWeekInTz(date, tz);
 
-  // 7. Check availability override for this date
+  // 7+8. Fetch override and availability slots in parallel — both depend only on schedule.id
   const overrideDate = new Date(Date.UTC(yr, mo - 1, da, 12, 0, 0));
-  const override = await prisma.availabilityOverride.findUnique({
-    where: { scheduleId_date: { scheduleId: schedule.id, date: overrideDate } },
-    select: { isBlocked: true, isDeleted: true },
-  });
+  const [override, availabilitySlots] = await Promise.all([
+    prisma.availabilityOverride.findUnique({
+      where: { scheduleId_date: { scheduleId: schedule.id, date: overrideDate } },
+      select: { isBlocked: true, isDeleted: true },
+    }),
+    prisma.availability.findMany({
+      where: { scheduleId: schedule.id, dayOfWeek, isDeleted: false },
+      select: { startTime: true, endTime: true },
+      orderBy: { startTime: "asc" },
+    }),
+  ]);
+
   if (override && !override.isDeleted && override.isBlocked) {
     return { slots: [] };
   }
 
-  // 8. Get all availability slots for this day (multiple slots per day)
-  const availabilitySlots = await prisma.availability.findMany({
-    where: { scheduleId: schedule.id, dayOfWeek, isDeleted: false },
-    select: { startTime: true, endTime: true },
-    orderBy: { startTime: "asc" },
-  });
   if (availabilitySlots.length === 0) {
     logger.info("No availability slots for day", { username, date, dayOfWeek });
     return { slots: [] };

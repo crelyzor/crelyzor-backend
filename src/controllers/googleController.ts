@@ -7,10 +7,11 @@ import {
 } from "../utils/globalErrorHandler";
 import { authService } from "../services/auth/authService";
 import { logger } from "../utils/logging/logger";
+import { env } from "../config/environment";
 import prisma from "../db/prismaClient";
 
 const ALLOWED_REDIRECT_ORIGINS = (
-  process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174"
+  env.ALLOWED_ORIGINS ?? `${env.FRONTEND_URL},http://localhost:5173,http://localhost:5174`
 )
   .split(",")
   .map((o) => o.trim())
@@ -81,8 +82,8 @@ export const googleController = {
     // Extract redirectUrl from state before signature verification so we can
     // always redirect back to the frontend — even on error or denial.
     const fallbackRedirect =
-      (process.env.ALLOWED_ORIGINS?.split(",")[0]?.trim() ??
-        "http://localhost:5173") + "/settings?tab=integrations";
+      (env.ALLOWED_ORIGINS?.split(",")[0]?.trim() ?? env.FRONTEND_URL) +
+      "/settings?tab=integrations";
 
     let redirectUrl = fallbackRedirect;
     try {
