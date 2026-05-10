@@ -476,6 +476,7 @@ export const cardService = {
         name: true,
         username: true,
         avatarUrl: true,
+        plan: true,
         cards: {
           where: cardWhere,
           orderBy: slug
@@ -511,6 +512,7 @@ export const cardService = {
         name: user.name,
         username: user.username,
         avatarUrl: user.avatarUrl,
+        plan: user.plan,
       },
       card: publicCard,
     };

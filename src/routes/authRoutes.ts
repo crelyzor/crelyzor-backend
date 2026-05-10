@@ -2,18 +2,16 @@ import { Router } from "express";
 import { authController } from "../controllers/authController";
 import {
   verifyJWT,
-  validateRefreshToken,
   userRateLimit,
   autoRefreshToken,
 } from "../middleware/authMiddleware";
 
 const authRouter = Router();
 
-// Token refresh (still needed for Google OAuth sessions)
+// Token refresh — controller handles cookie, body, and validation
 authRouter.post(
   "/refresh-token",
   userRateLimit(10, 15 * 60 * 1000, "auth:refresh"),
-  validateRefreshToken,
   authController.refreshToken,
 );
 
