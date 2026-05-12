@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@deepgram/sdk':
-        specifier: ^4.11.3
-        version: 4.11.3
+        specifier: ^5.1.0
+        version: 5.1.0
       '@google-cloud/storage':
         specifier: ^7.18.0
         version: 7.18.0
@@ -178,12 +178,8 @@ packages:
   '@dabh/diagnostics@2.0.8':
     resolution: {integrity: sha512-R4MSXTVnuMzGD7bzHdW2ZhhdPC/igELENcq5IjEverBvq5hn1SXCWcsi6eSsdWP0/Ur+SItRRjAktmdoX/8R/Q==}
 
-  '@deepgram/captions@1.2.0':
-    resolution: {integrity: sha512-8B1C/oTxTxyHlSFubAhNRgCbQ2SQ5wwvtlByn8sDYZvdDtdn/VE2yEPZ4BvUnrKWmsbTQY6/ooLV+9Ka2qmDSQ==}
-    engines: {node: '>=18.0.0'}
-
-  '@deepgram/sdk@4.11.3':
-    resolution: {integrity: sha512-7NujHlAX6ciBeYAkxkhE7LCZWy0JK3nvFsV2VwVZIUiFR40ykhep5fxYd7ZovM+PbNyCoM8GKNMHu9MeQ5/wTQ==}
+  '@deepgram/sdk@5.1.0':
+    resolution: {integrity: sha512-pw4JsFLglvIAjk1C4rALHYBW5dHt30d3j25jsJhvoexTziLSTBK9LJlpeml/UDwHMILu4ZbBs3o0ZsF9DaHuZQ==}
     engines: {node: '>=18.0.0'}
 
   '@esbuild/aix-ppc64@0.27.2':
@@ -601,9 +597,6 @@ packages:
   '@types/multer@1.4.13':
     resolution: {integrity: sha512-bhhdtPw7JqCiEfC9Jimx5LqX9BDIPJEh2q/fQ4bqbBPtyEZYr3cvF22NwG0DmPZNYA0CAf2CnqDB4KIGGpJcaw==}
 
-  '@types/node@18.19.130':
-    resolution: {integrity: sha512-GRaXQx6jGfL8sKfaIDD6OupbIHBr9jv7Jnaml9tB7l4v068PAOXqfcujMMo5PhbIs6ggR1XODELqahT2R8v0fg==}
-
   '@types/node@22.19.1':
     resolution: {integrity: sha512-LCCV0HdSZZZb34qifBsyWlUmok6W7ouER+oQIGBScS8EsZsQbrtFTUrDX4hOl+CS6p7cnNC4td+qrSVGSCTUfQ==}
 
@@ -966,9 +959,6 @@ packages:
     resolution: {integrity: sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q==}
     engines: {node: '>=12.0.0'}
 
-  cross-fetch@3.2.0:
-    resolution: {integrity: sha512-Q+xVJLoGOeIMXZmbUK4HYk+69cQH6LudR0Vu/pRm2YlU/hDV9CiS0gKUMaWY5f2NeUH9C1nV3bsTlCo0FsTV1Q==}
-
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
@@ -981,9 +971,6 @@ packages:
 
   dateformat@4.6.3:
     resolution: {integrity: sha512-2P0p0pFGzHS5EMnhdxQi7aJN+iMheud0UhG4dlE1DLAlvL8JHjJJTX/CSm4JXwV0Ka5nGk3zC5mcb5bUQUxxMA==}
-
-  dayjs@1.11.19:
-    resolution: {integrity: sha512-t5EcLVS6QPBNqM2z8fakk/NKel+Xzshgt8FFKAn+qwlD1pzZWxh0nVCrvFK7ZDb6XucZeF9z8C7CBWTRIVApAw==}
 
   debug@2.6.9:
     resolution: {integrity: sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==}
@@ -1012,10 +999,6 @@ packages:
   deepmerge-ts@7.1.5:
     resolution: {integrity: sha512-HOJkrhaYsweh+W+e74Yn7YStZOilkoPb6fycpwNLKzSPtruFs48nYis0zy5yJz1+ktUhHxoRDJ27RQAWLIJVJw==}
     engines: {node: '>=16.0.0'}
-
-  deepmerge@4.3.1:
-    resolution: {integrity: sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A==}
-    engines: {node: '>=0.10.0'}
 
   defu@6.1.4:
     resolution: {integrity: sha512-mEQCMmwJu317oSz8CwdIOdwf3xMif1ttiM8LTufzc3g6kR+9Pe236twL8j3IYT1F7GfRgGcW6MWxzZjLIkuHIg==}
@@ -1183,10 +1166,6 @@ packages:
 
   eventemitter3@5.0.4:
     resolution: {integrity: sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==}
-
-  events@3.3.0:
-    resolution: {integrity: sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==}
-    engines: {node: '>=0.8.x'}
 
   express-rate-limit@7.5.1:
     resolution: {integrity: sha512-7iN8iPMDzOMHPUYllBEsQdWVB6fPDMPqwjBaFrgr4Jgr/+okjvzAy+UHlYYL/Vs0OsOrMkwS6PJDkFlJwoxUnw==}
@@ -2256,9 +2235,6 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
-  undici-types@5.26.5:
-    resolution: {integrity: sha512-JlCMO+ehdEIKqlFxk6IfVoAUVmgz7cU7zD/h9XZ0qzeosSHmUJVOzSQvvYSYWXkFXC+IfLKSIffhv0sVZup6pA==}
-
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
@@ -2349,8 +2325,8 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
-  ws@8.19.0:
-    resolution: {integrity: sha512-blAT2mjOEIi0ZzruJfIhb3nps74PRWTCz1IjglWEEpQl5XS/UNama6u2/rjFkDDouqr4L67ry+1aGIALViWjDg==}
+  ws@8.20.0:
+    resolution: {integrity: sha512-sAt8BhgNbzCtgGbt2OxmpuryO63ZoDk/sqaB/znQm94T4fCEsy/yV+7CdC1kJhOU9lboAEU7R3kquuycDoibVA==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -2398,21 +2374,11 @@ snapshots:
       enabled: 2.0.0
       kuler: 2.0.0
 
-  '@deepgram/captions@1.2.0':
+  '@deepgram/sdk@5.1.0':
     dependencies:
-      dayjs: 1.11.19
-
-  '@deepgram/sdk@4.11.3':
-    dependencies:
-      '@deepgram/captions': 1.2.0
-      '@types/node': 18.19.130
-      cross-fetch: 3.2.0
-      deepmerge: 4.3.1
-      events: 3.3.0
-      ws: 8.19.0
+      ws: 8.20.0
     transitivePeerDependencies:
       - bufferutil
-      - encoding
       - utf-8-validate
 
   '@esbuild/aix-ppc64@0.27.2':
@@ -2747,10 +2713,6 @@ snapshots:
   '@types/multer@1.4.13':
     dependencies:
       '@types/express': 5.0.5
-
-  '@types/node@18.19.130':
-    dependencies:
-      undici-types: 5.26.5
 
   '@types/node@22.19.1':
     dependencies:
@@ -3165,12 +3127,6 @@ snapshots:
     dependencies:
       luxon: 3.7.2
 
-  cross-fetch@3.2.0:
-    dependencies:
-      node-fetch: 2.7.0
-    transitivePeerDependencies:
-      - encoding
-
   cross-spawn@7.0.6:
     dependencies:
       path-key: 3.1.1
@@ -3182,8 +3138,6 @@ snapshots:
   csv-parse@6.2.1: {}
 
   dateformat@4.6.3: {}
-
-  dayjs@1.11.19: {}
 
   debug@2.6.9:
     dependencies:
@@ -3198,8 +3152,6 @@ snapshots:
   deep-is@0.1.4: {}
 
   deepmerge-ts@7.1.5: {}
-
-  deepmerge@4.3.1: {}
 
   defu@6.1.4: {}
 
@@ -3388,8 +3340,6 @@ snapshots:
   event-target-shim@5.0.1: {}
 
   eventemitter3@5.0.4: {}
-
-  events@3.3.0: {}
 
   express-rate-limit@7.5.1(express@5.1.0):
     dependencies:
@@ -4545,8 +4495,6 @@ snapshots:
 
   typescript@5.9.3: {}
 
-  undici-types@5.26.5: {}
-
   undici-types@6.21.0: {}
 
   unicode-properties@1.4.1:
@@ -4636,7 +4584,7 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  ws@8.19.0: {}
+  ws@8.20.0: {}
 
   xtend@4.0.2: {}
 
