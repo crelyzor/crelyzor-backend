@@ -35,7 +35,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@deepgram/sdk": "^5.1.0",
+    "@deepgram/sdk": "^4.11.3",
     "@google-cloud/storage": "^7.18.0",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.19.0",
@@ -66,9 +66,9 @@
     "redis": "^5.12.1",
     "resend": "^6.10.0",
     "rrule": "^2.8.1",
-    "uuid": "^14.0.0",
+    "uuid": "^11.1.0",
     "winston": "^3.17.0",
-    "zod": "^4.4.3"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",
