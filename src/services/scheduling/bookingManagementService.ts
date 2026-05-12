@@ -310,10 +310,13 @@ export async function confirmBooking(userId: string, bookingId: string) {
         }),
       });
     } catch (err) {
-      logger.error("Failed to send booking-received email to host (non-critical)", {
-        bookingId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      logger.error(
+        "Failed to send booking-received email to host (non-critical)",
+        {
+          bookingId,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
     }
 
     // 2. Guest: "Your [event] with [host] is confirmed" — fail-open, independent of host email
@@ -337,10 +340,13 @@ export async function confirmBooking(userId: string, bookingId: string) {
         }),
       });
     } catch (err) {
-      logger.error("Failed to send booking-confirmation email to guest (non-critical)", {
-        bookingId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      logger.error(
+        "Failed to send booking-confirmation email to guest (non-critical)",
+        {
+          bookingId,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
     }
 
     // 3. Queue a 24h reminder for BOTH host and guest

@@ -672,7 +672,9 @@ export const meetingService = {
     return updatedMeeting;
   },
 
-  async cancelMeeting(data: UpdateMeetingStatusDTO): Promise<MeetingWithDetails> {
+  async cancelMeeting(
+    data: UpdateMeetingStatusDTO,
+  ): Promise<MeetingWithDetails> {
     const { meetingId, requesterUserId, reason } = data;
 
     const meeting = await prisma.meeting.findFirst({
@@ -734,7 +736,9 @@ export const meetingService = {
     return cancelled;
   },
 
-  async completeMeeting(data: UpdateMeetingStatusDTO): Promise<MeetingWithDetails> {
+  async completeMeeting(
+    data: UpdateMeetingStatusDTO,
+  ): Promise<MeetingWithDetails> {
     const { meetingId, requesterUserId } = data;
 
     const meeting = await prisma.meeting.findFirst({
@@ -887,7 +891,9 @@ export const meetingService = {
     };
   },
 
-  async detectConflicts(params: ConflictDetectionParams): Promise<ConflictResult[]> {
+  async detectConflicts(
+    params: ConflictDetectionParams,
+  ): Promise<ConflictResult[]> {
     const { userId, startTime, endTime, excludeMeetingId } = params;
 
     const CONFLICT_DETECTION_LIMIT = 20;
@@ -955,16 +961,17 @@ export const meetingService = {
       .map((c) => new ICAL.Event(c).uid?.trim())
       .filter((uid): uid is string => !!uid);
 
-    const existingMeetings = allUids.length > 0
-      ? await prisma.meeting.findMany({
-          where: {
-            createdById: userId,
-            googleEventId: { in: allUids },
-            isDeleted: false,
-          },
-          select: { googleEventId: true },
-        })
-      : [];
+    const existingMeetings =
+      allUids.length > 0
+        ? await prisma.meeting.findMany({
+            where: {
+              createdById: userId,
+              googleEventId: { in: allUids },
+              isDeleted: false,
+            },
+            select: { googleEventId: true },
+          })
+        : [];
     const existingUids = new Set(
       existingMeetings.map((m) => m.googleEventId).filter(Boolean) as string[],
     );
@@ -1030,6 +1037,7 @@ export const meetingService = {
           { timeout: 15000 },
         );
 
+        if (uid) existingUids.add(uid);
         created += 1;
       } catch (error) {
         skipped += 1;

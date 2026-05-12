@@ -734,6 +734,13 @@ export const cardService = {
       ...(tagList.length > 0 ? { tags: { hasSome: tagList } } : {}),
     };
 
+    // Escape a value per RFC 4180: wrap in quotes, double internal quotes.
+    // Prefix formula-triggering chars (=+-@) to prevent CSV injection in spreadsheets.
+    const csvCell = (value: string): string => {
+      const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
+      return `"${safe.replace(/"/g, '""')}"`;
+    };
+
     const BATCH_SIZE = 500;
     const csvRows: string[] = [];
     let cursor: string | undefined;
@@ -751,7 +758,16 @@ export const cardService = {
 
       for (const c of batch) {
         csvRows.push(
-          `"${c.name}","${c.email || ""}","${c.phone || ""}","${c.company || ""}","${c.note || ""}","${c.card.slug}","${c.tags.join("; ")}","${c.scannedAt.toISOString()}"`,
+          [
+            csvCell(c.name),
+            csvCell(c.email || ""),
+            csvCell(c.phone || ""),
+            csvCell(c.company || ""),
+            csvCell(c.note || ""),
+            csvCell(c.card.slug),
+            csvCell(c.tags.join("; ")),
+            csvCell(c.scannedAt.toISOString()),
+          ].join(","),
         );
       }
 

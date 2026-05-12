@@ -11,7 +11,8 @@ import { env } from "../config/environment";
 import prisma from "../db/prismaClient";
 
 const ALLOWED_REDIRECT_ORIGINS = (
-  env.ALLOWED_ORIGINS ?? `${env.FRONTEND_URL},http://localhost:5173,http://localhost:5174`
+  env.ALLOWED_ORIGINS ??
+  `${env.FRONTEND_URL},http://localhost:5173,http://localhost:5174`
 )
   .split(",")
   .map((o) => o.trim())

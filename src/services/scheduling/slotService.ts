@@ -142,7 +142,9 @@ export async function getSlots(
   const overrideDate = new Date(Date.UTC(yr, mo - 1, da, 12, 0, 0));
   const [override, availabilitySlots] = await Promise.all([
     prisma.availabilityOverride.findUnique({
-      where: { scheduleId_date: { scheduleId: schedule.id, date: overrideDate } },
+      where: {
+        scheduleId_date: { scheduleId: schedule.id, date: overrideDate },
+      },
       select: { isBlocked: true, isDeleted: true },
     }),
     prisma.availability.findMany({

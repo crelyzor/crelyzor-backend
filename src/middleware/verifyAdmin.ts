@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { AppError } from "../utils/errors/AppError";
+import { env } from "../config/environment";
 import { logger } from "../utils/logging/logger";
 import {
   globalErrorHandler,
@@ -24,15 +25,16 @@ export const verifyAdmin = (
     // for backward compatibility during local development.
     const cookieToken = req.cookies?.admin_token as string | undefined;
     const authHeader = req.headers.authorization;
-    const headerToken =
-      authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : undefined;
+    const headerToken = authHeader?.startsWith("Bearer ")
+      ? authHeader.substring(7)
+      : undefined;
 
     const token = cookieToken ?? headerToken;
     if (!token) {
       throw new AppError("Admin token required", 401);
     }
 
-    const secret = process.env.ADMIN_JWT_SECRET;
+    const secret = env.ADMIN_JWT_SECRET;
     if (!secret) {
       logger.error("ADMIN_JWT_SECRET is not set");
       throw new AppError("Admin portal not configured", 500);

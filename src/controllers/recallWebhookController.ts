@@ -25,9 +25,13 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
       logger.error(
         "Recall webhook rejected: RECALL_WEBHOOK_SECRET not configured in production",
       );
-      return res.status(503).json({ error: "Webhook verification not configured" });
+      return res
+        .status(503)
+        .json({ error: "Webhook verification not configured" });
     }
-    logger.warn("RECALL_WEBHOOK_SECRET not set — accepting unverified webhook in non-production");
+    logger.warn(
+      "RECALL_WEBHOOK_SECRET not set — accepting unverified webhook in non-production",
+    );
   } else {
     const standardWebhookId = req.headers["webhook-id"] as string | undefined;
     const standardWebhookSignature = req.headers["webhook-signature"] as

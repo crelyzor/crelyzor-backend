@@ -54,7 +54,7 @@ export interface UserResponse {
   state?: string;
   lastLoginAt?: Date;
   isActive: boolean;
-  plan: 'FREE' | 'PRO' | 'BUSINESS';
+  plan: "FREE" | "PRO" | "BUSINESS";
 }
 
 export interface ResetPasswordRequest {

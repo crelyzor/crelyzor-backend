@@ -31,7 +31,10 @@ export const authController = {
     try {
       // Read from httpOnly cookie (preferred) or body (backward compat for existing sessions)
       const cookieToken = req.cookies?.refresh_token as string | undefined;
-      const bodyToken = refreshTokenSchema.safeParse(req.body).data?.refreshToken;
+      const bodyParsed = refreshTokenSchema.safeParse(req.body);
+      const bodyToken = bodyParsed.success
+        ? bodyParsed.data.refreshToken
+        : undefined;
       const refreshToken = cookieToken ?? bodyToken;
 
       if (!refreshToken) {
@@ -66,7 +69,9 @@ export const authController = {
       // Accept refresh token from cookie or body for session revocation
       const cookieToken = req.cookies?.refresh_token as string | undefined;
       const parsedBody = logoutSchema.safeParse(req.body);
-      const bodyToken = parsedBody.success ? parsedBody.data.refreshToken : undefined;
+      const bodyToken = parsedBody.success
+        ? parsedBody.data.refreshToken
+        : undefined;
       const logoutAll = parsedBody.success ? parsedBody.data.logoutAll : false;
 
       const userId = req.user?.userId;

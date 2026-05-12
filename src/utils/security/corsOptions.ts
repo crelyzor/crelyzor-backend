@@ -12,7 +12,9 @@ const localhostOrigins =
     : [];
 
 const envOrigins = env.ALLOWED_ORIGINS
-  ? env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
+  ? env.ALLOWED_ORIGINS.split(",")
+      .map((o) => o.trim())
+      .filter(Boolean)
   : [];
 
 const allowedOrigins = [...new Set([...localhostOrigins, ...envOrigins])];

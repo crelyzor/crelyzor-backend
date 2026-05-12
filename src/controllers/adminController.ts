@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { AppError } from "../utils/errors/AppError";
+import { env } from "../config/environment";
 import { apiResponse } from "../utils/globalResponseHandler";
 import { logger } from "../utils/logging/logger";
 import {
@@ -38,19 +39,23 @@ export const login = async (req: Request, res: Response) => {
 
   const token = await adminLogin(parsed.data.email, parsed.data.password);
   res.cookie("admin_token", token, COOKIE_OPTIONS);
-  return apiResponse(res, { statusCode: 200, message: "Admin login successful" });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Admin login successful",
+  });
 };
 
 export const me = (req: Request, res: Response) => {
   const cookieToken = req.cookies?.admin_token as string | undefined;
   const authHeader = req.headers.authorization;
-  const headerToken =
-    authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : undefined;
+  const headerToken = authHeader?.startsWith("Bearer ")
+    ? authHeader.substring(7)
+    : undefined;
   const token = cookieToken ?? headerToken;
 
   if (!token) throw new AppError("Admin token required", 401);
 
-  const secret = process.env.ADMIN_JWT_SECRET;
+  const secret = env.ADMIN_JWT_SECRET;
   if (!secret) {
     logger.error("ADMIN_JWT_SECRET is not set");
     throw new AppError("Admin portal not configured", 500);
@@ -62,7 +67,8 @@ export const me = (req: Request, res: Response) => {
       adminId: string;
       email: string;
     };
-    if (decoded.role !== "admin") throw new AppError("Insufficient permissions", 403);
+    if (decoded.role !== "admin")
+      throw new AppError("Insufficient permissions", 403);
     return apiResponse(res, {
       statusCode: 200,
       message: "Authenticated",
@@ -125,7 +131,10 @@ export const acceptInviteHandler = async (req: Request, res: Response) => {
   const parsed = adminAcceptInviteSchema.safeParse(req.body);
   if (!parsed.success) throw new AppError(parsed.error.issues[0].message, 400);
 
-  const { token: jwtToken } = await acceptInvite(parsed.data.token, parsed.data.password);
+  const { token: jwtToken } = await acceptInvite(
+    parsed.data.token,
+    parsed.data.password,
+  );
   res.cookie("admin_token", jwtToken, COOKIE_OPTIONS);
   return apiResponse(res, { statusCode: 200, message: "Invite accepted" });
 };

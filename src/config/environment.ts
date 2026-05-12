@@ -13,6 +13,7 @@ const envSchema = z.object({
   // Auth
   JWT_ACCESS_SECRET: z.string().min(1, "JWT_ACCESS_SECRET is required"),
   JWT_REFRESH_SECRET: z.string().min(1, "JWT_REFRESH_SECRET is required"),
+  ADMIN_JWT_SECRET: z.string().min(1).optional(),
 
   // Google OAuth
   GOOGLE_CLIENT_ID: z.string().min(1, "GOOGLE_CLIENT_ID is required"),

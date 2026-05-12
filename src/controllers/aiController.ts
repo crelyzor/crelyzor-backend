@@ -156,7 +156,9 @@ export const getNotes = async (req: Request, res: Response) => {
       take: limit,
       skip: offset,
     }),
-    prisma.meetingNote.count({ where: { meetingId, author: userId, isDeleted: false } }),
+    prisma.meetingNote.count({
+      where: { meetingId, author: userId, isDeleted: false },
+    }),
   ]);
 
   return apiResponse(res, {

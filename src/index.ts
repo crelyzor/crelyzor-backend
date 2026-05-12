@@ -53,7 +53,9 @@ const startServer = async () => {
       );
       process.exit(1);
     }
-    logger.warn("⚠️ ADMIN_JWT_SECRET not set — admin portal will be unavailable");
+    logger.warn(
+      "⚠️ ADMIN_JWT_SECRET not set — admin portal will be unavailable",
+    );
   }
 
   if (!process.env.ALLOWED_ORIGINS) {
