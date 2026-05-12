@@ -149,7 +149,7 @@ export const cardService = {
       isDefault,
     };
     const publicUrl = buildPublicUrl(username, slug, isDefault);
-    const templateData = buildTemplateData(draftData as any, publicUrl);
+    const templateData = buildTemplateData(draftData, publicUrl);
     const { htmlContent, htmlBackContent } = await renderCardHtml(
       templateId,
       templateData,
@@ -476,6 +476,7 @@ export const cardService = {
         name: true,
         username: true,
         avatarUrl: true,
+        plan: true,
         cards: {
           where: cardWhere,
           orderBy: slug
@@ -511,6 +512,7 @@ export const cardService = {
         name: user.name,
         username: user.username,
         avatarUrl: user.avatarUrl,
+        plan: user.plan,
       },
       card: publicCard,
     };
@@ -716,36 +718,65 @@ export const cardService = {
           .filter(Boolean)
       : [];
 
-    const contacts = await prisma.cardContact.findMany({
-      where: {
-        userId,
-        isDeleted: false,
-        ...(cardId ? { cardId } : {}),
-        ...(search
-          ? {
-              OR: [
-                { name: { contains: search, mode: "insensitive" } },
-                { email: { contains: search, mode: "insensitive" } },
-                { company: { contains: search, mode: "insensitive" } },
-              ],
-            }
-          : {}),
-        ...(tagList.length > 0 ? { tags: { hasSome: tagList } } : {}),
-      },
-      include: { card: { select: { slug: true } } },
-      orderBy: { scannedAt: "desc" },
-      take: 10000,
-    });
+    const where = {
+      userId,
+      isDeleted: false,
+      ...(cardId ? { cardId } : {}),
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: "insensitive" as const } },
+              { email: { contains: search, mode: "insensitive" as const } },
+              { company: { contains: search, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+      ...(tagList.length > 0 ? { tags: { hasSome: tagList } } : {}),
+    };
+
+    // Escape a value per RFC 4180: wrap in quotes, double internal quotes.
+    // Prefix formula-triggering chars (=+-@) to prevent CSV injection in spreadsheets.
+    const csvCell = (value: string): string => {
+      const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
+      return `"${safe.replace(/"/g, '""')}"`;
+    };
+
+    const BATCH_SIZE = 500;
+    const csvRows: string[] = [];
+    let cursor: string | undefined;
+
+    while (true) {
+      const batch = await prisma.cardContact.findMany({
+        where,
+        include: { card: { select: { slug: true } } },
+        orderBy: { id: "asc" },
+        take: BATCH_SIZE,
+        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      });
+
+      if (batch.length === 0) break;
+
+      for (const c of batch) {
+        csvRows.push(
+          [
+            csvCell(c.name),
+            csvCell(c.email || ""),
+            csvCell(c.phone || ""),
+            csvCell(c.company || ""),
+            csvCell(c.note || ""),
+            csvCell(c.card.slug),
+            csvCell(c.tags.join("; ")),
+            csvCell(c.scannedAt.toISOString()),
+          ].join(","),
+        );
+      }
+
+      cursor = batch[batch.length - 1].id;
+      if (batch.length < BATCH_SIZE) break;
+    }
 
     const header = "Name,Email,Phone,Company,Note,Card,Tags,Date\n";
-    const rows = contacts
-      .map(
-        (c) =>
-          `"${c.name}","${c.email || ""}","${c.phone || ""}","${c.company || ""}","${c.note || ""}","${c.card.slug}","${c.tags.join("; ")}","${c.scannedAt.toISOString()}"`,
-      )
-      .join("\n");
-
-    return header + rows;
+    return header + csvRows.join("\n");
   },
 
   /**

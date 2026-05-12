@@ -21,5 +21,8 @@ gcs-key.json
 scripts/**/*.js
 scripts/**/*.js.map
 
+# TypeScript build artifacts
+*.tsbuildinfo
+
 # Misc
 temp-mongo-schema

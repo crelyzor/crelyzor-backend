@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 
 import { corsOptions } from "./utils/security/corsOptions";
 import { logger } from "./utils/logging/logger";
@@ -11,6 +12,7 @@ import recallWebhookRouter from "./routes/recallWebhookRoutes";
 const app = express();
 
 app.use(cors(corsOptions));
+app.use(cookieParser());
 
 // Webhook routes are registered BEFORE express.json() — each webhook route
 // provides its own scoped express.json({ verify }) to capture rawBody only

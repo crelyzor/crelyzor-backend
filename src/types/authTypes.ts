@@ -54,6 +54,7 @@ export interface UserResponse {
   state?: string;
   lastLoginAt?: Date;
   isActive: boolean;
+  plan: "FREE" | "PRO" | "BUSINESS";
 }
 
 export interface ResetPasswordRequest {
@@ -71,7 +72,7 @@ export interface ChangePasswordRequest {
 }
 
 export interface RefreshTokenRequest {
-  refreshToken: string;
+  refreshToken: string; // sourced from cookie or body
 }
 
 export interface LogoutRequest {

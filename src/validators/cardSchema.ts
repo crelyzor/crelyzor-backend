@@ -95,7 +95,11 @@ export const submitContactSchema = z.object({
   email: z.string().email().optional(),
   phone: z.string().max(30).optional(),
   company: z.string().max(100).optional(),
-  note: z.string().max(500).optional(),
+  note: z
+    .string()
+    .max(500)
+    .optional()
+    .transform((v) => v?.replace(/<[^>]*>/g, "").trim()),
 });
 
 export const trackViewSchema = z.object({

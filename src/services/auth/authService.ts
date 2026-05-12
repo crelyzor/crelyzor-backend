@@ -75,6 +75,7 @@ class AuthService {
         state: true,
         lastLoginAt: true,
         isActive: true,
+        plan: true,
       },
     });
 
@@ -176,6 +177,7 @@ class AuthService {
       | "state"
       | "lastLoginAt"
       | "isActive"
+      | "plan"
     >,
   ): UserResponse {
     return {
@@ -191,6 +193,7 @@ class AuthService {
       state: user.state || undefined,
       lastLoginAt: user.lastLoginAt || undefined,
       isActive: user.isActive,
+      plan: user.plan,
     };
   }
 

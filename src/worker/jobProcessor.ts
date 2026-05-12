@@ -41,6 +41,7 @@ import {
 } from "../services/billing/usageService";
 import { gcsService } from "../services/gcs/gcsService";
 import { logger } from "../utils/logging/logger";
+import { env } from "../config/environment";
 import { TranscriptionStatus } from "@prisma/client";
 import prisma from "../db/prismaClient";
 import { isVideoMeetingUrl } from "../utils/isVideoMeetingUrl";
@@ -50,7 +51,7 @@ import {
 } from "../services/googleCalendarPushService";
 
 /** Base URL for the dashboard app — used in email CTAs */
-const APP_BASE_URL = process.env.FRONTEND_URL ?? "https://app.crelyzor.com";
+const APP_BASE_URL = env.FRONTEND_URL;
 
 /**
  * Initialize and start all queue processors
@@ -368,191 +369,223 @@ export const startWorker = async (): Promise<void> => {
       bookingId,
     });
 
-    const booking = await prisma.booking.findUnique({
-      where: { id: bookingId },
-      select: {
-        id: true,
-        status: true,
-        startTime: true,
-        endTime: true,
-        timezone: true,
-        guestName: true,
-        guestEmail: true,
-        userId: true,
-        eventType: { select: { title: true } },
-        meeting: {
-          select: {
-            meetLink: true,
-            location: true,
-            booking: {
-              select: { eventType: { select: { meetingLink: true } } },
+    try {
+      const booking = await prisma.booking.findUnique({
+        where: { id: bookingId },
+        select: {
+          id: true,
+          status: true,
+          startTime: true,
+          endTime: true,
+          timezone: true,
+          guestName: true,
+          guestEmail: true,
+          userId: true,
+          eventType: { select: { title: true } },
+          meeting: {
+            select: {
+              meetLink: true,
+              location: true,
+              booking: {
+                select: { eventType: { select: { meetingLink: true } } },
+              },
             },
           },
         },
-      },
-    });
-
-    if (!booking || booking.status !== "CONFIRMED") {
-      logger.info("Booking reminder skipped: not found or not confirmed", {
-        bookingId,
       });
-      return { skipped: true };
-    }
 
-    const host = await prisma.user.findUnique({
-      where: { id: booking.userId },
-      select: {
-        name: true,
-        email: true,
-        settings: {
-          select: {
-            emailNotificationsEnabled: true,
-            bookingEmailsEnabled: true,
+      if (!booking || booking.status !== "CONFIRMED") {
+        logger.info("Booking reminder skipped: not found or not confirmed", {
+          bookingId,
+        });
+        return { skipped: true };
+      }
+
+      const host = await prisma.user.findUnique({
+        where: { id: booking.userId },
+        select: {
+          name: true,
+          email: true,
+          settings: {
+            select: {
+              emailNotificationsEnabled: true,
+              bookingEmailsEnabled: true,
+            },
           },
         },
-      },
-    });
+      });
 
-    const emailsEnabled =
-      (host?.settings?.emailNotificationsEnabled ?? true) &&
-      (host?.settings?.bookingEmailsEnabled ?? true);
+      const emailsEnabled =
+        (host?.settings?.emailNotificationsEnabled ?? true) &&
+        (host?.settings?.bookingEmailsEnabled ?? true);
 
-    if (!emailsEnabled) {
-      return { skipped: true };
+      if (!emailsEnabled) {
+        return { skipped: true };
+      }
+
+      const meetingLink =
+        booking.meeting?.booking?.eventType?.meetingLink ??
+        booking.meeting?.meetLink ??
+        booking.meeting?.location;
+
+      const sharedParams = {
+        eventTypeTitle: booking.eventType.title,
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        timezone: booking.timezone,
+        meetingLink,
+      };
+
+      await Promise.all([
+        host?.email
+          ? sendEmail({
+              to: host.email,
+              subject: bookingReminderSubject({
+                eventTypeTitle: booking.eventType.title,
+                otherPartyName: booking.guestName,
+              }),
+              html: bookingReminderEmail({
+                recipientName: host?.name ?? "Host",
+                otherPartyName: booking.guestName,
+                role: "host",
+                ...sharedParams,
+              }),
+            })
+          : Promise.resolve(),
+        sendEmail({
+          to: booking.guestEmail,
+          subject: bookingReminderSubject({
+            eventTypeTitle: booking.eventType.title,
+            otherPartyName: host?.name ?? "Host",
+          }),
+          html: bookingReminderEmail({
+            recipientName: booking.guestName,
+            otherPartyName: host?.name ?? "Host",
+            role: "guest",
+            ...sharedParams,
+          }),
+        }),
+      ]);
+
+      return { success: true };
+    } catch (err) {
+      logger.error("Booking reminder job failed", {
+        jobId: job.id,
+        bookingId,
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      throw err; // re-throw so Bull marks job as failed and retries
     }
-
-    const meetingLink =
-      booking.meeting?.booking?.eventType?.meetingLink ??
-      booking.meeting?.meetLink ??
-      booking.meeting?.location;
-
-    const sharedParams = {
-      eventTypeTitle: booking.eventType.title,
-      startTime: booking.startTime,
-      endTime: booking.endTime,
-      timezone: booking.timezone,
-      meetingLink,
-    };
-
-    await Promise.all([
-      host?.email
-        ? sendEmail({
-            to: host.email,
-            subject: bookingReminderSubject({
-              eventTypeTitle: booking.eventType.title,
-              otherPartyName: booking.guestName,
-            }),
-            html: bookingReminderEmail({
-              recipientName: host?.name ?? "Host",
-              otherPartyName: booking.guestName,
-              role: "host",
-              ...sharedParams,
-            }),
-          })
-        : Promise.resolve(),
-      sendEmail({
-        to: booking.guestEmail,
-        subject: bookingReminderSubject({
-          eventTypeTitle: booking.eventType.title,
-          otherPartyName: host?.name ?? "Host",
-        }),
-        html: bookingReminderEmail({
-          recipientName: booking.guestName,
-          otherPartyName: host?.name ?? "Host",
-          role: "guest",
-          ...sharedParams,
-        }),
-      }),
-    ]);
-
-    return { success: true };
   });
 
   emailQueue.process(JobNames.DAILY_TASK_DIGEST, async (job) => {
     logger.info("Processing daily task digest email job", { jobId: job.id });
 
-    const users = await prisma.user.findMany({
-      where: {
-        isActive: true,
-        isDeleted: false,
-        settings: {
-          emailNotificationsEnabled: true,
-          dailyDigestEnabled: true,
+    try {
+      const users = await prisma.user.findMany({
+        where: {
+          isActive: true,
+          isDeleted: false,
+          settings: {
+            emailNotificationsEnabled: true,
+            dailyDigestEnabled: true,
+          },
         },
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        timezone: true,
-        tasks: {
-          where: { isDeleted: false, status: { not: "DONE" } },
-          select: { title: true, priority: true, dueDate: true },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          timezone: true,
+          tasks: {
+            where: { isDeleted: false, status: { not: "DONE" } },
+            select: { title: true, priority: true, dueDate: true },
+          },
         },
-      },
-    });
-
-    logger.info(`Sending daily digest to ${users.length} users`);
-
-    for (const user of users) {
-      if (!user.email) continue;
-
-      const now = new Date();
-      const userNow = new Date(
-        now.toLocaleString("en-US", { timeZone: user.timezone }),
-      );
-      userNow.setHours(0, 0, 0, 0);
-
-      const overdueTasks: Array<{
-        title: string;
-        priority: string | null;
-        dueDate: Date;
-        isOverdue: boolean;
-      }> = [];
-      const todayTasks: Array<{
-        title: string;
-        priority: string | null;
-        dueDate: Date;
-        isOverdue: boolean;
-      }> = [];
-
-      user.tasks.forEach((task) => {
-        if (!task.dueDate) return;
-        const taskDate = new Date(task.dueDate);
-        const userTaskDate = new Date(
-          taskDate.toLocaleString("en-US", { timeZone: user.timezone }),
-        );
-        userTaskDate.setHours(0, 0, 0, 0);
-
-        const isOverdue = userTaskDate < userNow;
-        const isToday = userTaskDate.getTime() === userNow.getTime();
-
-        const digestTask = {
-          title: task.title,
-          priority: task.priority,
-          dueDate: task.dueDate,
-          isOverdue,
-        };
-
-        if (isOverdue) overdueTasks.push(digestTask);
-        if (isToday) todayTasks.push(digestTask);
       });
 
-      if (overdueTasks.length > 0 || todayTasks.length > 0) {
-        await sendEmail({
-          to: user.email,
-          subject: dailyDigestSubject({ overdueTasks, todayTasks }),
-          html: dailyDigestEmail({
-            userName: user.name,
-            overdueTasks,
-            todayTasks,
-            appBaseUrl: APP_BASE_URL,
-          }),
-        });
-      }
-    }
+      logger.info(`Sending daily digest to ${users.length} users`);
 
-    return { success: true, count: users.length };
+      let sent = 0;
+      let failed = 0;
+
+      for (const user of users) {
+        if (!user.email) continue;
+
+        try {
+          const now = new Date();
+          const userNow = new Date(
+            now.toLocaleString("en-US", { timeZone: user.timezone }),
+          );
+          userNow.setHours(0, 0, 0, 0);
+
+          const overdueTasks: Array<{
+            title: string;
+            priority: string | null;
+            dueDate: Date;
+            isOverdue: boolean;
+          }> = [];
+          const todayTasks: Array<{
+            title: string;
+            priority: string | null;
+            dueDate: Date;
+            isOverdue: boolean;
+          }> = [];
+
+          user.tasks.forEach((task) => {
+            if (!task.dueDate) return;
+            const taskDate = new Date(task.dueDate);
+            const userTaskDate = new Date(
+              taskDate.toLocaleString("en-US", { timeZone: user.timezone }),
+            );
+            userTaskDate.setHours(0, 0, 0, 0);
+
+            const isOverdue = userTaskDate < userNow;
+            const isToday = userTaskDate.getTime() === userNow.getTime();
+
+            const digestTask = {
+              title: task.title,
+              priority: task.priority,
+              dueDate: task.dueDate,
+              isOverdue,
+            };
+
+            if (isOverdue) overdueTasks.push(digestTask);
+            if (isToday) todayTasks.push(digestTask);
+          });
+
+          if (overdueTasks.length > 0 || todayTasks.length > 0) {
+            await sendEmail({
+              to: user.email,
+              subject: dailyDigestSubject({ overdueTasks, todayTasks }),
+              html: dailyDigestEmail({
+                userName: user.name,
+                overdueTasks,
+                todayTasks,
+                appBaseUrl: APP_BASE_URL,
+              }),
+            });
+            sent += 1;
+          }
+        } catch (userErr) {
+          failed += 1;
+          logger.error("Daily digest failed for user (skipping)", {
+            userId: user.id,
+            error: userErr instanceof Error ? userErr.message : String(userErr),
+          });
+        }
+      }
+
+      logger.info("Daily task digest complete", { sent, failed });
+      return { success: true, count: users.length, sent, failed };
+    } catch (err) {
+      logger.error("Daily task digest job failed", {
+        jobId: job.id,
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      throw err; // re-throw so Bull marks job as failed
+    }
   });
 
   // Schedule daily task digest cron job (08:00 UTC every day)

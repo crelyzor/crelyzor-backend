@@ -31,7 +31,7 @@ export async function adminLogin(
     { role: "admin", adminId: admin.id, email: admin.email },
     secret,
     {
-      expiresIn: "24h",
+      expiresIn: "2h",
     },
   );
 }
@@ -157,7 +157,7 @@ export async function acceptInvite(token: string, password: string) {
   const jwtToken = jwt.sign(
     { role: "admin", adminId: admin.id, email: admin.email },
     secret,
-    { expiresIn: "24h" },
+    { expiresIn: "2h" },
   );
 
   logger.info("Admin invite accepted", {

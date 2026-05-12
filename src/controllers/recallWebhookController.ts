@@ -20,7 +20,19 @@ import prisma from "../db/prismaClient";
 export const handleRecallWebhook = async (req: Request, res: Response) => {
   // 1. HMAC signature verification — fail fast before any DB work
   const webhookSecret = process.env.RECALL_WEBHOOK_SECRET;
-  if (webhookSecret) {
+  if (!webhookSecret) {
+    if (process.env.NODE_ENV === "production") {
+      logger.error(
+        "Recall webhook rejected: RECALL_WEBHOOK_SECRET not configured in production",
+      );
+      return res
+        .status(503)
+        .json({ error: "Webhook verification not configured" });
+    }
+    logger.warn(
+      "RECALL_WEBHOOK_SECRET not set — accepting unverified webhook in non-production",
+    );
+  } else {
     const standardWebhookId = req.headers["webhook-id"] as string | undefined;
     const standardWebhookSignature = req.headers["webhook-signature"] as
       | string

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MeetingStatus } from "@prisma/client";
 
 const meetingTypeEnum = z.enum(["SCHEDULED", "RECORDED", "VOICE_NOTE"]);
 
@@ -61,7 +62,7 @@ export const meetingActionSchema = z.object({
 });
 
 export const getMeetingsSchema = z.object({
-  status: z.enum(["CREATED", "COMPLETED", "CANCELLED"]).optional(),
+  status: z.nativeEnum(MeetingStatus).optional(),
   type: meetingTypeEnum.optional(),
   startDate: z
     .string()
@@ -78,7 +79,7 @@ export const getMeetingsSchema = z.object({
 });
 
 export const getMeetingsWithoutPaginationSchema = z.object({
-  status: z.enum(["CREATED", "COMPLETED", "CANCELLED"]).optional(),
+  status: z.nativeEnum(MeetingStatus).optional(),
   type: meetingTypeEnum.optional(),
   startDate: z
     .string()

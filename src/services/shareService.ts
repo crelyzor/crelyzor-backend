@@ -134,6 +134,7 @@ export async function getPublicMeetingByShortId(shortId: string) {
           type: true,
           createdAt: true,
           startTime: true,
+          createdById: true,
         },
       },
     },
@@ -200,6 +201,7 @@ export async function getPublicMeetingByShortId(shortId: string) {
           where: {
             isDeleted: false,
             meetingId,
+            userId: share.meeting.createdById,
           },
           select: {
             title: true,

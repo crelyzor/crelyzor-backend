@@ -30,7 +30,7 @@ export class MeetingController {
       const user = req.user as TokenPayload;
       const validatedData = createMeetingSchema.parse(req.body);
 
-      const meeting = await meetingService.createMeeting({
+      const { meeting, gcalSynced } = await meetingService.createMeeting({
         createdById: user.userId,
         ...validatedData,
       });
@@ -38,7 +38,7 @@ export class MeetingController {
       apiResponse(res, {
         statusCode: 201,
         message: "Meeting created successfully",
-        data: meeting,
+        data: { meeting, gcalSynced },
       });
     } catch (error) {
       globalErrorHandler(error as Error, req, res);
