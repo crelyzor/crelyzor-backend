@@ -7,10 +7,12 @@ import {
 } from "../utils/globalErrorHandler";
 import { authService } from "../services/auth/authService";
 import { logger } from "../utils/logging/logger";
+import { env } from "../config/environment";
 import prisma from "../db/prismaClient";
 
 const ALLOWED_REDIRECT_ORIGINS = (
-  process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174"
+  env.ALLOWED_ORIGINS ??
+  `${env.FRONTEND_URL},http://localhost:5173,http://localhost:5174`
 )
   .split(",")
   .map((o) => o.trim())
@@ -81,8 +83,8 @@ export const googleController = {
     // Extract redirectUrl from state before signature verification so we can
     // always redirect back to the frontend — even on error or denial.
     const fallbackRedirect =
-      (process.env.ALLOWED_ORIGINS?.split(",")[0]?.trim() ??
-        "http://localhost:5173") + "/settings?tab=integrations";
+      (env.ALLOWED_ORIGINS?.split(",")[0]?.trim() ?? env.FRONTEND_URL) +
+      "/settings?tab=integrations";
 
     let redirectUrl = fallbackRedirect;
     try {
@@ -230,8 +232,16 @@ export const googleController = {
         deviceInfo,
         ipAddress,
       );
-      // Use hash fragment to keep tokens out of server logs and referrer headers
-      const finalRedirectUrl = `${redirectUrl}#accessToken=${jwtTokens.accessToken}&refreshToken=${jwtTokens.refreshToken}`;
+      // Set refresh token as httpOnly cookie — never exposed to JS
+      res.cookie("refresh_token", jwtTokens.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/api/v1/auth",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+      // Pass only access token in hash fragment (refresh token no longer sent to client JS)
+      const finalRedirectUrl = `${redirectUrl}#accessToken=${jwtTokens.accessToken}`;
 
       res.redirect(finalRedirectUrl);
     } catch (error) {

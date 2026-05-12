@@ -710,6 +710,122 @@ Account blocked. Env vars already in `.env.example` (commented out). Do not star
 
 ---
 
+## Phase 7 — Teams (Backend)
+
+> Full design spec: `docs/superpowers/specs/2026-05-09-teams-design.md`
+
+---
+
+### P0 — Schema (do first — everything depends on this)
+
+- [ ] **`SystemConfig` model** — key/value store editable from admin portal:
+  ```prisma
+  model SystemConfig {
+    key       String   @id
+    value     String
+    updatedAt DateTime @updatedAt
+    updatedBy String?
+  }
+  ```
+- [ ] **`Team` model**:
+  ```prisma
+  model Team {
+    id        String    @id @default(uuid()) @db.Uuid
+    name      String
+    slug      String    @unique
+    ownerId   String    @db.Uuid
+    owner     User      @relation(fields: [ownerId], references: [id])
+    logoUrl   String?
+    members   TeamMember[]
+    createdAt DateTime  @default(now())
+    deletedAt DateTime?
+    @@index([ownerId])
+  }
+  ```
+- [ ] **`TeamMember` model**:
+  ```prisma
+  model TeamMember {
+    id       String     @id @default(uuid()) @db.Uuid
+    teamId   String     @db.Uuid
+    team     Team       @relation(fields: [teamId], references: [id])
+    userId   String     @db.Uuid
+    user     User       @relation(fields: [userId], references: [id])
+    role     TeamRole   @default(MEMBER)
+    joinedAt DateTime   @default(now())
+    leftAt   DateTime?
+    @@unique([teamId, userId])
+    @@index([userId])
+  }
+
+  enum TeamRole {
+    OWNER
+    ADMIN
+    MEMBER
+  }
+  ```
+- [ ] **Add `teamId UUID?`** to: `Meeting`, `Card`, `Task`, `EventType`, `Booking` — nullable FK to `Team`. `null` = personal context.
+- [ ] **Migration:** `pnpm db:migrate && pnpm db:generate`
+- [ ] **Seed SystemConfig defaults:** `max_teams_per_pro_user=3`, `max_members_per_team=50`
+
+---
+
+### P1 — Team CRUD Endpoints
+
+Routes under `verifyJWT`. New route file: `src/routes/teamRoutes.ts`. Controller: `src/controllers/teamController.ts`. Service: `src/services/teamService.ts`.
+
+- [ ] `POST /teams` — create team. Pro gate (check `user.plan === PRO`). Check team count ≤ `SystemConfig.max_teams_per_pro_user`. Create `Team` + `TeamMember` (role: OWNER) + auto-create team `Card` — all in one `prisma.$transaction`.
+- [ ] `GET /teams` — list teams the authenticated user belongs to (any role, `leftAt IS NULL`). Include role in response.
+- [ ] `PATCH /teams/:teamId` — update name, slug, logoUrl. Middleware: `verifyTeamRole('ADMIN')`.
+- [ ] `DELETE /teams/:teamId` — soft delete (`deletedAt = now()`). Owner only. Sets all members' `leftAt` in transaction.
+
+---
+
+### P2 — Team Member Management
+
+- [ ] `GET /teams/:teamId/members` — list active members with role + usage snapshot. `verifyTeamMember`.
+- [ ] `POST /teams/:teamId/members/invite` — invite by `userId` (existing user) or `email` (non-user → send email with token). `verifyTeamRole('ADMIN')`. Check member count ≤ `SystemConfig.max_members_per_team`.
+- [ ] `POST /teams/invites/:token/accept` — accept email invite. Creates `TeamMember` with role MEMBER. No auth required (email link).
+- [ ] `PATCH /teams/:teamId/members/:userId` — change member role. `verifyTeamRole('OWNER')`. Cannot change Owner role this way (use transfer endpoint).
+- [ ] `DELETE /teams/:teamId/members/:userId` — remove member. `verifyTeamRole('ADMIN')`. Sets `leftAt = now()`. Cannot remove Owner.
+- [ ] `DELETE /teams/:teamId/leave` — leave team. Blocked if caller is Owner. Sets `leftAt = now()`.
+
+---
+
+### P3 — Team Middleware
+
+New middleware files in `src/middleware/`:
+
+- [ ] **`verifyTeamMember.ts`** — reads `teamId` from route param. Checks `TeamMember` exists for `userId` with `leftAt IS NULL` and team `deletedAt IS NULL`. Throws 403 if not a member.
+- [ ] **`verifyTeamRole.ts`** — factory: `verifyTeamRole('ADMIN')` allows ADMIN + OWNER; `verifyTeamRole('OWNER')` allows OWNER only. Must run after `verifyTeamMember`.
+
+---
+
+### P4 — Team-scoped Content
+
+- [ ] All meeting queries: when `teamId` header present (`X-Team-Id`), scope `where` to `teamId`. Members get additional filter `participants.userId = req.user.id` unless OWNER/ADMIN.
+- [ ] All card/task/EventType/booking queries: scope to `teamId` when context is team.
+- [ ] `GET /teams/:teamId/usage` — aggregate `UserUsage` per member for current period. Owner/Admin only.
+
+---
+
+### P5 — Team Public Scheduling
+
+- [ ] `GET /public/scheduling/team/:slug/profile` — no auth. Fetch team + active members with their active `EventType[]` (where `eventType.teamId = team.id`). Returns team profile + member list.
+- [ ] `GET /public/scheduling/team/:slug/:username` — no auth. Fetch specific member's active EventTypes scoped to this team. Used for team-member booking page.
+- [ ] Slot engine: no changes needed — slots already work per username + eventTypeSlug. Team EventTypes just have `teamId` set.
+
+---
+
+### P6 — Admin Portal: SystemConfig + Teams API
+
+Routes under `verifyAdmin` in `src/routes/adminRoutes.ts`:
+
+- [ ] `GET /admin/config` — list all `SystemConfig` entries
+- [ ] `PATCH /admin/config/:key` — update value. Zod: `{ value: z.string().min(1) }`.
+- [ ] `GET /admin/teams` — list all teams with `owner { email }`, `_count { members }`, `createdAt`, `deletedAt`. Pagination. Soft-deleted teams included (filterable).
+
+---
+
 ## Phase 5 — Big Brain ⛔ BLOCKED
 
 Requires separate infrastructure. Do not start. Phase 4.x must be complete first.

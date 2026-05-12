@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { verifyAdmin } from "../middleware/verifyAdmin";
+import { authLimiter } from "../utils/rateLimit/rateLimiter";
 import {
   login,
+  me,
+  logout,
   getTeam,
   deleteTeamMember,
   invite,
@@ -17,9 +20,11 @@ import {
 const adminRouter = Router();
 
 // ─── Public (no auth) ────────────────────────────────────────────────────────
-adminRouter.post("/auth/login", login);
+adminRouter.post("/auth/login", authLimiter, login);
+adminRouter.get("/auth/me", me);
+adminRouter.post("/auth/logout", logout);
 adminRouter.get("/auth/invite/:token", checkInvite);
-adminRouter.post("/auth/accept-invite", acceptInviteHandler);
+adminRouter.post("/auth/accept-invite", authLimiter, acceptInviteHandler);
 
 // ─── Protected (requires admin JWT) ──────────────────────────────────────────
 adminRouter.use(verifyAdmin);

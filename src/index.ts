@@ -43,13 +43,40 @@ const startServer = async () => {
     });
   }
 
-  // Warn about missing optional-but-important env vars
+  // Validate required env vars — hard-fail in production, warn in dev
+  const isProd = process.env.NODE_ENV === "production";
+
+  if (!process.env.ADMIN_JWT_SECRET) {
+    if (isProd) {
+      logger.error(
+        "❌ ADMIN_JWT_SECRET is required in production — refusing to start",
+      );
+      process.exit(1);
+    }
+    logger.warn(
+      "⚠️ ADMIN_JWT_SECRET not set — admin portal will be unavailable",
+    );
+  }
+
   if (!process.env.ALLOWED_ORIGINS) {
+    if (isProd) {
+      logger.error(
+        "❌ ALLOWED_ORIGINS is required in production — refusing to start",
+      );
+      process.exit(1);
+    }
     logger.warn("⚠️ ALLOWED_ORIGINS not set — CORS will use defaults");
   }
+
   if (!process.env.RECALL_WEBHOOK_SECRET) {
+    if (isProd) {
+      logger.error(
+        "❌ RECALL_WEBHOOK_SECRET is required in production — refusing to start",
+      );
+      process.exit(1);
+    }
     logger.warn(
-      "⚠️ RECALL_WEBHOOK_SECRET not set — Recall.ai webhook signature verification is disabled",
+      "⚠️ RECALL_WEBHOOK_SECRET not set — Recall.ai webhook verification is disabled",
     );
   }
 

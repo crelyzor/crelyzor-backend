@@ -1,7 +1,8 @@
 import { CorsOptions } from "cors";
+import { env } from "../../config/environment";
 
 const localhostOrigins =
-  process.env.NODE_ENV !== "production"
+  env.NODE_ENV !== "production"
     ? [
         "http://localhost:5173",
         "http://localhost:5174",
@@ -10,8 +11,8 @@ const localhostOrigins =
       ]
     : [];
 
-const envOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(",")
+const envOrigins = env.ALLOWED_ORIGINS
+  ? env.ALLOWED_ORIGINS.split(",")
       .map((o) => o.trim())
       .filter(Boolean)
   : [];

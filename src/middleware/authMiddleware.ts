@@ -220,35 +220,3 @@ export function getClientIP(req: Request): string {
     "unknown"
   );
 }
-
-export function getDeviceInfo(req: Request): string {
-  const userAgent = req.get("User-Agent") || "Unknown Device";
-
-  if (userAgent.includes("Mobile")) {
-    return `Mobile Device (${userAgent.substring(0, 100)})`;
-  } else if (userAgent.includes("Tablet")) {
-    return `Tablet (${userAgent.substring(0, 100)})`;
-  } else {
-    return `Desktop (${userAgent.substring(0, 100)})`;
-  }
-}
-
-export const requireEmailVerified = (
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void => {
-  try {
-    if (!req.user) {
-      throw ErrorFactory.unauthorized("Authentication required");
-    }
-
-    if (!req.user.emailVerified) {
-      throw ErrorFactory.forbidden("Email verification is required");
-    }
-
-    next();
-  } catch (error) {
-    globalErrorHandler(error as BaseError, req, res);
-  }
-};

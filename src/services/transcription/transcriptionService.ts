@@ -324,10 +324,24 @@ export const getTranscript = async (meetingId: string, userId: string) => {
   const MAX_TRANSCRIPT_SEGMENTS = 5000;
   return prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
-    include: {
+    select: {
+      id: true,
+      recordingId: true,
+      processedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      isDeleted: true,
+      deletedAt: true,
       segments: {
         orderBy: { startTime: "asc" },
         take: MAX_TRANSCRIPT_SEGMENTS,
+        select: {
+          id: true,
+          speaker: true,
+          text: true,
+          startTime: true,
+          endTime: true,
+        },
       },
     },
   });
