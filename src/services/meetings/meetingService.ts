@@ -985,8 +985,9 @@ export const meetingService = {
         const event = new ICAL.Event(component);
         const uid = event.uid?.trim();
 
-        // Skip already-existing UIDs (resolved from batch dedup above)
+        // Skip already-existing UIDs — covers both DB duplicates and within-file duplicates
         if (uid && existingUids.has(uid)) {
+          skipped += 1;
           continue;
         }
 
