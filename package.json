@@ -50,7 +50,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^7.5.0",
     "express-validator": "^7.3.2",
-    "googleapis": "^148.0.0",
+    "googleapis": "^172.0.0",
     "helmet": "^8.1.0",
     "ical.js": "^2.2.1",
     "ioredis": "^5.10.1",
