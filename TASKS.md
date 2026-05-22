@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-04-19 (Phase 4.3 complete ✅ — Two-way GCal Push Webhooks shipped)
+Last updated: 2026-05-22 (Phase 4.9 complete ✅ — In-App Notifications + WebSocket foundation shipped)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
