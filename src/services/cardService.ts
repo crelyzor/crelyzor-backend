@@ -2,6 +2,7 @@ import prisma from "../db/prismaClient";
 import { ErrorFactory } from "../utils/globalErrorHandler";
 import { logger } from "../utils/logging/logger";
 import type { Prisma } from "@prisma/client";
+import { encrypt, decrypt, blindIndex, prismaBytes } from "../utils/security/crypto";
 import { parse as parseCsv } from "csv-parse/sync";
 import type {
   CreateCardDTO,
@@ -531,17 +532,32 @@ export const cardService = {
       throw ErrorFactory.notFound("Card not found");
     }
 
-    return prisma.cardContact.create({
+    const [encEmail, encPhone, encNote] = await Promise.all([
+      data.email ? encrypt(data.email, card.userId) : Promise.resolve(null),
+      data.phone ? encrypt(data.phone, card.userId) : Promise.resolve(null),
+      data.note ? encrypt(data.note, card.userId) : Promise.resolve(null),
+    ]);
+
+    const contact = await prisma.cardContact.create({
       data: {
         cardId: card.id,
         userId: card.userId,
         name: data.name,
-        email: data.email,
-        phone: data.phone,
+        email: encEmail ?? undefined,
+        phone: encPhone ?? undefined,
         company: data.company,
-        note: data.note,
+        note: encNote ?? undefined,
+        emailBidx: data.email ? prismaBytes(blindIndex(data.email)) : undefined,
+        phoneBidx: data.phone ? prismaBytes(blindIndex(data.phone)) : undefined,
       },
     });
+
+    return {
+      ...contact,
+      email: data.email ?? null,
+      phone: data.phone ?? null,
+      note: data.note ?? null,
+    };
   },
 
   /**
@@ -629,10 +645,13 @@ export const cardService = {
     if (options.cardId) where.cardId = options.cardId;
 
     if (options.search) {
+      // name and company are plaintext (ILIKE); email is encrypted — exact blind-index match only
       where.OR = [
         { name: { contains: options.search, mode: "insensitive" } },
-        { email: { contains: options.search, mode: "insensitive" } },
         { company: { contains: options.search, mode: "insensitive" } },
+        ...(options.search.includes("@")
+          ? [{ emailBidx: { equals: prismaBytes(blindIndex(options.search)) } }]
+          : []),
       ];
     }
 
@@ -646,7 +665,7 @@ export const cardService = {
       };
     }
 
-    const [contacts, total] = await Promise.all([
+    const [rawContacts, total] = await Promise.all([
       prisma.cardContact.findMany({
         where,
         include: { card: { select: { slug: true, displayName: true } } },
@@ -656,6 +675,17 @@ export const cardService = {
       }),
       prisma.cardContact.count({ where }),
     ]);
+
+    const contacts = await Promise.all(
+      rawContacts.map(async (c) => ({
+        ...c,
+        email: c.email ? await decrypt(c.email, userId).catch(() => null) : null,
+        phone: c.phone ? await decrypt(c.phone, userId).catch(() => null) : null,
+        note: c.note ? await decrypt(c.note, userId).catch(() => null) : null,
+        emailBidx: undefined,
+        phoneBidx: undefined,
+      })),
+    );
 
     return {
       contacts,
@@ -726,8 +756,10 @@ export const cardService = {
         ? {
             OR: [
               { name: { contains: search, mode: "insensitive" as const } },
-              { email: { contains: search, mode: "insensitive" as const } },
               { company: { contains: search, mode: "insensitive" as const } },
+              ...(search.includes("@")
+                ? [{ emailBidx: { equals: prismaBytes(blindIndex(search)) } }]
+                : []),
             ],
           }
         : {}),
@@ -757,13 +789,18 @@ export const cardService = {
       if (batch.length === 0) break;
 
       for (const c of batch) {
+        const [email, phone, note] = await Promise.all([
+          c.email ? decrypt(c.email, userId).catch(() => "") : Promise.resolve(""),
+          c.phone ? decrypt(c.phone, userId).catch(() => "") : Promise.resolve(""),
+          c.note ? decrypt(c.note, userId).catch(() => "") : Promise.resolve(""),
+        ]);
         csvRows.push(
           [
             csvCell(c.name),
-            csvCell(c.email || ""),
-            csvCell(c.phone || ""),
+            csvCell(email),
+            csvCell(phone),
             csvCell(c.company || ""),
-            csvCell(c.note || ""),
+            csvCell(note),
             csvCell(c.card.slug),
             csvCell(c.tags.join("; ")),
             csvCell(c.scannedAt.toISOString()),
@@ -828,14 +865,16 @@ export const cardService = {
       cardId: string;
       userId: string;
       name: string;
-      email?: string;
-      phone?: string;
+      email?: Uint8Array<ArrayBuffer>;
+      phone?: Uint8Array<ArrayBuffer>;
       company?: string;
-      note?: string;
+      note?: Uint8Array<ArrayBuffer>;
+      emailBidx?: Uint8Array<ArrayBuffer>;
+      phoneBidx?: Uint8Array<ArrayBuffer>;
     }> = [];
     const errors: string[] = [];
 
-    rows.forEach((row, idx) => {
+    for (const [idx, row] of rows.entries()) {
       const line = idx + 2;
       const name = pick(row, ["name", "Name", "full_name", "fullName"]);
       const email = pick(row, [
@@ -861,24 +900,29 @@ export const cardService = {
 
       if (!name) {
         errors.push(`Line ${line}: name is required`);
-        return;
+        continue;
       }
 
       if (!email && !phone) {
         errors.push(`Line ${line}: email or phone is required`);
-        return;
+        continue;
       }
 
+      const [encEmail, encPhone, encNote] = await Promise.all([
+        email ? encrypt(email, userId) : Promise.resolve(undefined),
+        phone ? encrypt(phone, userId) : Promise.resolve(undefined),
+        note ? encrypt(note, userId) : Promise.resolve(undefined),
+      ]);
       toCreate.push({
         cardId,
         userId,
         name,
-        ...(email ? { email } : {}),
-        ...(phone ? { phone } : {}),
+        ...(encEmail ? { email: encEmail, emailBidx: prismaBytes(blindIndex(email)) } : {}),
+        ...(encPhone ? { phone: encPhone, phoneBidx: prismaBytes(blindIndex(phone)) } : {}),
         ...(company ? { company } : {}),
-        ...(note ? { note } : {}),
+        ...(encNote ? { note: encNote } : {}),
       });
-    });
+    }
 
     if (toCreate.length > 0) {
       await prisma.$transaction(

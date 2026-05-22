@@ -5,7 +5,7 @@ import { getOAuthClient } from "./googleService";
 import { getRedisClient } from "../config/redisClient";
 import { logger } from "../utils/logging/logger";
 import prisma from "../db/prismaClient";
-import { decrypt } from "../utils/security/crypto";
+import { decrypt, encrypt } from "../utils/security/crypto";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -87,12 +87,18 @@ export async function getAuthedCalendarClient(
     );
   }
 
+  // Decrypt OAuth tokens before passing to Google client
+  const decryptedAccessToken = await decrypt(oauthAccount.accessToken, userId);
+  const decryptedRefreshToken = oauthAccount.refreshToken
+    ? await decrypt(oauthAccount.refreshToken, userId).catch(() => undefined)
+    : undefined;
+
   const client = getOAuthClient(
     `${process.env.BASE_URL}/auth/google/calendar/connect/callback`,
   );
   client.setCredentials({
-    access_token: oauthAccount.accessToken,
-    refresh_token: oauthAccount.refreshToken || undefined,
+    access_token: decryptedAccessToken,
+    refresh_token: decryptedRefreshToken,
     expiry_date: oauthAccount.expiry ? oauthAccount.expiry * 1000 : undefined,
   });
 
@@ -100,9 +106,15 @@ export async function getAuthedCalendarClient(
     ? oauthAccount.expiry * 1000 < Date.now() + 60_000
     : false;
 
-  if (isExpired && oauthAccount.refreshToken) {
+  if (isExpired && decryptedRefreshToken) {
     const { credentials } = await client.refreshAccessToken();
     client.setCredentials(credentials);
+
+    const newAccessToken = credentials.access_token ?? decryptedAccessToken;
+    const encNewAccessToken = await encrypt(newAccessToken, userId);
+    const encNewRefreshToken = credentials.refresh_token
+      ? await encrypt(credentials.refresh_token, userId)
+      : undefined;
 
     await prisma.oAuthAccount.update({
       where: {
@@ -112,10 +124,8 @@ export async function getAuthedCalendarClient(
         },
       },
       data: {
-        accessToken: credentials.access_token ?? oauthAccount.accessToken,
-        ...(credentials.refresh_token
-          ? { refreshToken: credentials.refresh_token }
-          : {}),
+        accessToken: encNewAccessToken,
+        ...(encNewRefreshToken ? { refreshToken: encNewRefreshToken } : {}),
         expiry: credentials.expiry_date
           ? Math.floor(credentials.expiry_date / 1000)
           : oauthAccount.expiry,
@@ -895,6 +905,21 @@ export async function backfillGoogleCalendarWrites(
 
     let meetingCount = 0;
     for (const meeting of meetings) {
+      // Decrypt guest emails before passing to GCal — fail-open per participant
+      const attendees: Array<{ email: string; displayName?: string }> = [];
+      for (const participant of meeting.participants) {
+        if (participant.userId === userId) continue;
+        if (participant.guestEmail) {
+          const email = await decrypt(participant.guestEmail, userId).catch(() => null);
+          if (email) attendees.push({ email });
+        } else if (participant.user?.email) {
+          attendees.push({
+            email: participant.user.email,
+            displayName: participant.user.name ?? undefined,
+          });
+        }
+      }
+
       const gcalResult = await createGCalEventForMeeting(userId, {
         title: meeting.title,
         startTime: meeting.startTime,
@@ -902,26 +927,7 @@ export async function backfillGoogleCalendarWrites(
         timezone: meeting.timezone,
         location: meeting.location,
         description: meeting.description,
-        attendees: meeting.participants
-          .filter((participant) => participant.userId !== userId)
-          .map((participant) => {
-            if (participant.guestEmail) {
-              return { email: participant.guestEmail };
-            }
-            if (participant.user?.email) {
-              return {
-                email: participant.user.email,
-                displayName: participant.user?.name,
-              };
-            }
-            return null;
-          })
-          .filter(
-            (attendee) => attendee !== null && !!attendee.email,
-          ) as Array<{
-          email: string;
-          displayName?: string;
-        }>,
+        attendees,
         requestMeetLink: true,
       });
 

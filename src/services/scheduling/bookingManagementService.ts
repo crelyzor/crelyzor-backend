@@ -4,6 +4,7 @@ import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
 import type { ListBookingsFilters } from "../../validators/bookingManagementSchema";
 import { env } from "../../config/environment";
+import { decrypt } from "../../utils/security/crypto";
 import {
   insertCalendarEvent,
   deleteCalendarEvent,
@@ -83,7 +84,7 @@ export async function listBookings(
     }),
   };
 
-  const [bookings, total] = await Promise.all([
+  const [rawBookings, total] = await Promise.all([
     prisma.booking.findMany({
       where,
       select: BOOKING_LIST_SELECT,
@@ -93,6 +94,17 @@ export async function listBookings(
     }),
     prisma.booking.count({ where }),
   ]);
+
+  const bookings = await Promise.all(
+    rawBookings.map(async (b) => {
+      const [guestName, guestEmail, guestNote] = await Promise.all([
+        decrypt(b.guestName, userId).catch(() => ""),
+        decrypt(b.guestEmail, userId).catch(() => ""),
+        b.guestNote ? decrypt(b.guestNote, userId).catch(() => null) : Promise.resolve(null),
+      ]);
+      return { ...b, guestName, guestEmail, guestNote };
+    }),
+  );
 
   return {
     bookings,
@@ -142,6 +154,13 @@ export async function confirmBooking(userId: string, bookingId: string) {
     );
   }
 
+  // Decrypt guest PII using host's DEK before any downstream use
+  const [guestName, guestEmail, guestNote] = await Promise.all([
+    decrypt(booking.guestName, userId).catch(() => "Guest"),
+    decrypt(booking.guestEmail, userId).catch(() => ""),
+    booking.guestNote ? decrypt(booking.guestNote, userId).catch(() => null) : Promise.resolve(null),
+  ]);
+
   await prisma.$transaction(
     async (tx) => {
       await tx.booking.update({
@@ -159,6 +178,7 @@ export async function confirmBooking(userId: string, bookingId: string) {
             },
             {
               meetingId: booking.meetingId,
+              // guestEmail is already encrypted in DB via bookingService; pass the raw Bytes column value
               guestEmail: booking.guestEmail,
               participantType: "ATTENDEE",
             },
@@ -178,7 +198,7 @@ export async function confirmBooking(userId: string, bookingId: string) {
       data: {
         userId,
         meetingId: booking.meetingId ?? null,
-        title: `Prepare for ${booking.eventType.title} with ${booking.guestName}`,
+        title: `Prepare for ${booking.eventType.title} with ${guestName}`,
         source: "MANUAL",
         dueDate: new Date(booking.startTime.getTime() - 60 * 60 * 1000),
         isCompleted: false,
@@ -219,9 +239,9 @@ export async function confirmBooking(userId: string, bookingId: string) {
     startTime: booking.startTime,
     endTime: booking.endTime,
     guestTimezone: booking.timezone,
-    guestName: booking.guestName,
-    guestEmail: booking.guestEmail,
-    guestNote: booking.guestNote,
+    guestName,
+    guestEmail,
+    guestNote,
     eventTypeTitle: booking.eventType.title,
     locationType: booking.eventType.locationType,
     meetingLink: booking.eventType.meetingLink,
@@ -294,14 +314,14 @@ export async function confirmBooking(userId: string, bookingId: string) {
       await sendEmail({
         to: user.email,
         subject: bookingReceivedSubject({
-          guestName: booking.guestName,
+          guestName,
           eventTypeTitle: booking.eventType.title,
         }),
         html: bookingReceivedEmail({
           hostName: user.name ?? "there",
-          guestName: booking.guestName,
-          guestEmail: booking.guestEmail,
-          guestNote: booking.guestNote,
+          guestName,
+          guestEmail,
+          guestNote,
           eventTypeTitle: booking.eventType.title,
           startTime: booking.startTime,
           endTime: booking.endTime,
@@ -322,24 +342,26 @@ export async function confirmBooking(userId: string, bookingId: string) {
 
     // 2. Guest: "Your [event] with [host] is confirmed" — fail-open, independent of host email
     try {
-      await sendEmail({
-        to: booking.guestEmail,
-        subject: bookingConfirmationSubject({
-          eventTypeTitle: booking.eventType.title,
-          hostName: user.name ?? "your host",
-        }),
-        html: bookingConfirmationEmail({
-          guestName: booking.guestName,
-          hostName: user.name ?? "your host",
-          eventTypeTitle: booking.eventType.title,
-          startTime: booking.startTime,
-          endTime: booking.endTime,
-          timezone: booking.timezone,
-          bookingId,
-          cancelUrl: `${PUBLIC_BASE_URL}/bookings/${bookingId}/cancel`,
-          rescheduleUrl: `${PUBLIC_BASE_URL}/schedule/${user?.username}/${booking.eventType.slug}?reschedule=${bookingId}`,
-        }),
-      });
+      if (guestEmail) {
+        await sendEmail({
+          to: guestEmail,
+          subject: bookingConfirmationSubject({
+            eventTypeTitle: booking.eventType.title,
+            hostName: user.name ?? "your host",
+          }),
+          html: bookingConfirmationEmail({
+            guestName,
+            hostName: user.name ?? "your host",
+            eventTypeTitle: booking.eventType.title,
+            startTime: booking.startTime,
+            endTime: booking.endTime,
+            timezone: booking.timezone,
+            bookingId,
+            cancelUrl: `${PUBLIC_BASE_URL}/bookings/${bookingId}/cancel`,
+            rescheduleUrl: `${PUBLIC_BASE_URL}/schedule/${user?.username}/${booking.eventType.slug}?reschedule=${bookingId}`,
+          }),
+        });
+      }
     } catch (err) {
       logger.error(
         "Failed to send booking-confirmation email to guest (non-critical)",
@@ -373,17 +395,8 @@ export async function confirmBooking(userId: string, bookingId: string) {
   await createNotification(
     userId,
     "BOOKING_CONFIRMED",
-    `Booking confirmed: ${booking.eventType.title} with ${booking.guestName}`,
+    `Booking confirmed: ${booking.eventType.title} with ${guestName}`,
     `Your session on ${booking.startTime.toLocaleDateString()} is confirmed.`,
-    "booking",
-    bookingId,
-  );
-
-  await createNotification(
-    userId,
-    "BOOKING_CANCELLED",
-    `Booking cancelled: ${booking.eventType.title} with ${booking.guestName}`,
-    reason ? `Reason: ${reason}` : undefined,
     "booking",
     bookingId,
   );
@@ -467,20 +480,27 @@ export async function declineBooking(
       (host?.settings?.bookingEmailsEnabled ?? true);
 
     if (emailsEnabled) {
-      await sendEmail({
-        to: booking.guestEmail,
-        subject: bookingCancelledSubject({
-          eventTypeTitle: booking.eventType.title,
-        }),
-        html: bookingCancelledEmail({
-          recipientName: booking.guestName,
-          cancelledByName: host?.name ?? "the host",
-          eventTypeTitle: booking.eventType.title,
-          startTime: booking.startTime,
-          timezone: booking.timezone,
-          cancelReason: booking.cancelReason,
-        }),
-      });
+      const [guestName, guestEmail] = await Promise.all([
+        decrypt(booking.guestName, userId).catch(() => "Guest"),
+        decrypt(booking.guestEmail, userId).catch(() => ""),
+      ]);
+
+      if (guestEmail) {
+        await sendEmail({
+          to: guestEmail,
+          subject: bookingCancelledSubject({
+            eventTypeTitle: booking.eventType.title,
+          }),
+          html: bookingCancelledEmail({
+            recipientName: guestName,
+            cancelledByName: host?.name ?? "the host",
+            eventTypeTitle: booking.eventType.title,
+            startTime: booking.startTime,
+            timezone: booking.timezone,
+            cancelReason: booking.cancelReason,
+          }),
+        });
+      }
     }
   } catch (err) {
     logger.error(
@@ -583,6 +603,11 @@ export async function cancelBooking(
       (host?.settings?.bookingEmailsEnabled ?? true);
 
     if (emailsEnabled) {
+      const [guestName, guestEmail] = await Promise.all([
+        decrypt(booking.guestName, userId).catch(() => "Guest"),
+        decrypt(booking.guestEmail, userId).catch(() => ""),
+      ]);
+
       const cancelledSubject = bookingCancelledSubject({
         eventTypeTitle: booking.eventType.title,
       });
@@ -605,14 +630,16 @@ export async function cancelBooking(
               }),
             })
           : Promise.resolve(),
-        sendEmail({
-          to: booking.guestEmail,
-          subject: cancelledSubject,
-          html: bookingCancelledEmail({
-            recipientName: booking.guestName,
-            ...sharedParams,
-          }),
-        }),
+        guestEmail
+          ? sendEmail({
+              to: guestEmail,
+              subject: cancelledSubject,
+              html: bookingCancelledEmail({
+                recipientName: guestName,
+                ...sharedParams,
+              }),
+            })
+          : Promise.resolve(),
       ]);
     }
   } catch (err) {

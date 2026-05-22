@@ -8,7 +8,12 @@ import {
 import { authService } from "../services/auth/authService";
 import { logger } from "../utils/logging/logger";
 import { env } from "../config/environment";
-import { initDekForNewUser } from "../utils/security/crypto";
+import {
+  initDekForNewUser,
+  encrypt,
+  encryptWithKey,
+  prismaBytes,
+} from "../utils/security/crypto";
 import { setCachedDek } from "../utils/security/dekCache";
 import prisma from "../db/prismaClient";
 
@@ -173,13 +178,32 @@ export const googleController = {
             throw ErrorFactory.unauthorized("User account is inactive");
           }
 
+          // Encrypt OAuth tokens under the user's DEK.
+          // New users: initDekForNewUser runs FIRST (so rawDek is available), then
+          // encryptWithKey is used directly because the wrappedDek update isn't committed yet.
+          // Existing users: encrypt() uses the main prisma client (wrappedDek is already committed).
+          let encAccessToken: Uint8Array<ArrayBuffer>;
+          let encRefreshToken: Uint8Array<ArrayBuffer>;
+
+          if (isNewUser) {
+            newUserDek = await initDekForNewUser(u.id, tx);
+            newUserId = u.id;
+            encAccessToken = prismaBytes(encryptWithKey(tokens.access_token ?? "", newUserDek, 1));
+            encRefreshToken = prismaBytes(encryptWithKey(tokens.refresh_token ?? "", newUserDek, 1));
+          } else {
+            [encAccessToken, encRefreshToken] = await Promise.all([
+              encrypt(tokens.access_token ?? "", u.id),
+              encrypt(tokens.refresh_token ?? "", u.id),
+            ]);
+          }
+
           await tx.oAuthAccount.upsert({
             where: {
               provider_providerId: { provider: "GOOGLE", providerId: googleId },
             },
             update: {
-              accessToken: tokens.access_token ?? "",
-              refreshToken: tokens.refresh_token ?? "",
+              accessToken: encAccessToken,
+              refreshToken: encRefreshToken,
               expiry: tokens.expiry_date
                 ? Math.floor(tokens.expiry_date / 1000)
                 : 0,
@@ -189,8 +213,8 @@ export const googleController = {
             create: {
               provider: "GOOGLE",
               providerId: googleId,
-              accessToken: tokens.access_token ?? "",
-              refreshToken: tokens.refresh_token ?? "",
+              accessToken: encAccessToken,
+              refreshToken: encRefreshToken,
               expiry: tokens.expiry_date
                 ? Math.floor(tokens.expiry_date / 1000)
                 : 0,
@@ -201,9 +225,6 @@ export const googleController = {
 
           // Auto-create UserSettings + default schedule + Mon–Fri slots for new users
           if (isNewUser) {
-            // Initialise encryption DEK for new user — returns rawDek for post-commit caching
-            newUserDek = await initDekForNewUser(u.id, tx);
-            newUserId = u.id;
 
             await tx.userSettings.create({ data: { userId: u.id } });
             const defaultSchedule = await tx.availabilitySchedule.create({

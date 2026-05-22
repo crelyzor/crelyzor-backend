@@ -52,7 +52,7 @@ export function blindIndex(value: string): Buffer {
 // Prisma 6 types Bytes fields as Uint8Array<ArrayBuffer>, not Buffer<ArrayBufferLike>.
 // At runtime, Node.js Buffers from crypto/alloc always use ArrayBuffer (never SharedArrayBuffer),
 // so the cast is safe. We centralise the cast here so service code stays clean.
-function prismaBytes(buf: Buffer): Uint8Array<ArrayBuffer> {
+export function prismaBytes(buf: Buffer): Uint8Array<ArrayBuffer> {
   return buf as unknown as Uint8Array<ArrayBuffer>;
 }
 

@@ -160,8 +160,8 @@ model OAuthAccount {
   id           String       @id @default(uuid()) @db.Uuid
   provider     ProviderEnum
   providerId   String
-  accessToken  String
-  refreshToken String
+  accessToken  Bytes        // Encrypted OAuth access token (AES-256-GCM, Phase 5)
+  refreshToken Bytes        // Encrypted OAuth refresh token (AES-256-GCM, Phase 5)
   expiry       Int
   scopes       String[]
   createdAt    DateTime     @default(now())
@@ -241,21 +241,19 @@ model MeetingParticipant {
   id              String          @id @default(uuid()) @db.Uuid
   meetingId       String          @db.Uuid
   userId          String?         @db.Uuid
-  guestEmail      String?         // For external (non-Crelyzor) participants
+  guestEmail      Bytes?          // Encrypted guest email (AES-256-GCM, Phase 5)
   participantType ParticipantType
   joinedAt        DateTime?
   cardId          String?         @db.Uuid
 
-  // Blind index for encrypted guestEmail (Phase 5) — keep @@index([guestEmail]) until P3
+  // Deterministic blind index — exact-match lookup for encrypted guestEmail
   guestEmailBidx Bytes?
 
   meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   user    User?   @relation(fields: [userId], references: [id])
   card    Card?   @relation(fields: [cardId], references: [id])
 
-  @@unique([meetingId, userId, guestEmail])
   @@index([userId])
-  @@index([guestEmail])
   @@index([guestEmailBidx])
   @@index([meetingId])
   @@index([cardId])
@@ -643,11 +641,12 @@ model CardContact {
   userId String @db.Uuid // card owner
 
   // Contact info submitted by scanner
+  // name and company stay plaintext for ILIKE search and Big Brain indexing (CLAUDE.md)
   name    String
-  email   String?
-  phone   String?
+  email   Bytes?  // Encrypted contact email (AES-256-GCM, Phase 5)
+  phone   Bytes?  // Encrypted contact phone (AES-256-GCM, Phase 5)
   company String?
-  note    String?
+  note    Bytes?  // Encrypted contact note (AES-256-GCM, Phase 5)
 
   // Organization & tagging
   tags String[] @default([]) // e.g., ["TechConf 2026", "networking"]
@@ -660,9 +659,9 @@ model CardContact {
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
 
-  // Blind indexes for encrypted fields (Phase 5) — keep @@index([email]) until P3 drops plaintext col
-  emailBidx Bytes? // HMAC-SHA256 of normalised email — enables exact-match on encrypted email
-  phoneBidx Bytes? // HMAC-SHA256 of normalised phone — enables exact-match on encrypted phone
+  // Deterministic blind indexes — exact-match lookup for encrypted fields
+  emailBidx Bytes? // HMAC-SHA256 of normalised email
+  phoneBidx Bytes? // HMAC-SHA256 of normalised phone
 
   // Relations
   contactTags ContactTag[]
@@ -673,7 +672,6 @@ model CardContact {
   @@index([userId, scannedAt])
   @@index([emailBidx])
   @@index([phoneBidx])
-  @@index([email])
   @@index([userId, isDeleted])
 }
 
@@ -945,11 +943,11 @@ model Booking {
   userId      String        @db.Uuid // the host
   meetingId   String?       @unique @db.Uuid // created Meeting
 
-  // Guest info
-  guestName      String
-  guestEmail     String
-  guestNote      String?
-  guestEmailBidx Bytes?  // HMAC-SHA256 blind index — exact-match on encrypted guestEmail (Phase 5)
+  // Guest info — encrypted under the host user's DEK (Phase 5)
+  guestName      Bytes   // Encrypted guest name (AES-256-GCM)
+  guestEmail     Bytes   // Encrypted guest email (AES-256-GCM)
+  guestNote      Bytes?  // Encrypted guest note (AES-256-GCM)
+  guestEmailBidx Bytes?  // HMAC-SHA256 blind index — exact-match on encrypted guestEmail
 
   // Time
   startTime DateTime
@@ -977,7 +975,6 @@ model Booking {
 
   @@index([userId])
   @@index([eventTypeId])
-  @@index([guestEmail])
   @@index([guestEmailBidx])
   @@index([startTime])
   @@index([status, isDeleted])

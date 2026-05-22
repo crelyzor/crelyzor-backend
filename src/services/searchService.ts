@@ -1,5 +1,6 @@
 import prisma from "../db/prismaClient";
 import { logger } from "../utils/logging/logger";
+import { blindIndex, prismaBytes } from "../utils/security/crypto";
 
 const MEETING_SELECT = {
   id: true,
@@ -29,7 +30,6 @@ const CARD_SELECT = {
 const CONTACT_SELECT = {
   id: true,
   name: true,
-  email: true,
   company: true,
   cardId: true,
 } as const;
@@ -90,8 +90,11 @@ export async function globalSearch(userId: string, q: string) {
         },
         OR: [
           { name: { contains: q, mode: "insensitive" } },
-          { email: { contains: q, mode: "insensitive" } },
           { company: { contains: q, mode: "insensitive" } },
+          // email is encrypted — use blind index exact match when query looks like an email
+          ...(q.includes("@")
+            ? [{ emailBidx: { equals: prismaBytes(blindIndex(q)) } }]
+            : []),
         ],
       },
       select: CONTACT_SELECT,

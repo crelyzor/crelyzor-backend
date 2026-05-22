@@ -50,6 +50,7 @@ import {
   processIncomingNotification,
   renewExpiringChannels,
 } from "../services/googleCalendarPushService";
+import { decrypt } from "../utils/security/crypto";
 
 /** Base URL for the dashboard app — used in email CTAs */
 const APP_BASE_URL = env.FRONTEND_URL;
@@ -414,6 +415,12 @@ export const startWorker = async (): Promise<void> => {
         return { skipped: true };
       }
 
+      // Decrypt guest PII using host's DEK (booking.userId is the host)
+      const [guestName, guestEmail] = await Promise.all([
+        decrypt(booking.guestName, booking.userId).catch(() => "Guest"),
+        decrypt(booking.guestEmail, booking.userId).catch(() => ""),
+      ]);
+
       const host = await prisma.user.findUnique({
         where: { id: booking.userId },
         select: {
@@ -455,29 +462,31 @@ export const startWorker = async (): Promise<void> => {
               to: host.email,
               subject: bookingReminderSubject({
                 eventTypeTitle: booking.eventType.title,
-                otherPartyName: booking.guestName,
+                otherPartyName: guestName,
               }),
               html: bookingReminderEmail({
                 recipientName: host?.name ?? "Host",
-                otherPartyName: booking.guestName,
+                otherPartyName: guestName,
                 role: "host",
                 ...sharedParams,
               }),
             })
           : Promise.resolve(),
-        sendEmail({
-          to: booking.guestEmail,
-          subject: bookingReminderSubject({
-            eventTypeTitle: booking.eventType.title,
-            otherPartyName: host?.name ?? "Host",
-          }),
-          html: bookingReminderEmail({
-            recipientName: booking.guestName,
-            otherPartyName: host?.name ?? "Host",
-            role: "guest",
-            ...sharedParams,
-          }),
-        }),
+        guestEmail
+          ? sendEmail({
+              to: guestEmail,
+              subject: bookingReminderSubject({
+                eventTypeTitle: booking.eventType.title,
+                otherPartyName: host?.name ?? "Host",
+              }),
+              html: bookingReminderEmail({
+                recipientName: guestName,
+                otherPartyName: host?.name ?? "Host",
+                role: "guest",
+                ...sharedParams,
+              }),
+            })
+          : Promise.resolve(),
       ]);
 
       if (booking.meeting?.id) {
@@ -485,7 +494,7 @@ export const startWorker = async (): Promise<void> => {
           booking.userId,
           "BOOKING_REMINDER",
           `Upcoming: ${booking.eventType.title} in 24h`,
-          `Your session with ${booking.guestName} starts tomorrow.`,
+          `Your session with ${guestName} starts tomorrow.`,
           "meeting",
           booking.meeting.id,
         );

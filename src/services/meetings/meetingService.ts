@@ -12,6 +12,7 @@ import { getRecallBotQueue, JobNames } from "../../config/queue";
 import { env } from "../../config/environment";
 import { logger } from "../../utils/logging/logger";
 import { isVideoMeetingUrl } from "../../utils/isVideoMeetingUrl";
+import { encrypt, blindIndex, prismaBytes } from "../../utils/security/crypto";
 
 const meetingInclude = {
   participants: {
@@ -206,44 +207,59 @@ export const meetingService = {
               where: { id: { in: participantUserIds } },
               select: { id: true, email: true },
             });
-            const participantEmails = participantUsers
-              .map((u) => u.email)
-              .filter(Boolean) as string[];
 
-            const matchedContacts = await tx.cardContact.findMany({
-              where: {
-                card: { userId: createdById },
-                email: { in: participantEmails },
-              },
-              select: { email: true, cardId: true },
-            });
+            // Auto-link registered participants to CardContacts using blind indexes
+            // (CardContact.email is encrypted — ILIKE/in on plaintext won't work)
+            const emailBidxMap = new Map(
+              participantUsers
+                .filter((u): u is typeof u & { email: string } => !!u.email)
+                .map((u) => [u.id, blindIndex(u.email)]),
+            );
+            const bidxBuffers = Array.from(emailBidxMap.values()).map(prismaBytes);
 
-            const emailToCardId = new Map(
-              matchedContacts.map((c) => [c.email, c.cardId]),
+            const matchedContacts = bidxBuffers.length > 0
+              ? await tx.cardContact.findMany({
+                  where: {
+                    card: { userId: createdById },
+                    emailBidx: { in: bidxBuffers },
+                  },
+                  select: { emailBidx: true, cardId: true },
+                })
+              : [];
+
+            const bidxHexToCardId = new Map(
+              matchedContacts
+                .filter((c): c is typeof c & { emailBidx: Buffer } => !!c.emailBidx)
+                .map((c) => [Buffer.from(c.emailBidx).toString("hex"), c.cardId]),
             );
 
             await tx.meetingParticipant.createMany({
-              data: participantUsers.map((u) => ({
-                meetingId: newMeeting.id,
-                userId: u.id,
-                participantType: "ATTENDEE" as const,
-                cardId:
-                  u.email && emailToCardId.has(u.email)
-                    ? emailToCardId.get(u.email)
-                    : null,
-              })),
+              data: participantUsers.map((u) => {
+                const bidx = emailBidxMap.get(u.id);
+                const cardId = bidx
+                  ? bidxHexToCardId.get(Buffer.from(bidx).toString("hex")) ?? null
+                  : null;
+                return {
+                  meetingId: newMeeting.id,
+                  userId: u.id,
+                  participantType: "ATTENDEE" as const,
+                  cardId,
+                };
+              }),
             });
           }
 
-          // Add guest participants (external emails)
+          // Add guest participants (external emails) — encrypt before storing
           if (normalizedGuestEmails.length > 0) {
-            await tx.meetingParticipant.createMany({
-              data: normalizedGuestEmails.map((email) => ({
+            const encryptedGuests = await Promise.all(
+              normalizedGuestEmails.map(async (email) => ({
                 meetingId: newMeeting.id,
-                guestEmail: email,
+                guestEmail: await encrypt(email, createdById),
+                guestEmailBidx: prismaBytes(blindIndex(email)),
                 participantType: "ATTENDEE" as const,
               })),
-            });
+            );
+            await tx.meetingParticipant.createMany({ data: encryptedGuests });
           }
         }
 
@@ -494,32 +510,44 @@ export const meetingService = {
               where: { id: { in: toAdd } },
               select: { id: true, email: true },
             });
-            const addedEmails = addedUsers
-              .map((u) => u.email)
-              .filter(Boolean) as string[];
 
-            const matchedContacts = await tx.cardContact.findMany({
-              where: {
-                card: { userId: updatedByUserId },
-                email: { in: addedEmails },
-              },
-              select: { email: true, cardId: true },
-            });
+            // Auto-link using blind indexes (CardContact.email is encrypted)
+            const emailBidxMap = new Map(
+              addedUsers
+                .filter((u): u is typeof u & { email: string } => !!u.email)
+                .map((u) => [u.id, blindIndex(u.email)]),
+            );
+            const bidxBuffers = Array.from(emailBidxMap.values()).map(prismaBytes);
 
-            const emailToCardId = new Map(
-              matchedContacts.map((c) => [c.email, c.cardId]),
+            const matchedContacts = bidxBuffers.length > 0
+              ? await tx.cardContact.findMany({
+                  where: {
+                    card: { userId: updatedByUserId },
+                    emailBidx: { in: bidxBuffers },
+                  },
+                  select: { emailBidx: true, cardId: true },
+                })
+              : [];
+
+            const bidxHexToCardId = new Map(
+              matchedContacts
+                .filter((c): c is typeof c & { emailBidx: Buffer } => !!c.emailBidx)
+                .map((c) => [Buffer.from(c.emailBidx).toString("hex"), c.cardId]),
             );
 
             await tx.meetingParticipant.createMany({
-              data: addedUsers.map((u) => ({
-                meetingId,
-                userId: u.id,
-                participantType: "ATTENDEE" as const,
-                cardId:
-                  u.email && emailToCardId.has(u.email)
-                    ? emailToCardId.get(u.email)
-                    : null,
-              })),
+              data: addedUsers.map((u) => {
+                const bidx = emailBidxMap.get(u.id);
+                const cardId = bidx
+                  ? bidxHexToCardId.get(Buffer.from(bidx).toString("hex")) ?? null
+                  : null;
+                return {
+                  meetingId,
+                  userId: u.id,
+                  participantType: "ATTENDEE" as const,
+                  cardId,
+                };
+              }),
             });
           }
         }
