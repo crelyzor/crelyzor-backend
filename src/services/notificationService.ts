@@ -129,6 +129,14 @@ export async function deleteNotification(
   return true;
 }
 
+export async function deleteAllRead(userId: string): Promise<number> {
+  const result = await prisma.notification.updateMany({
+    where: { userId, isRead: true, isDeleted: false },
+    data: { isDeleted: true, deletedAt: new Date() },
+  });
+  return result.count;
+}
+
 export async function getUnreadCount(userId: string): Promise<number> {
   return prisma.notification.count({
     where: { userId, isRead: false, isDeleted: false },

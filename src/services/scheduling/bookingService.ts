@@ -5,6 +5,7 @@ import { logger } from "../../utils/logging/logger";
 import type { CreateBookingInput } from "../../validators/bookingSchema";
 import { deleteCalendarEvent } from "../googleCalendarService";
 import { sendEmail } from "../email/emailService";
+import { createNotification } from "../notificationService";
 import {
   bookingCancelledEmail,
   bookingCancelledSubject,
@@ -455,6 +456,15 @@ export async function createBooking(data: CreateBookingInput) {
     startTime: startTime.toISOString(),
     isReschedule: !!data.rescheduleBookingId,
   });
+
+  createNotification(
+    user.id,
+    "BOOKING_RECEIVED",
+    `${data.guestName} booked ${result.eventTypeSummary.title}`,
+    `${data.guestName} (${data.guestEmail}) booked a ${result.eventTypeSummary.duration}-minute session.`,
+    "booking",
+    result.booking.id,
+  ).catch(() => {});
 
   if (result.oldGoogleEventId) {
     // Only fire and forget the GCal cleanup

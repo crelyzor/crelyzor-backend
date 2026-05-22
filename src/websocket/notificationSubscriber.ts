@@ -1,6 +1,7 @@
 import IORedis from "ioredis";
 import { getRedisClient } from "../config/redisClient";
 import * as registry from "./connectionRegistry";
+import { WsNotificationPayload } from "./types";
 import { logger } from "../utils/logging/logger";
 
 let sharedSub: IORedis | null = null;
@@ -11,7 +12,7 @@ export function initSubscriber(): void {
   sharedSub.on("message", (channel: string, message: string) => {
     try {
       const userId = channel.replace("notify:", "");
-      const data = JSON.parse(message) as Record<string, unknown>;
+      const data = JSON.parse(message) as WsNotificationPayload;
       registry.broadcast(userId, { type: "NOTIFICATION", data });
     } catch (err) {
       logger.error("notificationSubscriber: failed to handle message", { err });
@@ -54,7 +55,7 @@ export function closeSubscriber(): void {
 
 export function publishNotification(
   userId: string,
-  payload: Record<string, unknown>,
+  payload: WsNotificationPayload,
 ): void {
   getRedisClient()
     .publish(`notify:${userId}`, JSON.stringify(payload))

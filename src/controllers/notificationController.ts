@@ -10,6 +10,7 @@ import {
   markRead,
   markAllRead,
   deleteNotification,
+  deleteAllRead,
   getUnreadCount,
 } from "../services/notificationService";
 
@@ -79,5 +80,16 @@ export const remove = async (req: Request, res: Response) => {
   return apiResponse(res, {
     statusCode: 200,
     message: "Notification deleted",
+  });
+};
+
+export const removeAllRead = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+  const count = await deleteAllRead(userId);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Read notifications cleared",
+    data: { count },
   });
 };

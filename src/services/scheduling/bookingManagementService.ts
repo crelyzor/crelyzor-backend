@@ -372,9 +372,18 @@ export async function confirmBooking(userId: string, bookingId: string) {
 
   await createNotification(
     userId,
-    "BOOKING_RECEIVED",
-    `${booking.guestName} booked ${booking.eventType.title}`,
-    `${booking.guestName} (${booking.guestEmail}) booked a ${booking.eventType.duration}-minute session.`,
+    "BOOKING_CONFIRMED",
+    `Booking confirmed: ${booking.eventType.title} with ${booking.guestName}`,
+    `Your session on ${booking.startTime.toLocaleDateString()} is confirmed.`,
+    "booking",
+    bookingId,
+  );
+
+  await createNotification(
+    userId,
+    "BOOKING_CANCELLED",
+    `Booking cancelled: ${booking.eventType.title} with ${booking.guestName}`,
+    reason ? `Reason: ${reason}` : undefined,
     "booking",
     bookingId,
   );

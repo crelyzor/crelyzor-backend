@@ -11,6 +11,7 @@ router.get("/", notificationController.list);
 router.get("/unread-count", notificationController.unreadCount);
 router.patch("/read-all", notificationController.markAllAsRead);
 router.patch("/:id/read", notificationController.markOneRead);
+router.delete("/read", notificationController.removeAllRead);
 router.delete("/:id", notificationController.remove);
 
 export default router;
