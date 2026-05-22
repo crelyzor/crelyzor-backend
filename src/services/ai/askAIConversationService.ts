@@ -1,4 +1,5 @@
 import prisma from "../../db/prismaClient";
+import { encrypt, decrypt } from "../../utils/security/crypto";
 
 /**
  * Get-or-create the single conversation record for a (user, meeting) pair.
@@ -33,7 +34,16 @@ export const getMessages = async (
       },
     },
   });
-  return conversation?.messages ?? [];
+  if (!conversation) return [];
+
+  return Promise.all(
+    conversation.messages.map(async (m) => ({
+      role: m.role,
+      // Pre-Phase-5 rows were stored as plaintext cast to BYTEA — fail gracefully
+      content: await decrypt(m.content, userId).catch(() => ""),
+      createdAt: m.createdAt,
+    })),
+  );
 };
 
 /**
@@ -43,9 +53,11 @@ export const appendMessage = async (
   conversationId: string,
   role: "user" | "assistant",
   content: string,
+  userId: string,
 ): Promise<void> => {
+  const encrypted = await encrypt(content, userId);
   await prisma.askAIMessage.create({
-    data: { conversationId, role, content },
+    data: { conversationId, role, content: encrypted },
   });
 };
 

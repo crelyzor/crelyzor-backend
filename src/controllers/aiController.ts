@@ -9,6 +9,7 @@ import { generateContentSchema } from "../validators/generateContentSchema";
 import { noteSchema, notesQuerySchema } from "../validators/noteSchema";
 import { apiResponse } from "../utils/globalResponseHandler";
 import * as conversationService from "../services/ai/askAIConversationService";
+import { encrypt, decrypt } from "../utils/security/crypto";
 
 const uuidSchema = z.string().uuid();
 
@@ -35,10 +36,23 @@ export const getSummary = async (req: Request, res: Response) => {
 
   if (!summary) throw new AppError("No AI summary found for this meeting", 404);
 
+  const [summaryText, keyPoints] = await Promise.all([
+    decrypt(summary.summary, userId),
+    summary.keyPoints
+      ? decrypt(summary.keyPoints, userId).then((s) => {
+          try {
+            return JSON.parse(s) as string[];
+          } catch {
+            return [] as string[];
+          }
+        })
+      : Promise.resolve([] as string[]),
+  ]);
+
   return apiResponse(res, {
     statusCode: 200,
     message: "Summary fetched",
-    data: summary,
+    data: { ...summary, summary: summaryText, keyPoints },
   });
 };
 
@@ -70,18 +84,19 @@ export const regenerateSummary = async (req: Request, res: Response) => {
     );
   }
 
-  await aiService.generateSummaryAndKeyPoints(meetingId, transcript.fullText, {
-    requireKeyPoints: true,
-  });
+  const fullText = transcript.fullText
+    ? await decrypt(transcript.fullText, userId)
+    : "";
 
-  const updatedSummary = await prisma.meetingAISummary.findFirst({
-    where: { meetingId, isDeleted: false },
-  });
+  const { summary: summaryText, keyPoints } =
+    await aiService.generateSummaryAndKeyPoints(meetingId, fullText, userId, {
+      requireKeyPoints: true,
+    });
 
   apiResponse(res, {
     statusCode: 200,
     message: "Summary regenerated",
-    data: updatedSummary,
+    data: { summary: summaryText, keyPoints },
   });
 };
 
@@ -113,9 +128,12 @@ export const regenerateTitle = async (req: Request, res: Response) => {
     );
   }
 
+  const transcriptFullText = transcript.fullText
+    ? await decrypt(transcript.fullText, userId)
+    : "";
   const title = await aiService.generateMeetingTitle(
     meetingId,
-    transcript.fullText,
+    transcriptFullText,
   );
   if (!title) throw new AppError("Failed to generate title", 500);
 
@@ -149,7 +167,7 @@ export const getNotes = async (req: Request, res: Response) => {
     ? parsedQuery.data
     : { limit: 50, offset: 0 };
 
-  const [notes, total] = await Promise.all([
+  const [rawNotes, total] = await Promise.all([
     prisma.meetingNote.findMany({
       where: { meetingId, author: userId, isDeleted: false },
       orderBy: { createdAt: "desc" },
@@ -160,6 +178,13 @@ export const getNotes = async (req: Request, res: Response) => {
       where: { meetingId, author: userId, isDeleted: false },
     }),
   ]);
+
+  const notes = await Promise.all(
+    rawNotes.map(async (note) => ({
+      ...note,
+      content: await decrypt(note.content, userId),
+    })),
+  );
 
   return apiResponse(res, {
     statusCode: 200,
@@ -189,10 +214,11 @@ export const createNote = async (req: Request, res: Response) => {
   });
   if (!meeting) throw new AppError("Meeting not found", 404);
 
+  const encryptedContent = await encrypt(parsed.data.content, userId);
   const note = await prisma.meetingNote.create({
     data: {
       meetingId,
-      content: parsed.data.content,
+      content: encryptedContent,
       author: userId,
       timestamp: parsed.data.timestamp,
     },
@@ -201,7 +227,7 @@ export const createNote = async (req: Request, res: Response) => {
   return apiResponse(res, {
     statusCode: 201,
     message: "Note created",
-    data: note,
+    data: { ...note, content: parsed.data.content },
   });
 };
 

@@ -56,10 +56,8 @@ export async function globalSearch(userId: string, q: string) {
       where: {
         userId,
         isDeleted: false,
-        OR: [
-          { title: { contains: q, mode: "insensitive" } },
-          { description: { contains: q, mode: "insensitive" } },
-        ],
+        // description is encrypted (Bytes) — cannot ILIKE search it; title-only search
+        title: { contains: q, mode: "insensitive" },
       },
       select: TASK_SELECT,
       take: 5,

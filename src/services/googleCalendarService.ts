@@ -5,6 +5,7 @@ import { getOAuthClient } from "./googleService";
 import { getRedisClient } from "../config/redisClient";
 import { logger } from "../utils/logging/logger";
 import prisma from "../db/prismaClient";
+import { decrypt } from "../utils/security/crypto";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -956,10 +957,13 @@ export async function backfillGoogleCalendarWrites(
       }
 
       if (task.dueDate) {
+        const descriptionText = task.description
+          ? await decrypt(task.description, userId).catch(() => undefined)
+          : undefined;
         const taskRef = await createGoogleTask(userId, {
           title: task.title,
           dueDate: task.dueDate,
-          notes: task.description,
+          notes: descriptionText,
         });
 
         if (!taskRef) continue;

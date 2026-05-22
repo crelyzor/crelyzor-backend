@@ -21,6 +21,19 @@ import {
   deleteGoogleTask,
   isGoogleTaskRef,
 } from "../services/googleCalendarService";
+import { encrypt, decrypt } from "../utils/security/crypto";
+
+// Decrypt description field in a batch of tasks
+async function decryptTaskDescriptions<
+  T extends { description: Uint8Array | null },
+>(tasks: T[], userId: string): Promise<(Omit<T, "description"> & { description: string | null })[]> {
+  return Promise.all(
+    tasks.map(async (t) => ({
+      ...t,
+      description: t.description ? await decrypt(t.description, userId) : null,
+    })),
+  );
+}
 
 const uuidSchema = z.string().uuid();
 
@@ -156,8 +169,9 @@ export const getAllTasks = async (req: Request, res: Response) => {
     prisma.task.count({ where }),
   ]);
 
+  const decrypted = await decryptTaskDescriptions(tasks, userId);
   // For upcoming view, group by date
-  const tasksWithTags = tasks.map(flattenTags);
+  const tasksWithTags = decrypted.map(flattenTags);
 
   if (view === "upcoming") {
     const grouped: Record<string, typeof tasksWithTags> = {};
@@ -201,11 +215,13 @@ export const getTasks = async (req: Request, res: Response) => {
 
   if (!meeting) throw new AppError("Meeting not found", 404);
 
-  const tasks = await prisma.task.findMany({
+  const rawTasks = await prisma.task.findMany({
     where: { meetingId, userId, isDeleted: false },
     orderBy: { createdAt: "asc" },
     take: 200,
   });
+
+  const tasks = await decryptTaskDescriptions(rawTasks, userId);
 
   return apiResponse(res, {
     statusCode: 200,
@@ -242,12 +258,16 @@ export const createTask = async (req: Request, res: Response) => {
     durationMinutes,
   } = validated.data;
 
+  const encryptedDescription = description
+    ? await encrypt(description, userId)
+    : undefined;
+
   const task = await prisma.task.create({
     data: {
       meetingId,
       userId,
       title,
-      description,
+      description: encryptedDescription,
       dueDate,
       scheduledTime,
       priority,
@@ -273,7 +293,7 @@ export const createTask = async (req: Request, res: Response) => {
     const taskRef = await createGoogleTask(userId, {
       title: task.title,
       dueDate: task.dueDate,
-      notes: task.description,
+      notes: description ?? undefined, // plaintext for Google API
     });
 
     if (taskRef) {
@@ -289,7 +309,7 @@ export const createTask = async (req: Request, res: Response) => {
   return apiResponse(res, {
     statusCode: 201,
     message: "Task created",
-    data: { task },
+    data: { task: { ...task, description: description ?? null } },
   });
 };
 
@@ -343,11 +363,15 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
     if (!card) throw new AppError("Card not found", 404);
   }
 
+  const encryptedDescriptionStandalone = description
+    ? await encrypt(description, userId)
+    : undefined;
+
   const task = await prisma.task.create({
     data: {
       userId,
       title,
-      description,
+      description: encryptedDescriptionStandalone,
       dueDate,
       scheduledTime,
       priority,
@@ -378,7 +402,7 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
     const taskRef = await createGoogleTask(userId, {
       title: task.title,
       dueDate: task.dueDate,
-      notes: task.description,
+      notes: description ?? undefined, // plaintext for Google API
     });
 
     if (taskRef) {
@@ -394,7 +418,7 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
   return apiResponse(res, {
     statusCode: 201,
     message: "Task created",
-    data: { task },
+    data: { task: { ...task, description: description ?? null } },
   });
 };
 
@@ -432,6 +456,11 @@ export const updateTask = async (req: Request, res: Response) => {
   });
 
   if (!existing) throw new AppError("Task not found", 404);
+
+  // Decrypt existing description upfront — needed for Google API fallback paths
+  const existingDescriptionText = existing.description
+    ? await decrypt(existing.description, userId)
+    : null;
 
   const existingGoogleTaskRef = isGoogleTaskRef(existing.googleEventId)
     ? existing.googleEventId
@@ -487,11 +516,16 @@ export const updateTask = async (req: Request, res: Response) => {
   const clearingScheduledTime =
     scheduledTime === null && !!existingCalendarEventId;
 
+  const encryptedDescriptionUpdate =
+    description !== undefined && description !== null
+      ? await encrypt(description, userId)
+      : description; // null means clear, undefined means no-op
+
   let task = await prisma.task.update({
     where: { id: taskId },
     data: {
       ...(title !== undefined && { title }),
-      ...(description !== undefined && { description }),
+      ...(description !== undefined && { description: encryptedDescriptionUpdate }),
       ...(resolvedIsCompleted !== undefined && {
         isCompleted: resolvedIsCompleted,
       }),
@@ -518,8 +552,9 @@ export const updateTask = async (req: Request, res: Response) => {
       ? durationMinutes
       : (existing.durationMinutes ?? 30);
   const finalTitle = title !== undefined ? title : existing.title;
+  // Use plaintext for Google API calls — existingDescriptionText already decrypted above
   const finalDescription =
-    description !== undefined ? description : existing.description;
+    description !== undefined ? description : existingDescriptionText;
   const finalDueDate = dueDate !== undefined ? dueDate : existing.dueDate;
 
   if (clearingScheduledTime) {
@@ -618,6 +653,7 @@ export const updateTask = async (req: Request, res: Response) => {
           data: {
             userId,
             title: existing.title,
+            // Copy encrypted bytes directly — same DEK decrypts the copy
             ...(existing.description && { description: existing.description }),
             ...(existing.priority && { priority: existing.priority }),
             ...(existing.meetingId && { meetingId: existing.meetingId }),
@@ -646,10 +682,13 @@ export const updateTask = async (req: Request, res: Response) => {
 
   logger.info("Task updated", { taskId, userId });
 
+  const finalDescriptionForResponse =
+    description !== undefined ? description : existingDescriptionText;
+
   return apiResponse(res, {
     statusCode: 200,
     message: "Task updated",
-    data: { task },
+    data: { task: { ...task, description: finalDescriptionForResponse } },
   });
 };
 
@@ -757,17 +796,19 @@ export const getSubtasks = async (req: Request, res: Response) => {
 
   if (!parent) throw new AppError("Task not found", 404);
 
-  const subtasks = await prisma.task.findMany({
+  const rawSubtasks = await prisma.task.findMany({
     where: { parentTaskId: taskId, userId, isDeleted: false },
     orderBy: { sortOrder: "asc" },
     include: taskInclude,
     take: 100,
   });
 
+  const decryptedSubtasks = await decryptTaskDescriptions(rawSubtasks, userId);
+
   return apiResponse(res, {
     statusCode: 200,
     message: "Subtasks fetched",
-    data: { subtasks: subtasks.map(flattenTags) },
+    data: { subtasks: decryptedSubtasks.map(flattenTags) },
   });
 };
 
@@ -800,12 +841,16 @@ export const createSubtask = async (req: Request, res: Response) => {
     durationMinutes,
   } = validated.data;
 
+  const encryptedSubtaskDescription = description
+    ? await encrypt(description, userId)
+    : undefined;
+
   const subtask = await prisma.task.create({
     data: {
       userId, // always from req.user — never from body
       parentTaskId: taskId,
       title,
-      description,
+      description: encryptedSubtaskDescription,
       dueDate,
       scheduledTime,
       priority,
@@ -823,6 +868,6 @@ export const createSubtask = async (req: Request, res: Response) => {
   return apiResponse(res, {
     statusCode: 201,
     message: "Subtask created",
-    data: { task: subtask },
+    data: { task: { ...subtask, description: description ?? null } },
   });
 };

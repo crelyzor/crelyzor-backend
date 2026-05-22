@@ -3,6 +3,7 @@ import prisma from "../db/prismaClient";
 import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
 import type { ExportQuery } from "../validators/exportSchema";
+import { decrypt } from "../utils/security/crypto";
 
 function formatTimestamp(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -10,7 +11,10 @@ function formatTimestamp(seconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-async function buildTranscriptText(meetingId: string): Promise<string> {
+async function buildTranscriptText(
+  meetingId: string,
+  userId: string,
+): Promise<string> {
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
     include: {
@@ -22,13 +26,19 @@ async function buildTranscriptText(meetingId: string): Promise<string> {
     throw new AppError("No transcript available for this meeting", 400);
   }
 
-  const lines = transcript.segments.map(
-    (seg) => `[${formatTimestamp(seg.startTime)}] ${seg.speaker}: ${seg.text}`,
+  const lines = await Promise.all(
+    transcript.segments.map(async (seg) => {
+      const text = seg.text ? await decrypt(seg.text, userId) : "";
+      return `[${formatTimestamp(seg.startTime)}] ${seg.speaker}: ${text}`;
+    }),
   );
   return lines.join("\n");
 }
 
-async function buildSummaryText(meetingId: string): Promise<string> {
+async function buildSummaryText(
+  meetingId: string,
+  userId: string,
+): Promise<string> {
   const summary = await prisma.meetingAISummary.findFirst({
     where: { meetingId, isDeleted: false },
     select: { summary: true, keyPoints: true },
@@ -38,10 +48,20 @@ async function buildSummaryText(meetingId: string): Promise<string> {
     throw new AppError("No summary available for this meeting", 400);
   }
 
-  const lines: string[] = ["SUMMARY", "=======", summary.summary];
-  if (summary.keyPoints.length > 0) {
+  const summaryText = await decrypt(summary.summary, userId);
+  let keyPoints: string[] = [];
+  if (summary.keyPoints) {
+    try {
+      keyPoints = JSON.parse(await decrypt(summary.keyPoints, userId)) as string[];
+    } catch {
+      keyPoints = [];
+    }
+  }
+
+  const lines: string[] = ["SUMMARY", "=======", summaryText];
+  if (keyPoints.length > 0) {
     lines.push("", "KEY POINTS", "----------");
-    summary.keyPoints.forEach((pt) => lines.push(`• ${pt}`));
+    keyPoints.forEach((pt) => lines.push(`• ${pt}`));
   }
   return lines.join("\n");
 }
@@ -100,8 +120,8 @@ export async function exportMeeting(
 
   const textContent =
     content === "transcript"
-      ? await buildTranscriptText(meetingId)
-      : await buildSummaryText(meetingId);
+      ? await buildTranscriptText(meetingId, userId)
+      : await buildSummaryText(meetingId, userId);
 
   const safeName = meeting.title.replace(/[^a-z0-9]/gi, "_").toLowerCase();
   const filename = `${safeName}_${content}.${format}`;

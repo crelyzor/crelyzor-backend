@@ -84,9 +84,32 @@ model User {
   // In-App Notifications (Phase 4.9)
   notifications Notification[]
 
+  // Encryption at Rest (Phase 5)
+  // wrappedDek is null only for users created before Phase 5 — backfill script fills it in.
+  wrappedDek  Bytes?
+  dekVersion  Int               @default(1)
+  dekHistory  UserDekHistory[]
+
   @@index([activeSessionId])
   @@index([createdAt])
   @@index([plan])
+}
+
+// Intentionally omits isDeleted/deletedAt/updatedAt:
+// - Rows are append-only (a new row is inserted on each DEK rotation, never updated)
+// - Hard-deleted via onDelete: Cascade when User is deleted — this is the crypto-shredding
+//   guarantee. A soft-delete would leave the wrappedDek material in the DB, defeating the shred.
+model UserDekHistory {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  version    Int
+  wrappedDek Bytes
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, version])
+  @@index([userId])
 }
 
 model Session {
@@ -223,6 +246,9 @@ model MeetingParticipant {
   joinedAt        DateTime?
   cardId          String?         @db.Uuid
 
+  // Blind index for encrypted guestEmail (Phase 5) — keep @@index([guestEmail]) until P3
+  guestEmailBidx Bytes?
+
   meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   user    User?   @relation(fields: [userId], references: [id])
   card    Card?   @relation(fields: [cardId], references: [id])
@@ -230,6 +256,7 @@ model MeetingParticipant {
   @@unique([meetingId, userId, guestEmail])
   @@index([userId])
   @@index([guestEmail])
+  @@index([guestEmailBidx])
   @@index([meetingId])
   @@index([cardId])
 }
@@ -283,7 +310,7 @@ model MeetingTranscript {
   id          String @id @default(uuid()) @db.Uuid
   recordingId String @unique @db.Uuid
 
-  fullText String // Complete transcript text
+  fullText Bytes? // Encrypted transcript text (AES-256-GCM, Phase 5)
 
   deepgramJobId String?   // Track Deepgram async job
   processedAt   DateTime?
@@ -306,7 +333,7 @@ model TranscriptSegment {
   transcriptId String @db.Uuid
 
   speaker   String // "Speaker 1", "Speaker 2", etc.
-  text      String
+  text      Bytes? // Encrypted segment text (AES-256-GCM, Phase 5)
   startTime Float  // seconds
   endTime   Float  // seconds
 
@@ -345,7 +372,7 @@ model Task {
   meetingId   String?       @db.Uuid
 
   title             String
-  description       String?
+  description       Bytes?  // Encrypted task description (AES-256-GCM, Phase 5)
   isCompleted       Boolean       @default(false) // PHASE-OUT: keep in sync with status field
   completedAt       DateTime?                      // PHASE-OUT: set when status = DONE
   dueDate           DateTime?
@@ -414,7 +441,7 @@ model MeetingNote {
   id        String @id @default(uuid()) @db.Uuid
   meetingId String @db.Uuid
 
-  content   String
+  content   Bytes  // Encrypted note content (AES-256-GCM, Phase 5)
   author    String? @db.Uuid // userId — nullable so notes survive user deletion
   timestamp Float? // seconds into the meeting
 
@@ -437,8 +464,8 @@ model MeetingAISummary {
   id        String @id @default(uuid()) @db.Uuid
   meetingId String @unique @db.Uuid
 
-  summary   String
-  keyPoints String[]
+  summary   Bytes   // Encrypted summary text (AES-256-GCM, Phase 5)
+  keyPoints Bytes?  // Encrypted JSON array of key points (AES-256-GCM, Phase 5)
 
   generatedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -457,7 +484,7 @@ model MeetingAIContent {
   id        String        @id @default(uuid()) @db.Uuid
   meetingId String        @db.Uuid
   type      AIContentType
-  content   String        @db.Text
+  content   Bytes  // Encrypted AI-generated content (AES-256-GCM, Phase 5)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -494,7 +521,7 @@ model AskAIMessage {
   conversationId String            @db.Uuid
 
   role    String // "user" | "assistant"
-  content String @db.Text
+  content Bytes  // Encrypted message content (AES-256-GCM, Phase 5)
 
   conversation AskAIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
@@ -633,6 +660,10 @@ model CardContact {
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
 
+  // Blind indexes for encrypted fields (Phase 5) — keep @@index([email]) until P3 drops plaintext col
+  emailBidx Bytes? // HMAC-SHA256 of normalised email — enables exact-match on encrypted email
+  phoneBidx Bytes? // HMAC-SHA256 of normalised phone — enables exact-match on encrypted phone
+
   // Relations
   contactTags ContactTag[]
   card        Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
@@ -640,6 +671,8 @@ model CardContact {
 
   @@index([cardId])
   @@index([userId, scannedAt])
+  @@index([emailBidx])
+  @@index([phoneBidx])
   @@index([email])
   @@index([userId, isDeleted])
 }
@@ -913,9 +946,10 @@ model Booking {
   meetingId   String?       @unique @db.Uuid // created Meeting
 
   // Guest info
-  guestName  String
-  guestEmail String
-  guestNote  String?
+  guestName      String
+  guestEmail     String
+  guestNote      String?
+  guestEmailBidx Bytes?  // HMAC-SHA256 blind index — exact-match on encrypted guestEmail (Phase 5)
 
   // Time
   startTime DateTime
@@ -944,6 +978,7 @@ model Booking {
   @@index([userId])
   @@index([eventTypeId])
   @@index([guestEmail])
+  @@index([guestEmailBidx])
   @@index([startTime])
   @@index([status, isDeleted])
   @@index([userId, isDeleted])    // dashboard booking list query

@@ -3,6 +3,7 @@ import prisma from "../db/prismaClient";
 import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
 import type { UpdateShareInput } from "../validators/shareSchema";
+import { decrypt } from "../utils/security/crypto";
 
 /**
  * Create or return an existing share record for a meeting (idempotent).
@@ -144,6 +145,8 @@ export async function getPublicMeetingByShortId(shortId: string) {
     throw new AppError("Meeting not found or not published", 404);
   }
 
+  const ownerUserId = share.meeting.createdById;
+
   const {
     showTranscript,
     showSummary,
@@ -152,6 +155,9 @@ export async function getPublicMeetingByShortId(shortId: string) {
     shortId: sid,
     meetingId,
   } = share;
+
+  // Strip createdById — must not be exposed in the public API response
+  const { createdById: _omitted, ...publicMeeting } = meeting;
 
   // Fetch speakers always (needed to resolve speakerLabel → displayName in transcript)
   const speakers = await prisma.meetingSpeaker.findMany({
@@ -213,12 +219,40 @@ export async function getPublicMeetingByShortId(shortId: string) {
       : Promise.resolve(null),
   ]);
 
+  // Decrypt transcript segments
+  const decryptedSegments = transcriptData
+    ? await Promise.all(
+        transcriptData.segments.map(async (seg) => ({
+          ...seg,
+          text: seg.text ? await decrypt(seg.text, ownerUserId) : "",
+        })),
+      )
+    : null;
+
+  // Decrypt summary
+  let decryptedSummary: { summary: string; keyPoints: string[] } | null = null;
+  if (summaryData) {
+    const [summaryText, keyPoints] = await Promise.all([
+      decrypt(summaryData.summary, ownerUserId),
+      summaryData.keyPoints
+        ? decrypt(summaryData.keyPoints, ownerUserId).then((s) => {
+            try {
+              return JSON.parse(s) as string[];
+            } catch {
+              return [] as string[];
+            }
+          })
+        : Promise.resolve([] as string[]),
+    ]);
+    decryptedSummary = { summary: summaryText, keyPoints };
+  }
+
   return {
     shortId: sid,
-    meeting,
+    meeting: publicMeeting,
     speakers,
-    transcript: transcriptData ? transcriptData.segments : null,
-    summary: summaryData,
+    transcript: decryptedSegments,
+    summary: decryptedSummary,
     tasks: tasksData,
   };
 }
