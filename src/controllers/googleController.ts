@@ -8,6 +8,8 @@ import {
 import { authService } from "../services/auth/authService";
 import { logger } from "../utils/logging/logger";
 import { env } from "../config/environment";
+import { initDekForNewUser } from "../utils/security/crypto";
+import { setCachedDek } from "../utils/security/dekCache";
 import prisma from "../db/prismaClient";
 
 const ALLOWED_REDIRECT_ORIGINS = (
@@ -151,6 +153,11 @@ export const googleController = {
       const { email, name, picture, googleId, tokens } =
         await googleService.handleLoginCallback(String(code));
 
+      // Declared outside tx so we can populate the DEK cache after the transaction commits.
+      // Caching inside the tx risks a ghost DEK if the transaction later rolls back.
+      let newUserDek: Buffer | undefined;
+      let newUserId: string | undefined;
+
       const user = await prisma.$transaction(
         async (tx) => {
           let u = await tx.user.findUnique({ where: { email } });
@@ -194,6 +201,10 @@ export const googleController = {
 
           // Auto-create UserSettings + default schedule + Mon–Fri slots for new users
           if (isNewUser) {
+            // Initialise encryption DEK for new user — returns rawDek for post-commit caching
+            newUserDek = await initDekForNewUser(u.id, tx);
+            newUserId = u.id;
+
             await tx.userSettings.create({ data: { userId: u.id } });
             const defaultSchedule = await tx.availabilitySchedule.create({
               data: {
@@ -219,6 +230,11 @@ export const googleController = {
         },
         { timeout: 15000 },
       );
+
+      // Transaction committed — safe to populate DEK cache for new users
+      if (newUserDek && newUserId) {
+        setCachedDek(newUserId, 1, newUserDek);
+      }
 
       const deviceInfo = req.headers["user-agent"] ?? "Unknown Device";
       const ipAddress =

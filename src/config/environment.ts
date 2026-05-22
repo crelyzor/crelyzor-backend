@@ -45,6 +45,13 @@ const envSchema = z.object({
   FRONTEND_URL: z.string().url().default("https://app.crelyzor.com"),
   PUBLIC_URL: z.string().url().default("https://crelyzor.com"),
   ALLOWED_ORIGINS: z.string().optional(),
+
+  // Encryption at Rest (Phase 5)
+  // KMS_PROVIDER=local uses LOCAL_KMS_KEY (dev/test); KMS_PROVIDER=gcp uses Google Cloud KMS (prod)
+  KMS_PROVIDER: z.enum(["local", "gcp"]).default("local"),
+  LOCAL_KMS_KEY: z.string().optional(), // required when KMS_PROVIDER=local; 32-byte hex (64 chars)
+  GCP_KMS_KEY_NAME: z.string().optional(), // required when KMS_PROVIDER=gcp; full GCP KMS key resource name
+  HMAC_BLIND_INDEX_KEY: z.string().length(64), // required; 32-byte hex — generate: openssl rand -hex 32
 });
 
 export type Environment = z.infer<typeof envSchema>;
