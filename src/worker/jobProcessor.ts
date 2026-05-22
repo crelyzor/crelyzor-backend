@@ -15,6 +15,7 @@ import {
   GCalPushSyncJobData,
   GCalPushRenewalJobData,
 } from "../config/queue";
+import { createNotification } from "../services/notificationService";
 import { transcriptionService } from "../services/transcription/transcriptionService";
 import { aiService } from "../services/ai/aiService";
 import { sendEmail } from "../services/email/emailService";
@@ -152,6 +153,17 @@ export const startWorker = async (): Promise<void> => {
             appBaseUrl: APP_BASE_URL,
           }),
         });
+      }
+
+      if (meeting?.title) {
+        await createNotification(
+          data.ownerId,
+          "MEETING_AI_COMPLETE",
+          `"${meeting.title}" is ready`,
+          "Transcript, summary, and tasks are available.",
+          "meeting",
+          data.meetingId,
+        );
       }
 
       return { success: true, result };
@@ -384,6 +396,7 @@ export const startWorker = async (): Promise<void> => {
           eventType: { select: { title: true } },
           meeting: {
             select: {
+              id: true,
               meetLink: true,
               location: true,
               booking: {
@@ -466,6 +479,17 @@ export const startWorker = async (): Promise<void> => {
           }),
         }),
       ]);
+
+      if (booking.meeting?.id) {
+        await createNotification(
+          booking.userId,
+          "BOOKING_REMINDER",
+          `Upcoming: ${booking.eventType.title} in 24h`,
+          `Your session with ${booking.guestName} starts tomorrow.`,
+          "meeting",
+          booking.meeting.id,
+        );
+      }
 
       return { success: true };
     } catch (err) {
@@ -598,6 +622,83 @@ export const startWorker = async (): Promise<void> => {
     logger.info("Daily task digest cron scheduled for 08:00 UTC");
   } catch (err) {
     logger.error("Failed to schedule daily task digest cron", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // ── TASK_DUE_SOON in-app notification cron ───────────────────────────────────
+  emailQueue.process(JobNames.TASK_DUE_SOON, async (job) => {
+    logger.info("Processing task-due-soon notification job", { jobId: job.id });
+
+    try {
+      const users = await prisma.user.findMany({
+        where: {
+          isActive: true,
+          isDeleted: false,
+          settings: {
+            inAppNotificationsEnabled: true,
+            inAppTaskDueEnabled: true,
+          },
+        },
+        select: {
+          id: true,
+          timezone: true,
+          tasks: {
+            where: { isDeleted: false, status: { not: "DONE" }, dueDate: { not: null } },
+            select: { dueDate: true },
+          },
+        },
+      });
+
+      let notified = 0;
+
+      for (const user of users) {
+        const now = new Date();
+        const userNow = new Date(
+          now.toLocaleString("en-US", { timeZone: user.timezone }),
+        );
+        userNow.setHours(0, 0, 0, 0);
+
+        const dueToday = user.tasks.filter((t) => {
+          if (!t.dueDate) return false;
+          const taskDate = new Date(
+            t.dueDate.toLocaleString("en-US", { timeZone: user.timezone }),
+          );
+          taskDate.setHours(0, 0, 0, 0);
+          return taskDate.getTime() === userNow.getTime();
+        });
+
+        if (dueToday.length === 0) continue;
+
+        await createNotification(
+          user.id,
+          "TASK_DUE_SOON",
+          `You have ${dueToday.length} task${dueToday.length > 1 ? "s" : ""} due today`,
+        );
+        notified += 1;
+      }
+
+      logger.info("Task-due-soon notifications sent", { notified });
+      return { success: true, notified };
+    } catch (err) {
+      logger.error("Task-due-soon notification job failed", {
+        jobId: job.id,
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      throw err;
+    }
+  });
+
+  try {
+    await emailQueue.add(
+      JobNames.TASK_DUE_SOON,
+      { triggeredAt: new Date().toISOString() },
+      { repeat: { cron: "0 8 * * *" }, jobId: "task-due-soon-cron" },
+    );
+    logger.info("Task-due-soon cron scheduled for 08:00 UTC daily");
+  } catch (err) {
+    logger.error("Failed to schedule task-due-soon cron", {
       error: err instanceof Error ? err.message : String(err),
     });
   }

@@ -710,70 +710,61 @@ Full design: `docs/pricing-and-costs.md`
 
 ### P0 — Schema
 
-- [ ] `Notification` model:
-  ```
-  id UUID PK, userId UUID FK, type NotificationType,
-  title String, body String?,
-  entityType String? ("meeting" | "booking" | "task"),
-  entityId UUID?,
-  isRead Boolean @default(false), readAt DateTime?,
-  createdAt DateTime @default(now()),
-  isDeleted Boolean @default(false), deletedAt DateTime?
-  ```
-- [ ] `NotificationType` enum: `BOOKING_RECEIVED | BOOKING_CONFIRMED | BOOKING_CANCELLED | BOOKING_REMINDER | MEETING_AI_COMPLETE | TASK_DUE_SOON`
-- [ ] Composite index: `@@index([userId, isRead, createdAt])` — fast unread queries
-- [ ] Add to `UserSettings`: `inAppNotificationsEnabled Boolean @default(true)` (master), `inAppBookingEnabled Boolean @default(true)`, `inAppMeetingReadyEnabled Boolean @default(true)`, `inAppTaskDueEnabled Boolean @default(true)`
-- [ ] `pnpm db:migrate && pnpm db:generate`
+- [x] `Notification` model
+- [x] `NotificationType` enum: `BOOKING_RECEIVED | BOOKING_CONFIRMED | BOOKING_CANCELLED | BOOKING_REMINDER | MEETING_AI_COMPLETE | TASK_DUE_SOON`
+- [x] Composite indexes: `@@index([userId, createdAt])` + `@@index([userId, isRead])`
+- [x] Add to `UserSettings`: `inAppNotificationsEnabled Boolean @default(true)` (master), `inAppBookingEnabled Boolean @default(true)`, `inAppMeetingReadyEnabled Boolean @default(true)`, `inAppTaskDueEnabled Boolean @default(true)`
+- [x] `pnpm db:migrate && pnpm db:generate`
+
+### WebSocket Foundation
+
+- [x] `src/websocket/types.ts` — `ExtendedWebSocket`, `WsServerMessage`, `WsClientMessage`
+- [x] `src/websocket/connectionRegistry.ts` — `Map<userId, Set<ExtendedWebSocket>>` with add/remove/broadcast/size
+- [x] `src/websocket/notificationSubscriber.ts` — one shared IORedis subscriber per instance, subscribe/unsubscribe per user, `publishNotification()`
+- [x] `src/websocket/heartbeat.ts` — 30s ping/pong, terminates dead connections
+- [x] `src/websocket/wsServer.ts` — origin validation, IP rate limit (30/60s), 5s auth timeout, Zod validation, readyState race guard, re-auth rejection
+- [x] `src/index.ts` — `createWsServer(server)` + `closeWsServer()` on shutdown signals
 
 ### P1 — Notification Service
 
 New file: `src/services/notificationService.ts`
 
-- [ ] `createNotification(userId, type, title, body?, entityType?, entityId?)` — checks user's `inApp*` preference for the type, inserts to DB, publishes `JSON.stringify(notification)` to Redis channel `notify:${userId}`. Always fail-open (try/catch, log on error, never throws).
-- [ ] `listNotifications(userId, cursor?, limit=20)` — cursor pagination, `orderBy: [{ isRead: 'asc' }, { createdAt: 'desc' }]`, filters `isDeleted: false`
-- [ ] `markRead(userId, notificationId)` — set `isRead: true, readAt: now()`. Verify ownership (include `userId` in where clause).
-- [ ] `markAllRead(userId)` — `updateMany` where `userId + isRead: false + isDeleted: false`
-- [ ] `deleteNotification(userId, notificationId)` — soft delete. Verify ownership.
-- [ ] `getUnreadCount(userId)` — `count` where `userId + isRead: false + isDeleted: false`. Lightweight — called frequently.
+- [x] `createNotification(userId, type, title, body?, entityType?, entityId?)` — checks user's `inApp*` preference for the type, inserts to DB, publishes to Redis channel `notify:${userId}`. Always fail-open (try/catch, log on error, never throws).
+- [x] `listNotifications(userId, cursor?, limit=20)` — cursor pagination (createdAt DESC), filters `isDeleted: false`
+- [x] `markRead(userId, notificationId)` — set `isRead: true, readAt: now()`. Ownership verified via userId in where.
+- [x] `markAllRead(userId)` — `updateMany` where `userId + isRead: false + isDeleted: false`
+- [x] `deleteNotification(userId, notificationId)` — soft delete. Ownership verified.
+- [x] `getUnreadCount(userId)` — `count` where `userId + isRead: false + isDeleted: false`. Lightweight.
 
 ### P2 — Routes + Controller + Validator
 
-- [ ] `src/validators/notificationSchema.ts` — `listNotificationsSchema` (cursor, limit), `notificationIdParamSchema`
-- [ ] `src/controllers/notificationController.ts` — one method per endpoint, delegates to service
-- [ ] `src/routes/notificationRoutes.ts` — all behind `verifyJWT`:
+- [x] `src/validators/notificationSchema.ts` — `listNotificationsSchema` (cursor, limit), `notificationIdParamSchema`
+- [x] `src/controllers/notificationController.ts` — one method per endpoint, delegates to service
+- [x] `src/routes/notificationRoutes.ts` — all behind `verifyJWT`:
   - `GET /notifications` — list (cursor pagination)
   - `GET /notifications/unread-count` — lightweight badge count
   - `PATCH /notifications/:id/read` — mark one read
   - `PATCH /notifications/read-all` — mark all read
   - `DELETE /notifications/:id` — soft delete one
-  - `GET /notifications/stream` — SSE (see P3)
-- [ ] Register in `src/index.ts`: `app.use('/api/v1/notifications', notificationRoutes)`
+- [x] Registered in `indexRouter.ts` under `/notifications`
 
-### P3 — SSE Real-time
+### P3 — Real-time Delivery
 
-In `notificationController.ts` — `stream` method:
-
-- [ ] Set SSE headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`
-- [ ] `const sub = getRedisClient().duplicate()` — separate connection required for subscribe mode
-- [ ] `await sub.subscribe('notify:${userId}')` — listen for published notifications
-- [ ] On `sub.on('message', ...)` → write `data: ${message}\n\n` to `res`
-- [ ] 30s keep-alive: `setInterval(() => res.write(':ping\n\n'), 30_000)` — prevents proxy timeout
-- [ ] `res.on('close', () => { sub.unsubscribe(); sub.quit(); clearInterval(keepAlive); })` — clean shutdown
+> Replaced SSE plan with WebSocket (see WebSocket Foundation above). Redis pub/sub already wired — `publishNotification()` in `notificationSubscriber.ts` sends to the live WS connection. No separate SSE endpoint needed.
 
 ### P4 — Wire Triggers
 
 Call `createNotification()` alongside each existing email send. Never replace emails — additive only.
 
-- [ ] `bookingManagementService.ts` — after `sendBookingReceived`: `createNotification(booking.userId, 'BOOKING_RECEIVED', '[GuestName] booked [EventType]', ..., 'booking', booking.id)`
-- [ ] `bookingManagementService.ts` — after `sendBookingCancelled` for host: `createNotification(hostUserId, 'BOOKING_CANCELLED', '[GuestName] cancelled their booking', ..., 'booking', booking.id)`
-- [ ] `bookingService.ts` reminder Bull job — after `sendBookingReminder`: `createNotification(hostUserId, 'BOOKING_REMINDER', 'Upcoming: [meeting title] in 24h', ..., 'meeting', booking.meetingId)`
-- [ ] `jobProcessor.ts` — after AI pipeline completes (after `sendMeetingAIComplete`): `createNotification(userId, 'MEETING_AI_COMPLETE', '"[Meeting title]" is ready', 'Transcript, summary, and tasks are available.', 'meeting', meetingId)`
-- [ ] New cron task (daily 8am, alongside `dailyDigestEnabled`): query tasks due today per user → `createNotification(userId, 'TASK_DUE_SOON', 'You have [N] task(s) due today', ..., 'task', null)` — one notification per user, not per task
+- [x] `bookingManagementService.ts` — `confirmBooking()`: BOOKING_RECEIVED → host after booking emails, before return
+- [x] `jobProcessor.ts` — BOOKING_REMINDER handler: BOOKING_REMINDER → host after reminder emails (added `id: true` to meeting select)
+- [x] `jobProcessor.ts` — PROCESS_AI handler: MEETING_AI_COMPLETE → owner inside try block after email, before return
+- [x] `jobProcessor.ts` + `queue.ts` — new TASK_DUE_SOON cron at 08:00 UTC: queries users with inApp pref enabled, sends one notification per user with N tasks due today (timezone-aware)
 
 ### P5 — Settings
 
-- [ ] `GET /settings/user` response — include `inAppNotificationsEnabled`, `inAppBookingEnabled`, `inAppMeetingReadyEnabled`, `inAppTaskDueEnabled` in `UserSettings` return shape
-- [ ] `PATCH /settings/user` — accept + persist these 4 new fields (add to Zod validator)
+- [x] `GET /settings/user` response — `inApp*` fields included via `SETTINGS_SELECT` in `userSettingsService.ts`
+- [x] `PATCH /settings/user` — accepts + persists all 4 `inApp*` fields (added to Zod validator)
 
 ---
 

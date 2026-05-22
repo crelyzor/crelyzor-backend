@@ -10,6 +10,7 @@ import {
 } from "../googleCalendarService";
 import { getRecallBotQueue, getEmailQueue, JobNames } from "../../config/queue";
 import { sendEmail } from "../email/emailService";
+import { createNotification } from "../notificationService";
 import {
   bookingReceivedEmail,
   bookingReceivedSubject,
@@ -368,6 +369,15 @@ export async function confirmBooking(userId: string, bookingId: string) {
       });
     }
   }
+
+  await createNotification(
+    userId,
+    "BOOKING_RECEIVED",
+    `${booking.guestName} booked ${booking.eventType.title}`,
+    `${booking.guestName} (${booking.guestEmail}) booked a ${booking.eventType.duration}-minute session.`,
+    "booking",
+    bookingId,
+  );
 
   return prisma.booking.findUnique({
     where: { id: bookingId },

@@ -7,6 +7,7 @@ import { logger } from "./utils/logging/logger";
 import prisma from "./db/prismaClient";
 import { getRedisClient, closeRedisClient } from "./config/redisClient";
 import { initializeProducerQueues, closeQueues } from "./config/queue";
+import { createWsServer, closeWsServer } from "./websocket/wsServer";
 
 const PORT = process.env.PORT || 3000;
 
@@ -97,6 +98,7 @@ const startServer = async () => {
     logger.info(`✅ Server is listening on port ${PORT}`);
     logger.info(`🌐 API Base URL: ${process.env.BASE_URL}`);
     logger.info(`📍 Environment: ${process.env.NODE_ENV}`);
+    createWsServer(server);
   });
 
   // Handle port already in use error
@@ -116,6 +118,7 @@ const startServer = async () => {
 // Graceful shutdown
 process.on("SIGTERM", async () => {
   logger.info("SIGTERM received, shutting down gracefully...");
+  closeWsServer();
   await closeQueues();
   closeRedisClient();
   await prisma.$disconnect();
@@ -124,6 +127,7 @@ process.on("SIGTERM", async () => {
 
 process.on("SIGINT", async () => {
   logger.info("SIGINT received, shutting down gracefully...");
+  closeWsServer();
   await closeQueues();
   closeRedisClient();
   await prisma.$disconnect();

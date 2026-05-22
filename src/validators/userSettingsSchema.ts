@@ -23,6 +23,10 @@ export const patchUserSettingsSchema = z
     bookingEmailsEnabled: z.boolean().optional(),
     meetingReadyEmailEnabled: z.boolean().optional(),
     dailyDigestEnabled: z.boolean().optional(),
+    inAppNotificationsEnabled: z.boolean().optional(),
+    inAppBookingEnabled: z.boolean().optional(),
+    inAppMeetingReadyEnabled: z.boolean().optional(),
+    inAppTaskDueEnabled: z.boolean().optional(),
   })
   .strict(); // reject recallApiKey, googleCalendarEmail, userId, etc.
 

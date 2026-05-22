@@ -81,6 +81,9 @@ model User {
   // Google Calendar Push Sync (Phase 4.3)
   gcalSyncState GCalSyncState?
 
+  // In-App Notifications (Phase 4.9)
+  notifications Notification[]
+
   @@index([activeSessionId])
   @@index([createdAt])
   @@index([plan])
@@ -792,6 +795,12 @@ model UserSettings {
   meetingReadyEmailEnabled  Boolean @default(true)  // AI processing complete
   dailyDigestEnabled        Boolean @default(false) // 8am daily task digest
 
+  // In-App Notifications (Phase 4.9)
+  inAppNotificationsEnabled Boolean @default(true)  // master toggle
+  inAppBookingEnabled       Boolean @default(true)  // booking received/cancelled/reminder
+  inAppMeetingReadyEnabled  Boolean @default(true)  // AI processing complete
+  inAppTaskDueEnabled       Boolean @default(true)  // task due soon
+
   // Soft delete
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
@@ -1076,6 +1085,38 @@ enum Plan {
   FREE
   PRO
   BUSINESS
+}
+
+enum NotificationType {
+  BOOKING_RECEIVED
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+  BOOKING_REMINDER
+  MEETING_AI_COMPLETE
+  TASK_DUE_SOON
+}
+
+// ─── Notifications (Phase 4.9) ────────────────────────────────────────────────
+
+model Notification {
+  id         String           @id @default(uuid()) @db.Uuid
+  userId     String           @db.Uuid
+  type       NotificationType
+  title      String
+  body       String?
+  entityType String?          // "meeting" | "booking" | "task"
+  entityId   String?          @db.Uuid
+  isRead     Boolean          @default(false)
+  readAt     DateTime?
+  isDeleted  Boolean          @default(false)
+  deletedAt  DateTime?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt(sort: Desc)])  // list query: WHERE userId=X ORDER BY createdAt DESC
+  @@index([userId, isRead])                 // unread count: WHERE userId=X AND isRead=false
 }
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
