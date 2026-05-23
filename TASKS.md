@@ -878,7 +878,8 @@ Call `createNotification()` alongside each existing email send. Never replace em
 
 ## Phase 6 — Teams (Backend)
 
-> Full design spec: `../docs/superpowers/specs/2026-05-09-teams-design.md`
+> Full design spec: `../docs/internal/superpowers/specs/2026-05-09-teams-design.md`
+> Depends on: Phase 5 (per-user DEK shipped). Phase 6 adds per-team DEK as an additive extension.
 
 ---
 
@@ -893,34 +894,55 @@ Call `createNotification()` alongside each existing email send. Never replace em
     updatedBy String?
   }
   ```
-- [ ] **`Team` model**:
+- [ ] **Seed SystemConfig defaults** (via migration seed):
+  `max_teams_per_pro_user=3`, `max_teams_per_business_user=10`, `max_members_per_team=50`, `team_invite_expiry_days=7`.
+
+- [ ] **`Team` model** (note: `isDeleted + deletedAt` per project convention; `wrappedDek` + `dekVersion` for per-team encryption):
   ```prisma
   model Team {
-    id        String    @id @default(uuid()) @db.Uuid
-    name      String
-    slug      String    @unique
-    ownerId   String    @db.Uuid
-    owner     User      @relation(fields: [ownerId], references: [id])
-    logoUrl   String?
-    members   TeamMember[]
-    createdAt DateTime  @default(now())
-    deletedAt DateTime?
+    id          String    @id @default(uuid()) @db.Uuid
+    name        String
+    slug        String    @unique
+    description String?
+    ownerId     String    @db.Uuid
+    owner       User      @relation(fields: [ownerId], references: [id])
+    logoUrl     String?
+
+    // Phase 6 encryption — per-team DEK (envelope encryption, KMS-wrapped)
+    wrappedDek  Bytes
+    dekVersion  Int       @default(1)
+    dekHistory  TeamDekHistory[]
+
+    members     TeamMember[]
+    invites     TeamInvite[]
+    isDeleted   Boolean   @default(false)
+    deletedAt   DateTime?
+    createdAt   DateTime  @default(now())
+    updatedAt   DateTime  @updatedAt
+
     @@index([ownerId])
+    @@index([slug])
+    @@index([ownerId, isDeleted])
   }
   ```
-- [ ] **`TeamMember` model**:
+
+- [ ] **`TeamMember` model** — no `leftAt`; soft-delete handles "left/removed":
   ```prisma
   model TeamMember {
-    id       String     @id @default(uuid()) @db.Uuid
-    teamId   String     @db.Uuid
-    team     Team       @relation(fields: [teamId], references: [id])
-    userId   String     @db.Uuid
-    user     User       @relation(fields: [userId], references: [id])
-    role     TeamRole   @default(MEMBER)
-    joinedAt DateTime   @default(now())
-    leftAt   DateTime?
+    id        String    @id @default(uuid()) @db.Uuid
+    teamId    String    @db.Uuid
+    team      Team      @relation(fields: [teamId], references: [id])
+    userId    String    @db.Uuid
+    user      User      @relation(fields: [userId], references: [id])
+    role      TeamRole  @default(MEMBER)
+    joinedAt  DateTime  @default(now())
+    isDeleted Boolean   @default(false)
+    deletedAt DateTime?
+
     @@unique([teamId, userId])
-    @@index([userId])
+    @@index([userId, isDeleted])
+    @@index([teamId, isDeleted])
+    @@index([teamId, role, isDeleted])
   }
 
   enum TeamRole {
@@ -929,66 +951,168 @@ Call `createNotification()` alongside each existing email send. Never replace em
     MEMBER
   }
   ```
-- [ ] **Add `teamId UUID?`** to: `Meeting`, `Card`, `Task`, `EventType`, `Booking` — nullable FK to `Team`. `null` = personal context.
-- [ ] **Migration:** `pnpm db:migrate && pnpm db:generate`
-- [ ] **Seed SystemConfig defaults:** `max_teams_per_pro_user=3`, `max_members_per_team=50`
+
+- [ ] **`TeamInvite` model**:
+  ```prisma
+  model TeamInvite {
+    id          String    @id @default(uuid()) @db.Uuid
+    teamId      String    @db.Uuid
+    team        Team      @relation(fields: [teamId], references: [id])
+    email       String
+    userId      String?   @db.Uuid                // set if invitee already has an account
+    role        TeamRole                           // ADMIN | MEMBER — never OWNER
+    token       String    @unique                  // 32-byte random hex
+    invitedById String    @db.Uuid
+    expiresAt   DateTime
+    acceptedAt  DateTime?
+    declinedAt  DateTime?
+    cancelledAt DateTime?
+    isDeleted   Boolean   @default(false)
+    deletedAt   DateTime?
+    createdAt   DateTime  @default(now())
+
+    @@unique([teamId, email, isDeleted])           // one open invite per email per team
+    @@index([token])
+    @@index([email, isDeleted])
+    @@index([teamId, isDeleted])
+  }
+  ```
+
+- [ ] **`TeamDekHistory` model** — mirrors `UserDekHistory`; append-only on rotation; hard cascade on team delete for crypto-shred guarantee. No `isDeleted`/`deletedAt` (same reasoning as `UserDekHistory`).
+  ```prisma
+  model TeamDekHistory {
+    id         String   @id @default(uuid()) @db.Uuid
+    teamId     String   @db.Uuid
+    version    Int
+    wrappedDek Bytes
+    createdAt  DateTime @default(now())
+    team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+    @@unique([teamId, version])
+    @@index([teamId])
+  }
+  ```
+
+- [ ] **Add `teamId UUID?` + index** to: `Meeting`, `Card`, `Task`, `EventType`, `Booking`, `UserUsage`.
+  Each gets `@@index([teamId, isDeleted])` (or `@@index([teamId])` for models without `isDeleted`).
+- [ ] **Migration:** `pnpm db:migrate && pnpm db:generate`.
 
 ---
 
 ### P1 — Team CRUD Endpoints
 
-Routes under `verifyJWT`. New route file: `src/routes/teamRoutes.ts`. Controller: `src/controllers/teamController.ts`. Service: `src/services/teamService.ts`.
+New: `src/routes/teamRoutes.ts`, `src/controllers/teamController.ts`, `src/services/teamService.ts`. All under `verifyJWT`.
 
-- [ ] `POST /teams` — create team. Pro gate (check `user.plan === PRO`). Check team count ≤ `SystemConfig.max_teams_per_pro_user`. Create `Team` + `TeamMember` (role: OWNER) + auto-create team `Card` — all in one `prisma.$transaction`.
-- [ ] `GET /teams` — list teams the authenticated user belongs to (any role, `leftAt IS NULL`). Include role in response.
-- [ ] `PATCH /teams/:teamId` — update name, slug, logoUrl. Middleware: `verifyTeamRole('ADMIN')`.
-- [ ] `DELETE /teams/:teamId` — soft delete (`deletedAt = now()`). Owner only. Sets all members' `leftAt` in transaction.
+- [ ] `POST /teams` — create team. Plan gate (`user.plan IN ('PRO','BUSINESS')`). Team count check by plan key. Transaction:
+  1. Generate team DEK via KMS, get `wrappedDek`.
+  2. Insert `Team` with `wrappedDek`, `dekVersion=1`.
+  3. Insert `TeamDekHistory` row for version 1.
+  4. Insert OWNER `TeamMember`.
+  5. Auto-create team `Card` with `userId = ownerId`, `teamId = team.id`.
+- [ ] `GET /teams` — list teams the authenticated user is active in (`TeamMember.isDeleted = false`). Include role.
+- [ ] `PATCH /teams/:teamId` — update name (Admin), slug (Owner only), logo (Admin), description (Admin). `verifyTeamRole('ADMIN')` baseline; controller checks Owner for slug.
+- [ ] `DELETE /teams/:teamId` — soft delete (Owner only). Transaction: set `Team.isDeleted=true, deletedAt=now()`, set all `TeamMember.isDeleted=true, deletedAt=now()`, soft-delete team Cards.
+- [ ] `POST /teams/:teamId/transfer-ownership` — Owner only. Body `{ newOwnerId, teamNameConfirm }`. Transaction: flip `Team.ownerId`, swap roles (old → ADMIN, new → OWNER), reassign team Cards' `userId = newOwnerId`.
 
----
-
-### P2 — Team Member Management
-
-- [ ] `GET /teams/:teamId/members` — list active members with role + usage snapshot. `verifyTeamMember`.
-- [ ] `POST /teams/:teamId/members/invite` — invite by `userId` (existing user) or `email` (non-user → send email with token). `verifyTeamRole('ADMIN')`. Check member count ≤ `SystemConfig.max_members_per_team`.
-- [ ] `POST /teams/invites/:token/accept` — accept email invite. Creates `TeamMember` with role MEMBER. No auth required (email link).
-- [ ] `PATCH /teams/:teamId/members/:userId` — change member role. `verifyTeamRole('OWNER')`. Cannot change Owner role this way (use transfer endpoint).
-- [ ] `DELETE /teams/:teamId/members/:userId` — remove member. `verifyTeamRole('ADMIN')`. Sets `leftAt = now()`. Cannot remove Owner.
-- [ ] `DELETE /teams/:teamId/leave` — leave team. Blocked if caller is Owner. Sets `leftAt = now()`.
+> Hard delete + crypto-shred for soft-deleted teams happens via the existing retention job (extend it to also handle `Team` after `HARD_DELETE_ENABLED` retention window). Hard delete cascades `TeamDekHistory` automatically.
 
 ---
 
-### P3 — Team Middleware
+### P2 — Team Member + Invite Management
 
-New middleware files in `src/middleware/`:
-
-- [ ] **`verifyTeamMember.ts`** — reads `teamId` from route param. Checks `TeamMember` exists for `userId` with `leftAt IS NULL` and team `deletedAt IS NULL`. Throws 403 if not a member.
-- [ ] **`verifyTeamRole.ts`** — factory: `verifyTeamRole('ADMIN')` allows ADMIN + OWNER; `verifyTeamRole('OWNER')` allows OWNER only. Must run after `verifyTeamMember`.
-
----
-
-### P4 — Team-scoped Content
-
-- [ ] All meeting queries: when `teamId` header present (`X-Team-Id`), scope `where` to `teamId`. Members get additional filter `participants.userId = req.user.id` unless OWNER/ADMIN.
-- [ ] All card/task/EventType/booking queries: scope to `teamId` when context is team.
-- [ ] `GET /teams/:teamId/usage` — aggregate `UserUsage` per member for current period. Owner/Admin only.
-
----
-
-### P5 — Team Public Scheduling
-
-- [ ] `GET /public/scheduling/team/:slug/profile` — no auth. Fetch team + active members with their active `EventType[]` (where `eventType.teamId = team.id`). Returns team profile + member list.
-- [ ] `GET /public/scheduling/team/:slug/:username` — no auth. Fetch specific member's active EventTypes scoped to this team. Used for team-member booking page.
-- [ ] Slot engine: no changes needed — slots already work per username + eventTypeSlug. Team EventTypes just have `teamId` set.
+- [ ] `GET /teams/:teamId/members` — active members + role + last-active (from WS presence) + per-member usage summary. `verifyTeamMember`.
+- [ ] `POST /teams/:teamId/members/invite` — `verifyTeamRole('ADMIN')`. Body: `{ mode: 'user'|'email', userId?, emails?: string[], role: 'ADMIN'|'MEMBER', message?: string }`. Member count check vs. `max_members_per_team`. For `mode=user`: insert `TeamInvite` + WS event `TEAM_INVITE_RECEIVED`. For `mode=email`: insert one `TeamInvite` per email, queue Bull email job per invite. Returns invites created.
+- [ ] `GET /teams/:teamId/invites` — list pending invites. Admin/Owner.
+- [ ] `POST /teams/:teamId/invites/:inviteId/resend` — bump `expiresAt`, re-queue email job. Admin/Owner.
+- [ ] `DELETE /teams/:teamId/invites/:inviteId` — set `cancelledAt`, `isDeleted=true`. Admin/Owner.
+- [ ] `GET /invites/:token` — public (no auth). Validate token + return team info `{ team: { name, slug, logoUrl }, role, inviter: { name }, expiresAt }`. 404 on invalid/cancelled/declined, 410 on expired.
+- [ ] `POST /invites/:token/accept` — requires JWT. Transaction: mark `TeamInvite.acceptedAt`, create `TeamMember`, auto-create team Card for the new member, emit `TEAM_MEMBER_JOINED`.
+- [ ] `POST /invites/:token/decline` — requires JWT (or unauthenticated for email link variant?). Set `declinedAt`.
+- [ ] `POST /teams/:teamId/invites/accept` — accept in-app invite for existing user (uses authed user's email to match invite). Same transaction as above.
+- [ ] `POST /teams/:teamId/invites/decline` — in-app decline.
+- [ ] `PATCH /teams/:teamId/members/:userId` — `verifyTeamRole('OWNER')`. Change role. Cannot change own role. Emit `TEAM_MEMBER_ROLE_CHANGED`.
+- [ ] `DELETE /teams/:teamId/members/:userId` — `verifyTeamRole('ADMIN')`. Set `TeamMember.isDeleted=true, deletedAt=now()`, soft-delete their team Card. Cannot remove Owner. Emit `TEAM_MEMBER_LEFT`.
+- [ ] `DELETE /teams/:teamId/leave` — blocked if caller is Owner. Same as above for self.
 
 ---
 
-### P6 — Admin Portal: SystemConfig + Teams API
+### P3 — Encryption: per-team DEK
+
+- [ ] Extend `cryptoService.getDek()` to accept `Principal = { type: 'user' | 'team', id: string }`. Add a backward-compatible string overload that resolves to `{ type: 'user', id }`.
+- [ ] DEK cache key becomes `${principal.type}:${principal.id}`. Existing LRU keeps capacity; entries shared across user + team principals.
+- [ ] Encrypt/decrypt helpers (`encryptField`, `decryptField` etc.) accept a `row` or explicit principal — pick `{ type: 'team', id: row.teamId }` when `row.teamId` is set, else `{ type: 'user', id: row.userId }`.
+- [ ] Bull job payload schemas updated to carry `{ userId, teamId? }`. Workers call `getDek` with the right principal.
+- [ ] Crypto unit tests for: team principal encrypt/decrypt roundtrip, cache eviction across principals, rotation (team DEK rotation inserts `TeamDekHistory` row).
+- [ ] `keyRotationService` extended to rotate team DEKs on demand (admin endpoint deferred — not in scope for P3).
+- [ ] Backfill: not required — existing rows have `teamId = null` and stay on user DEK.
+
+---
+
+### P4 — Context Middleware + Quota Resolver
+
+New files: `src/middleware/resolveTeamContext.ts`, `src/middleware/verifyTeamRole.ts`, `src/services/quotaService.ts`.
+
+- [ ] **`resolveTeamContext`** — reads `X-Team-Id` header. If absent → `req.teamContext = null`. If present → fetch active `TeamMember` (with team not soft-deleted, member not soft-deleted), 403 if not a member. Populates `req.teamContext = { teamId, role }`.
+- [ ] **`verifyTeamRole(minRole)`** — factory: `'ADMIN'` allows ADMIN + OWNER, `'OWNER'` allows OWNER only. Runs after `resolveTeamContext` (or `verifyTeamMember` for route-param style). Throws 403.
+- [ ] **`verifyTeamMember`** — variant that reads `teamId` from route param (for `/teams/:teamId/*` routes). Same semantics.
+- [ ] **`getQuotaOwner({ userId, teamId })`** → `Promise<string>` — returns userId of the principal whose pool gets debited. Cached at request scope (per request, not LRU).
+- [ ] Wire `getQuotaOwner` into:
+  - Deepgram transcription start (records minutes against owner)
+  - OpenAI calls (Ask AI, summary, content generation)
+  - GCS upload (storage attribution)
+  - Recall.ai webhook minute attribution
+- [ ] `UserUsage` writes carry `teamId` for breakdown attribution. Aggregate queries support `groupBy: ['userId', 'teamId']`.
+
+---
+
+### P5 — Team-scoped Content (split per service)
+
+Each sub-task is a single PR scope.
+
+- [ ] **P5.1 Meetings** — `meetingService` reads `req.teamContext`. List/get/update/delete + nested (attachments, participants, recordings, transcript, segments, AI summary, ask AI, content generation, share) honor team context. Member visibility: when `role === 'MEMBER'`, add `participants: { some: { userId } }` to where clause.
+- [ ] **P5.2 Cards** — `cardService` + `cardContactService` honor team context. Public team card endpoint (`GET /public/teams/:slug`) separate.
+- [ ] **P5.3 Tasks** — `taskService` honors team context. Reassign endpoint blocks `role === 'MEMBER'`.
+- [ ] **P5.4 Scheduling** — `eventTypeService`, `availabilityService`, `bookingService` (private endpoints) honor team context. Team-scoped EventTypes have `teamId` set; slot engine works unchanged.
+- [ ] **P5.5 Tags** — `tagService` polymorphic tags (meeting/card/task/contact) scope to team context. The `Tag` model itself gets `teamId UUID?`.
+- [ ] **P5.6 SMA + AI** — `AskAIConversation` scoped by `meeting.teamId`. `MeetingAIContent` cache scoped by `meeting.teamId`.
+- [ ] **P5.7 Recall webhooks** — match Recall event → meeting → use `meeting.teamId` for quota attribution via `getQuotaOwner`.
+- [ ] **P5.8 Usage endpoint** — `GET /teams/:teamId/usage?period=this_month|last_month|7d|custom&start=&end=` — aggregate `UserUsage` per member for the period. Owner/Admin only. Returns `{ summary: {...}, breakdown: [{ user, meetings, transcriptionMinutes, aiTokens, storageGB }] }`.
+
+---
+
+### P6 — Public Team Endpoints
+
+- [ ] `GET /public/teams/:slug` — no auth. Returns `{ team: { name, slug, description, logoUrl, createdAt }, members: [{ user: { displayName, username, avatarUrl }, role, teamCard: { ... } }], stats: { memberCount } }`. Only active members. 404 if team `isDeleted` or not found.
+- [ ] `GET /public/scheduling/team/:slug/profile` — team scheduling profile + active member list.
+- [ ] `GET /public/scheduling/team/:slug/:username` — specific member's team-scoped EventTypes.
+- [ ] Slot engine respects `eventType.teamId = team.id` (no change to slot algorithm — just filter scope).
+
+---
+
+### P7 — WebSocket Events
+
+Extend `WsServerMessage` (in `src/types/ws.ts`):
+
+- [ ] `TEAM_INVITE_RECEIVED` — emitted to invitee on user-mode invite.
+- [ ] `TEAM_MEMBER_JOINED` — emitted to all current team members on acceptance.
+- [ ] `TEAM_MEMBER_LEFT` — emitted to remaining team members on removal/leave.
+- [ ] `TEAM_MEMBER_ROLE_CHANGED` — emitted to team.
+- [ ] `TEAM_MEETING_BOOKED` — emitted to participant on internal booking confirmation.
+
+Publish from `teamService` / `meetingService` after the relevant DB commit, never inside the transaction.
+
+---
+
+### P8 — Admin API
 
 Routes under `verifyAdmin` in `src/routes/adminRoutes.ts`:
 
-- [ ] `GET /admin/config` — list all `SystemConfig` entries
-- [ ] `PATCH /admin/config/:key` — update value. Zod: `{ value: z.string().min(1) }`.
-- [ ] `GET /admin/teams` — list all teams with `owner { email }`, `_count { members }`, `createdAt`, `deletedAt`. Pagination. Soft-deleted teams included (filterable).
+- [ ] `GET /admin/config` — list all `SystemConfig` entries grouped by category (derived from key prefix).
+- [ ] `PATCH /admin/config/:key` — Zod `{ value: z.string().min(1) }`. Records `updatedBy = adminUserId`. Writes audit row.
+- [ ] `GET /admin/teams?include_deleted=false&search=&page=&pageSize=` — list with `owner { email }`, `_count { members }`, `createdAt`, `isDeleted`. Pagination.
+- [ ] `GET /admin/teams/:teamId` — full detail incl. active + departed members + recent activity (created, member joined, member left, role changed events from audit log).
+- [ ] `DELETE /admin/teams/:teamId` — admin override soft-delete (same effect as Owner-initiated delete; records admin override in audit log).
+- [ ] `PATCH /admin/users/:userId/plan` — Zod `{ plan: z.enum(['FREE','PRO','BUSINESS']) }`. Records `previousPlan` in audit log. Returns updated user.
 
 ---
 
