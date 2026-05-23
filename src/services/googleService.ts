@@ -206,7 +206,7 @@ export const googleService = {
             provider: "GOOGLE",
             providerId: data.id!,
             accessToken: encAccessToken,
-            refreshToken: encRefreshToken ?? encAccessToken, // fallback: store accessToken copy if no refreshToken (rare)
+            refreshToken: encRefreshToken ?? null,
             expiry: tokens.expiry_date
               ? Math.floor(tokens.expiry_date / 1000)
               : 0,

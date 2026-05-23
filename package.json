@@ -11,6 +11,8 @@
     "dev": "tsx watch src/index.ts",
     "dev:worker": "tsx watch src/worker.ts",
     "admin:seed": "tsx src/scripts/seedAdmin.ts",
+    "phase5:backfill": "tsx src/scripts/phase5Backfill.ts",
+    "phase5:migrate": "tsx src/scripts/phase5Migrate.ts",
     "lint": "eslint .",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",

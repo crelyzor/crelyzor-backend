@@ -66,10 +66,10 @@ model User {
   recordings            MeetingRecording[]
 
   // Scheduling (Phase 1.2)
-  settings               UserSettings?
-  eventTypes             EventType[]
-  availabilitySchedules  AvailabilitySchedule[]
-  bookings               Booking[]
+  settings              UserSettings?
+  eventTypes            EventType[]
+  availabilitySchedules AvailabilitySchedule[]
+  bookings              Booking[]
 
   // Billing (Phase 4)
   usage        UserUsage?
@@ -86,9 +86,9 @@ model User {
 
   // Encryption at Rest (Phase 5)
   // wrappedDek is null only for users created before Phase 5 — backfill script fills it in.
-  wrappedDek  Bytes?
-  dekVersion  Int               @default(1)
-  dekHistory  UserDekHistory[]
+  wrappedDek Bytes?
+  dekVersion Int              @default(1)
+  dekHistory UserDekHistory[]
 
   @@index([activeSessionId])
   @@index([createdAt])
@@ -160,8 +160,8 @@ model OAuthAccount {
   id           String       @id @default(uuid()) @db.Uuid
   provider     ProviderEnum
   providerId   String
-  accessToken  Bytes        // Encrypted OAuth access token (AES-256-GCM, Phase 5)
-  refreshToken Bytes        // Encrypted OAuth refresh token (AES-256-GCM, Phase 5)
+  accessToken  Bytes // Encrypted OAuth access token (AES-256-GCM, Phase 5)
+  refreshToken Bytes? // Encrypted OAuth refresh token — null when Google didn't issue one (only first consent)
   expiry       Int
   scopes       String[]
   createdAt    DateTime     @default(now())
@@ -210,21 +210,21 @@ model Meeting {
   updatedAt DateTime @updatedAt
 
   // Relations
-  createdBy    User                 @relation("MeetingCreatedBy", fields: [createdById], references: [id])
+  createdBy    User                  @relation("MeetingCreatedBy", fields: [createdById], references: [id])
   participants MeetingParticipant[]
   stateHistory MeetingStateHistory[]
 
   // Smart Meeting Assistant relations
-  recording    MeetingRecording?
-  speakers     MeetingSpeaker[]
-  tasks        Task[]
-  meetingNotes MeetingNote[]
-  aiSummary    MeetingAISummary?
-  aiContents   MeetingAIContent[]
-  share        MeetingShare?
-  tags         MeetingTag[]
-  attachments  MeetingAttachment[]
-  booking      Booking?
+  recording          MeetingRecording?
+  speakers           MeetingSpeaker[]
+  tasks              Task[]
+  meetingNotes       MeetingNote[]
+  aiSummary          MeetingAISummary?
+  aiContents         MeetingAIContent[]
+  share              MeetingShare?
+  tags               MeetingTag[]
+  attachments        MeetingAttachment[]
+  booking            Booking?
   askAIConversations AskAIConversation[]
 
   @@index([createdById])
@@ -241,7 +241,7 @@ model MeetingParticipant {
   id              String          @id @default(uuid()) @db.Uuid
   meetingId       String          @db.Uuid
   userId          String?         @db.Uuid
-  guestEmail      Bytes?          // Encrypted guest email (AES-256-GCM, Phase 5)
+  guestEmail      Bytes? // Encrypted guest email (AES-256-GCM, Phase 5)
   participantType ParticipantType
   joinedAt        DateTime?
   cardId          String?         @db.Uuid
@@ -285,8 +285,8 @@ model MeetingRecording {
   meetingId String @unique @db.Uuid
 
   gcsPath  String // Path in Google Cloud Storage
-  duration Int    // Duration in seconds
-  fileSize Int    // File size in bytes
+  duration Int // Duration in seconds
+  fileSize Int // File size in bytes
   fileName String
 
   uploadedBy String   @db.Uuid
@@ -296,8 +296,8 @@ model MeetingRecording {
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
 
-  uploader   User              @relation(fields: [uploadedBy], references: [id], onDelete: Restrict)
-  meeting    Meeting           @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  uploader   User               @relation(fields: [uploadedBy], references: [id], onDelete: Restrict)
+  meeting    Meeting            @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   transcript MeetingTranscript?
 
   @@index([meetingId])
@@ -310,7 +310,7 @@ model MeetingTranscript {
 
   fullText Bytes? // Encrypted transcript text (AES-256-GCM, Phase 5)
 
-  deepgramJobId String?   // Track Deepgram async job
+  deepgramJobId String? // Track Deepgram async job
   processedAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -332,8 +332,8 @@ model TranscriptSegment {
 
   speaker   String // "Speaker 1", "Speaker 2", etc.
   text      Bytes? // Encrypted segment text (AES-256-GCM, Phase 5)
-  startTime Float  // seconds
-  endTime   Float  // seconds
+  startTime Float // seconds
+  endTime   Float // seconds
 
   transcript MeetingTranscript @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
 
@@ -347,7 +347,7 @@ model MeetingSpeaker {
   id        String @id @default(uuid()) @db.Uuid
   meetingId String @db.Uuid
 
-  speakerLabel String  // "Speaker 1", "Speaker 2", etc. (from Deepgram diarization)
+  speakerLabel String // "Speaker 1", "Speaker 2", etc. (from Deepgram diarization)
   displayName  String? // User-provided name
   role         String? // Custom role (e.g., "consultant", "client")
 
@@ -365,31 +365,31 @@ model MeetingSpeaker {
 }
 
 model Task {
-  id          String        @id @default(uuid()) @db.Uuid
-  userId      String        @db.Uuid
-  meetingId   String?       @db.Uuid
+  id        String  @id @default(uuid()) @db.Uuid
+  userId    String  @db.Uuid
+  meetingId String? @db.Uuid
 
-  title             String
-  description       Bytes?  // Encrypted task description (AES-256-GCM, Phase 5)
-  isCompleted       Boolean       @default(false) // PHASE-OUT: keep in sync with status field
-  completedAt       DateTime?                      // PHASE-OUT: set when status = DONE
-  dueDate           DateTime?
-  scheduledTime     DateTime?
-  priority          TaskPriority?
-  source            TaskSource    @default(MANUAL)
+  title         String
+  description   Bytes? // Encrypted task description (AES-256-GCM, Phase 5)
+  isCompleted   Boolean       @default(false) // PHASE-OUT: keep in sync with status field
+  completedAt   DateTime? // PHASE-OUT: set when status = DONE
+  dueDate       DateTime?
+  scheduledTime DateTime?
+  priority      TaskPriority?
+  source        TaskSource    @default(MANUAL)
 
   // Phase 3 additions
-  status            TaskStatus    @default(TODO)
-  sortOrder         Int           @default(0)
-  parentTaskId      String?       @db.Uuid
-  cardId            String?       @db.Uuid
-  transcriptContext String?       // The transcript sentence that generated this task (AI_EXTRACTED only)
-  durationMinutes   Int?          @default(30) // Task duration in minutes (5–480)
-  googleEventId     String?       // GCal time-block event ID (set when task is blocked in Google Calendar)
+  status            TaskStatus @default(TODO)
+  sortOrder         Int        @default(0)
+  parentTaskId      String?    @db.Uuid
+  cardId            String?    @db.Uuid
+  transcriptContext String? // The transcript sentence that generated this task (AI_EXTRACTED only)
+  durationMinutes   Int?       @default(30) // Task duration in minutes (5–480)
+  googleEventId     String? // GCal time-block event ID (set when task is blocked in Google Calendar)
 
   // Phase 3.2 — Recurring tasks
-  recurringRule     String?       // RRULE string e.g. "FREQ=DAILY", "FREQ=WEEKLY", "FREQ=MONTHLY"
-  recurringParentId String?       @db.Uuid // Points to the root recurring task (never the previous sibling)
+  recurringRule     String? // RRULE string e.g. "FREQ=DAILY", "FREQ=WEEKLY", "FREQ=MONTHLY"
+  recurringParentId String? @db.Uuid // Points to the root recurring task (never the previous sibling)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -439,7 +439,7 @@ model MeetingNote {
   id        String @id @default(uuid()) @db.Uuid
   meetingId String @db.Uuid
 
-  content   Bytes  // Encrypted note content (AES-256-GCM, Phase 5)
+  content   Bytes // Encrypted note content (AES-256-GCM, Phase 5)
   author    String? @db.Uuid // userId — nullable so notes survive user deletion
   timestamp Float? // seconds into the meeting
 
@@ -462,8 +462,8 @@ model MeetingAISummary {
   id        String @id @default(uuid()) @db.Uuid
   meetingId String @unique @db.Uuid
 
-  summary   Bytes   // Encrypted summary text (AES-256-GCM, Phase 5)
-  keyPoints Bytes?  // Encrypted JSON array of key points (AES-256-GCM, Phase 5)
+  summary   Bytes // Encrypted summary text (AES-256-GCM, Phase 5)
+  keyPoints Bytes? // Encrypted JSON array of key points (AES-256-GCM, Phase 5)
 
   generatedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -482,7 +482,7 @@ model MeetingAIContent {
   id        String        @id @default(uuid()) @db.Uuid
   meetingId String        @db.Uuid
   type      AIContentType
-  content   Bytes  // Encrypted AI-generated content (AES-256-GCM, Phase 5)
+  content   Bytes // Encrypted AI-generated content (AES-256-GCM, Phase 5)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -498,9 +498,9 @@ model MeetingAIContent {
 // ================================
 
 model AskAIConversation {
-  id        String         @id @default(uuid()) @db.Uuid
-  meetingId String         @db.Uuid
-  userId    String         @db.Uuid
+  id        String @id @default(uuid()) @db.Uuid
+  meetingId String @db.Uuid
+  userId    String @db.Uuid
 
   meeting  Meeting        @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -515,11 +515,11 @@ model AskAIConversation {
 }
 
 model AskAIMessage {
-  id             String            @id @default(uuid()) @db.Uuid
-  conversationId String            @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
+  conversationId String @db.Uuid
 
   role    String // "user" | "assistant"
-  content Bytes  // Encrypted message content (AES-256-GCM, Phase 5)
+  content Bytes // Encrypted message content (AES-256-GCM, Phase 5)
 
   conversation AskAIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
@@ -534,16 +534,16 @@ model AskAIMessage {
 // ================================
 
 model GCalSyncState {
-  id         String   @id @default(uuid()) @db.Uuid
-  userId     String   @unique @db.Uuid
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
 
-  channelId  String   @unique          // UUID we generate — used as channel identifier with Google
-  resourceId String?                   // Returned by Google after watch() — needed to stop channel
-  expiration DateTime                  // When Google expires this channel (max 30 days)
-  syncToken  String?                   // Incremental sync token from last successful events.list call
+  channelId  String   @unique // UUID we generate — used as channel identifier with Google
+  resourceId String? // Returned by Google after watch() — needed to stop channel
+  expiration DateTime // When Google expires this channel (max 30 days)
+  syncToken  String? // Incremental sync token from last successful events.list call
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -588,29 +588,29 @@ model Card {
   userId String @db.Uuid
 
   // Card content
-  slug        String  // "default", "work", "startup"
-  displayName String  // name shown on card (can differ from user.name)
+  slug        String // "default", "work", "startup"
+  displayName String // name shown on card (can differ from user.name)
   title       String? // "Software Engineer @ Acme"
   bio         String?
   avatarUrl   String?
   coverUrl    String? // banner/cover image
 
   // Structured fields
-  links         Json @default("[]")  // [{type, url, label, icon}]
-  contactFields Json @default("{}")  // {phone, email, location, website}
+  links         Json @default("[]") // [{type, url, label, icon}]
+  contactFields Json @default("{}") // {phone, email, location, website}
 
   // Theme & customization
   theme Json @default("{}") // {primaryColor, backgroundColor, fontFamily, layout, darkMode}
 
   // Template system
   templateId      String  @default("executive") // "executive" | "classic-bold" | "minimal"
-  showQr          Boolean @default(true)        // Show QR code on back face
-  htmlContent     String? @db.Text              // Generated front-face HTML
-  htmlBackContent String? @db.Text              // Generated back-face HTML
+  showQr          Boolean @default(true) // Show QR code on back face
+  htmlContent     String? @db.Text // Generated front-face HTML
+  htmlBackContent String? @db.Text // Generated back-face HTML
 
   // Card state
   isDefault Boolean @default(false) // shown at /username
-  isActive  Boolean @default(true)  // can be paused
+  isActive  Boolean @default(true) // can be paused
 
   // Soft delete
   isDeleted Boolean   @default(false)
@@ -621,11 +621,11 @@ model Card {
   updatedAt DateTime @updatedAt
 
   // Relations
-  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  contacts CardContact[]
-  views    CardView[]
-  tags     CardTag[]
-  tasks    Task[]
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contacts            CardContact[]
+  views               CardView[]
+  tags                CardTag[]
+  tasks               Task[]
   meetingParticipants MeetingParticipant[]
 
   @@unique([userId, slug])
@@ -643,10 +643,10 @@ model CardContact {
   // Contact info submitted by scanner
   // name and company stay plaintext for ILIKE search and Big Brain indexing (CLAUDE.md)
   name    String
-  email   Bytes?  // Encrypted contact email (AES-256-GCM, Phase 5)
-  phone   Bytes?  // Encrypted contact phone (AES-256-GCM, Phase 5)
+  email   Bytes? // Encrypted contact email (AES-256-GCM, Phase 5)
+  phone   Bytes? // Encrypted contact phone (AES-256-GCM, Phase 5)
   company String?
-  note    Bytes?  // Encrypted contact note (AES-256-GCM, Phase 5)
+  note    Bytes? // Encrypted contact note (AES-256-GCM, Phase 5)
 
   // Organization & tagging
   tags String[] @default([]) // e.g., ["TechConf 2026", "networking"]
@@ -665,8 +665,8 @@ model CardContact {
 
   // Relations
   contactTags ContactTag[]
-  card        Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card        Card         @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([cardId])
   @@index([userId, scannedAt])
@@ -680,7 +680,7 @@ model CardView {
   cardId String @db.Uuid
 
   // Analytics data
-  ipHash    String?  // hashed IP for unique visitor tracking (privacy-friendly)
+  ipHash    String? // hashed IP for unique visitor tracking (privacy-friendly)
   userAgent String?
   referrer  String?
   country   String?
@@ -703,16 +703,16 @@ model CardView {
 // ================================
 
 model MeetingAttachment {
-  id        String         @id @default(uuid()) @db.Uuid
-  meetingId String         @db.Uuid
-  userId    String         @db.Uuid
+  id        String @id @default(uuid()) @db.Uuid
+  meetingId String @db.Uuid
+  userId    String @db.Uuid
 
   type     AttachmentType
   name     String
-  url      String?        // LINK: raw URL
-  gcsPath  String?        // FILE/PHOTO: GCS object path
+  url      String? // LINK: raw URL
+  gcsPath  String? // FILE/PHOTO: GCS object path
   mimeType String?
-  size     Int?           // bytes
+  size     Int? // bytes
 
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
@@ -733,16 +733,16 @@ model MeetingAttachment {
 // ================================
 
 model Tag {
-  id        String    @id @default(uuid()) @db.Uuid
-  userId    String    @db.Uuid
-  name      String
-  color     String    @default("#6b7280")
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  name   String
+  color  String @default("#6b7280")
 
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   user        User         @relation(fields: [userId], references: [id])
   meetingTags MeetingTag[]
@@ -790,7 +790,7 @@ model ContactTag {
   createdAt DateTime @default(now())
 
   contact CardContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  tag     Tag         @relation(fields: [tagId],     references: [id], onDelete: Cascade)
+  tag     Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([contactId, tagId])
   @@index([contactId])
@@ -821,16 +821,16 @@ model UserSettings {
   defaultLanguage String  @default("en")
 
   // Email Notifications (Phase 3.3)
-  emailNotificationsEnabled Boolean @default(true)  // master toggle
-  bookingEmailsEnabled      Boolean @default(true)  // booking received/confirmed/cancelled
-  meetingReadyEmailEnabled  Boolean @default(true)  // AI processing complete
+  emailNotificationsEnabled Boolean @default(true) // master toggle
+  bookingEmailsEnabled      Boolean @default(true) // booking received/confirmed/cancelled
+  meetingReadyEmailEnabled  Boolean @default(true) // AI processing complete
   dailyDigestEnabled        Boolean @default(false) // 8am daily task digest
 
   // In-App Notifications (Phase 4.9)
-  inAppNotificationsEnabled Boolean @default(true)  // master toggle
-  inAppBookingEnabled       Boolean @default(true)  // booking received/cancelled/reminder
-  inAppMeetingReadyEnabled  Boolean @default(true)  // AI processing complete
-  inAppTaskDueEnabled       Boolean @default(true)  // task due soon
+  inAppNotificationsEnabled Boolean @default(true) // master toggle
+  inAppBookingEnabled       Boolean @default(true) // booking received/cancelled/reminder
+  inAppMeetingReadyEnabled  Boolean @default(true) // AI processing complete
+  inAppTaskDueEnabled       Boolean @default(true) // task due soon
 
   // Soft delete
   isDeleted Boolean   @default(false)
@@ -845,19 +845,19 @@ model UserSettings {
 }
 
 model EventType {
-  id           String       @id @default(uuid()) @db.Uuid
-  userId       String       @db.Uuid
-  title        String
-  slug         String
-  description  String?
-  duration     Int          // minutes
-  locationType LocationType @default(IN_PERSON)
-  meetingLink  String?      // Zoom/Meet URL — ONLINE only
-  bufferBefore Int          @default(0) // minutes
-  bufferAfter  Int          @default(0) // minutes
-  minNoticeHours Int        @default(24)// hours
-  maxPerDay    Int?         // null = unlimited
-  isActive     Boolean      @default(true)
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @db.Uuid
+  title          String
+  slug           String
+  description    String?
+  duration       Int // minutes
+  locationType   LocationType @default(IN_PERSON)
+  meetingLink    String? // Zoom/Meet URL — ONLINE only
+  bufferBefore   Int          @default(0) // minutes
+  bufferAfter    Int          @default(0) // minutes
+  minNoticeHours Int          @default(24) // hours
+  maxPerDay      Int? // null = unlimited
+  isActive       Boolean      @default(true)
 
   // Linked availability schedule — null = use user's default schedule
   availabilityScheduleId String? @db.Uuid
@@ -879,8 +879,8 @@ model EventType {
 model AvailabilitySchedule {
   id        String  @id @default(uuid()) @db.Uuid
   userId    String  @db.Uuid
-  name      String                          // "Working Hours", "Consulting Hours"
-  timezone  String  @default("UTC")         // IANA, e.g. "America/New_York"
+  name      String // "Working Hours", "Consulting Hours"
+  timezone  String  @default("UTC") // IANA, e.g. "America/New_York"
   isDefault Boolean @default(false)
 
   isDeleted Boolean   @default(false)
@@ -900,7 +900,7 @@ model AvailabilitySchedule {
 model Availability {
   id         String @id @default(uuid()) @db.Uuid
   scheduleId String @db.Uuid
-  dayOfWeek  Int    // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+  dayOfWeek  Int // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
   startTime  String // "09:00" (24h, schedule's timezone)
   endTime    String // "17:00"
 
@@ -917,12 +917,12 @@ model Availability {
 }
 
 model AvailabilityOverride {
-  id         String @id @default(uuid()) @db.Uuid
-  scheduleId String @db.Uuid
+  id         String   @id @default(uuid()) @db.Uuid
+  scheduleId String   @db.Uuid
   // NOTE: date comparisons in the slot engine must use the schedule's
   // timezone, not UTC, to avoid off-by-one errors at midnight.
-  date      DateTime @db.Date
-  isBlocked Boolean  @default(true)
+  date       DateTime @db.Date
+  isBlocked  Boolean  @default(true)
 
   // Soft delete
   isDeleted Boolean   @default(false)
@@ -938,21 +938,21 @@ model AvailabilityOverride {
 }
 
 model Booking {
-  id          String        @id @default(uuid()) @db.Uuid
-  eventTypeId String        @db.Uuid
-  userId      String        @db.Uuid // the host
-  meetingId   String?       @unique @db.Uuid // created Meeting
+  id          String  @id @default(uuid()) @db.Uuid
+  eventTypeId String  @db.Uuid
+  userId      String  @db.Uuid // the host
+  meetingId   String? @unique @db.Uuid // created Meeting
 
   // Guest info — encrypted under the host user's DEK (Phase 5)
-  guestName      Bytes   // Encrypted guest name (AES-256-GCM)
-  guestEmail     Bytes   // Encrypted guest email (AES-256-GCM)
-  guestNote      Bytes?  // Encrypted guest note (AES-256-GCM)
-  guestEmailBidx Bytes?  // HMAC-SHA256 blind index — exact-match on encrypted guestEmail
+  guestName      Bytes // Encrypted guest name (AES-256-GCM)
+  guestEmail     Bytes // Encrypted guest email (AES-256-GCM)
+  guestNote      Bytes? // Encrypted guest note (AES-256-GCM)
+  guestEmailBidx Bytes? // HMAC-SHA256 blind index — exact-match on encrypted guestEmail
 
   // Time
   startTime DateTime
   endTime   DateTime
-  timezone  String   // guest's timezone at time of booking
+  timezone  String // guest's timezone at time of booking
 
   status BookingStatus @default(PENDING)
 
@@ -978,7 +978,7 @@ model Booking {
   @@index([guestEmailBidx])
   @@index([startTime])
   @@index([status, isDeleted])
-  @@index([userId, isDeleted])    // dashboard booking list query
+  @@index([userId, isDeleted]) // dashboard booking list query
   @@index([startTime, isDeleted]) // slot engine conflict check
 }
 
@@ -1051,9 +1051,9 @@ enum MeetingStatus {
 }
 
 enum MeetingType {
-  SCHEDULED   // Future: calendar/online meetings
-  RECORDED    // In-person meeting with uploaded/live recording
-  VOICE_NOTE  // Quick personal audio capture
+  SCHEDULED // Future: calendar/online meetings
+  RECORDED // In-person meeting with uploaded/live recording
+  VOICE_NOTE // Quick personal audio capture
 }
 
 enum ParticipantType {
@@ -1062,11 +1062,11 @@ enum ParticipantType {
 }
 
 enum TranscriptionStatus {
-  NONE        // No recording uploaded
-  UPLOADED    // Recording uploaded to GCS
-  PROCESSING  // Transcription in progress
-  COMPLETED   // Transcription complete
-  FAILED      // Transcription failed
+  NONE // No recording uploaded
+  UPLOADED // Recording uploaded to GCS
+  PROCESSING // Transcription in progress
+  COMPLETED // Transcription complete
+  FAILED // Transcription failed
 }
 
 enum TaskSource {
@@ -1136,7 +1136,7 @@ model Notification {
   type       NotificationType
   title      String
   body       String?
-  entityType String?          // "meeting" | "booking" | "task"
+  entityType String? // "meeting" | "booking" | "task"
   entityId   String?          @db.Uuid
   isRead     Boolean          @default(false)
   readAt     DateTime?
@@ -1147,8 +1147,8 @@ model Notification {
 
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
 
-  @@index([userId, createdAt(sort: Desc)])  // list query: WHERE userId=X ORDER BY createdAt DESC
-  @@index([userId, isRead])                 // unread count: WHERE userId=X AND isRead=false
+  @@index([userId, createdAt(sort: Desc)]) // list query: WHERE userId=X ORDER BY createdAt DESC
+  @@index([userId, isRead]) // unread count: WHERE userId=X AND isRead=false
 }
 
 // ─── Admin ────────────────────────────────────────────────────────────────────

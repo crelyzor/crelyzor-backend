@@ -183,18 +183,24 @@ export const googleController = {
           // encryptWithKey is used directly because the wrappedDek update isn't committed yet.
           // Existing users: encrypt() uses the main prisma client (wrappedDek is already committed).
           let encAccessToken: Uint8Array<ArrayBuffer>;
-          let encRefreshToken: Uint8Array<ArrayBuffer>;
+          let encRefreshToken: Uint8Array<ArrayBuffer> | null;
 
           if (isNewUser) {
             newUserDek = await initDekForNewUser(u.id, tx);
             newUserId = u.id;
             encAccessToken = prismaBytes(encryptWithKey(tokens.access_token ?? "", newUserDek, 1));
-            encRefreshToken = prismaBytes(encryptWithKey(tokens.refresh_token ?? "", newUserDek, 1));
+            encRefreshToken = tokens.refresh_token
+              ? prismaBytes(encryptWithKey(tokens.refresh_token, newUserDek, 1))
+              : null;
           } else {
-            [encAccessToken, encRefreshToken] = await Promise.all([
+            const [acc, ref] = await Promise.all([
               encrypt(tokens.access_token ?? "", u.id),
-              encrypt(tokens.refresh_token ?? "", u.id),
+              tokens.refresh_token
+                ? encrypt(tokens.refresh_token, u.id)
+                : Promise.resolve(null),
             ]);
+            encAccessToken = acc;
+            encRefreshToken = ref;
           }
 
           await tx.oAuthAccount.upsert({
@@ -203,7 +209,8 @@ export const googleController = {
             },
             update: {
               accessToken: encAccessToken,
-              refreshToken: encRefreshToken,
+              // Only overwrite refresh_token when Google issued a new one — preserves the existing token otherwise
+              ...(encRefreshToken ? { refreshToken: encRefreshToken } : {}),
               expiry: tokens.expiry_date
                 ? Math.floor(tokens.expiry_date / 1000)
                 : 0,

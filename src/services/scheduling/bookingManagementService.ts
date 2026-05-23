@@ -4,7 +4,7 @@ import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
 import type { ListBookingsFilters } from "../../validators/bookingManagementSchema";
 import { env } from "../../config/environment";
-import { decrypt } from "../../utils/security/crypto";
+import { decrypt, blindIndex, prismaBytes } from "../../utils/security/crypto";
 import {
   insertCalendarEvent,
   deleteCalendarEvent,
@@ -178,8 +178,10 @@ export async function confirmBooking(userId: string, bookingId: string) {
             },
             {
               meetingId: booking.meetingId,
-              // guestEmail is already encrypted in DB via bookingService; pass the raw Bytes column value
+              // guestEmail is already encrypted in DB via bookingService; pass the raw Bytes column value.
+              // Recompute the blind index from the just-decrypted plaintext so participant lookup-by-email works.
               guestEmail: booking.guestEmail,
+              guestEmailBidx: guestEmail ? prismaBytes(blindIndex(guestEmail)) : undefined,
               participantType: "ATTENDEE",
             },
           ],
