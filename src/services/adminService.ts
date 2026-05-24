@@ -50,13 +50,19 @@ export async function removeAdmin(targetId: string, requestingAdminId: string) {
     throw new AppError("You cannot remove yourself", 400);
   }
 
-  const admin = await prisma.adminUser.findUnique({ where: { id: targetId } });
-  if (!admin) throw new AppError("Admin not found", 404);
+  await prisma.$transaction(
+    async (tx) => {
+      const admin = await tx.adminUser.findUnique({ where: { id: targetId } });
+      if (!admin) throw new AppError("Admin not found", 404);
 
-  const total = await prisma.adminUser.count();
-  if (total <= 1) throw new AppError("Cannot remove the last admin", 400);
+      const total = await tx.adminUser.count();
+      if (total <= 1) throw new AppError("Cannot remove the last admin", 400);
 
-  await prisma.adminUser.delete({ where: { id: targetId } });
+      await tx.adminUser.delete({ where: { id: targetId } });
+    },
+    { timeout: 10000 },
+  );
+
   logger.info("Admin removed", { targetId, removedBy: requestingAdminId });
 }
 
@@ -65,27 +71,35 @@ export async function sendInvite(
   name: string,
   invitedById: string,
 ) {
-  const existing = await prisma.adminUser.findUnique({ where: { email } });
-  if (existing)
-    throw new AppError("An admin with this email already exists", 409);
-
-  const pending = await prisma.adminInvite.findFirst({
-    where: { email, usedAt: null, expiresAt: { gt: new Date() } },
-  });
-  if (pending)
-    throw new AppError("An active invite already exists for this email", 409);
-
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
-  await prisma.adminInvite.create({
-    data: { email, token, invitedById, expiresAt },
-  });
+  const invitedBy = await prisma.$transaction(
+    async (tx) => {
+      const existing = await tx.adminUser.findUnique({ where: { email } });
+      if (existing)
+        throw new AppError("An admin with this email already exists", 409);
 
-  const invitedBy = await prisma.adminUser.findUnique({
-    where: { id: invitedById },
-    select: { name: true },
-  });
+      const pending = await tx.adminInvite.findFirst({
+        where: { email, usedAt: null, expiresAt: { gt: new Date() } },
+      });
+      if (pending)
+        throw new AppError(
+          "An active invite already exists for this email",
+          409,
+        );
+
+      await tx.adminInvite.create({
+        data: { email, token, invitedById, expiresAt },
+      });
+
+      return tx.adminUser.findUnique({
+        where: { id: invitedById },
+        select: { name: true },
+      });
+    },
+    { timeout: 10000 },
+  );
 
   const portalUrl = process.env.ADMIN_PORTAL_URL ?? "http://localhost:5175";
   const acceptUrl = `${portalUrl}/invite/${token}`;

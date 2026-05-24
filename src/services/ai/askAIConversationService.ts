@@ -31,6 +31,7 @@ export const getMessages = async (
       messages: {
         orderBy: { createdAt: "asc" },
         select: { role: true, content: true, createdAt: true },
+        take: 200,
       },
     },
   });

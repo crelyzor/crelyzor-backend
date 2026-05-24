@@ -290,17 +290,16 @@ export async function runMonthlyReset(): Promise<number> {
   const now = new Date();
   const nextResetAt = getNextMonthStart();
 
-  const usersToReset = await prisma.userUsage.findMany({
+  const dueCount = await prisma.userUsage.count({
     where: { resetAt: { lte: now } },
-    select: { userId: true },
   });
 
-  if (usersToReset.length === 0) {
+  if (dueCount === 0) {
     logger.info("Monthly usage reset: no users to reset");
     return 0;
   }
 
-  await prisma.userUsage.updateMany({
+  const result = await prisma.userUsage.updateMany({
     where: { resetAt: { lte: now } },
     data: {
       transcriptionMinutesUsed: 0,
@@ -311,11 +310,11 @@ export async function runMonthlyReset(): Promise<number> {
     },
   });
 
-  logger.info(`Monthly usage reset: ${usersToReset.length} users reset`, {
+  logger.info(`Monthly usage reset: ${result.count} users reset`, {
     nextResetAt: nextResetAt.toISOString(),
   });
 
-  return usersToReset.length;
+  return result.count;
 }
 
 export const usageService = {

@@ -250,17 +250,12 @@ export async function deleteAttachment(
 ): Promise<void> {
   await verifyMeetingOwnership(meetingId, userId);
 
-  const attachment = await prisma.meetingAttachment.findFirst({
+  const result = await prisma.meetingAttachment.updateMany({
     where: { id: attachmentId, meetingId, isDeleted: false },
-    select: { id: true },
-  });
-
-  if (!attachment) throw new AppError("Attachment not found", 404);
-
-  await prisma.meetingAttachment.update({
-    where: { id: attachmentId },
     data: { isDeleted: true, deletedAt: new Date() },
   });
+
+  if (result.count === 0) throw new AppError("Attachment not found", 404);
 
   logger.info("Attachment deleted", { attachmentId, meetingId, userId });
 }

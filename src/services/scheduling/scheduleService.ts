@@ -87,11 +87,15 @@ export async function updateSchedule(
   scheduleId: string,
   data: UpdateScheduleInput,
 ) {
-  await assertScheduleOwner(userId, scheduleId);
-
-  const schedule = await prisma.availabilitySchedule.update({
-    where: { id: scheduleId },
+  const result = await prisma.availabilitySchedule.updateMany({
+    where: { id: scheduleId, userId, isDeleted: false },
     data,
+  });
+
+  if (result.count === 0) throw new AppError("Schedule not found", 404);
+
+  const schedule = await prisma.availabilitySchedule.findFirst({
+    where: { id: scheduleId, userId, isDeleted: false },
     select: SCHEDULE_SELECT,
   });
 
@@ -109,8 +113,8 @@ export async function deleteSchedule(userId: string, scheduleId: string) {
     );
   }
 
-  await prisma.availabilitySchedule.update({
-    where: { id: scheduleId },
+  await prisma.availabilitySchedule.updateMany({
+    where: { id: scheduleId, userId, isDeleted: false },
     data: { isDeleted: true, deletedAt: new Date() },
   });
 
@@ -318,16 +322,12 @@ export async function deleteOverride(
 ) {
   await assertScheduleOwner(userId, scheduleId);
 
-  const existing = await prisma.availabilityOverride.findFirst({
+  const result = await prisma.availabilityOverride.updateMany({
     where: { id: overrideId, scheduleId, isDeleted: false },
-    select: { id: true },
-  });
-  if (!existing) throw new AppError("Override not found", 404);
-
-  await prisma.availabilityOverride.update({
-    where: { id: overrideId },
     data: { isDeleted: true, deletedAt: new Date() },
   });
+
+  if (result.count === 0) throw new AppError("Override not found", 404);
 
   logger.info("Schedule override deleted", { userId, scheduleId, overrideId });
 }

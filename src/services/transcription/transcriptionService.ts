@@ -287,8 +287,8 @@ export const regenerateTranscript = async (
   await prisma.$transaction(
     async (tx) => {
       // Delete existing transcript (CASCADE handles TranscriptSegments)
-      const existing = await tx.meetingTranscript.findUnique({
-        where: { recordingId },
+      const existing = await tx.meetingTranscript.findFirst({
+        where: { recordingId, isDeleted: false },
       });
       if (existing) {
         await tx.meetingTranscript.delete({ where: { id: existing.id } });

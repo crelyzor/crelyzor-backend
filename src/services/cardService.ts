@@ -470,8 +470,8 @@ export const cardService = {
       ? { slug, isActive: true, isDeleted: false }
       : { isActive: true, isDeleted: false };
 
-    const user = await prisma.user.findUnique({
-      where: { username },
+    const user = await prisma.user.findFirst({
+      where: { username, isDeleted: false },
       select: {
         id: true,
         name: true,

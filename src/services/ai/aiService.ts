@@ -753,7 +753,7 @@ export const askAI = async (
     throw new AppError("Meeting not found", 404);
   }
 
-  // No segment cap — Gemini 1M context handles full meetings
+  // Cap segments to prevent OOM on long meetings; 5000 covers a ~3-hour transcript
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
     select: {
@@ -761,6 +761,7 @@ export const askAI = async (
       segments: {
         orderBy: { startTime: "asc" },
         select: { speaker: true, text: true, startTime: true },
+        take: 5000,
       },
     },
   });

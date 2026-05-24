@@ -79,8 +79,8 @@ export async function updateSummary(
   const hasTitleUpdate = data.title !== undefined;
 
   if (hasSummaryUpdate) {
-    const existing = await prisma.meetingAISummary.findUnique({
-      where: { meetingId },
+    const existing = await prisma.meetingAISummary.findFirst({
+      where: { meetingId, isDeleted: false },
       select: { id: true },
     });
     if (!existing) {
@@ -157,6 +157,7 @@ export async function mergeConsecutiveSpeakerSegments(
                   endTime: true,
                 },
                 orderBy: [{ startTime: "asc" }, { id: "asc" }],
+                take: 10000,
               },
             },
           },

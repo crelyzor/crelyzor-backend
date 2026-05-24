@@ -60,8 +60,8 @@ class AuthService {
   }
 
   async getUserProfile(userId: string): Promise<UserResponse> {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
+    const user = await prisma.user.findFirst({
+      where: { id: userId, isDeleted: false },
       select: {
         id: true,
         email: true,
@@ -97,13 +97,25 @@ class AuthService {
       avatarUrl: string;
     }>,
   ): Promise<UserResponse> {
-    const user = await prisma.user.update({
-      where: { id: userId },
+    const result = await prisma.user.updateMany({
+      where: { id: userId, isDeleted: false },
       data: {
         ...updateData,
         updatedAt: new Date(),
       },
     });
+
+    if (result.count === 0) {
+      throw ErrorFactory.notFound("User not found");
+    }
+
+    const user = await prisma.user.findFirst({
+      where: { id: userId, isDeleted: false },
+    });
+
+    if (!user) {
+      throw ErrorFactory.notFound("User not found");
+    }
 
     return this.mapUserToResponse(user);
   }
@@ -121,8 +133,8 @@ class AuthService {
   }
 
   async validateUserAccess(userId: string): Promise<boolean> {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
+    const user = await prisma.user.findFirst({
+      where: { id: userId, isDeleted: false },
       select: { isActive: true, deletedAt: true },
     });
 

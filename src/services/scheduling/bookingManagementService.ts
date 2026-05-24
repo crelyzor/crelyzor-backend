@@ -250,14 +250,18 @@ export async function confirmBooking(userId: string, bookingId: string) {
     hostName: user?.name ?? "",
   });
   if (gcalResult?.googleEventId) {
-    await prisma.booking.update({
-      where: { id: bookingId },
+    await prisma.booking.updateMany({
+      where: { id: bookingId, userId, isDeleted: false },
       data: { googleEventId: gcalResult.googleEventId },
     });
 
     if (booking.meetingId && gcalResult.meetLink) {
-      await prisma.meeting.update({
-        where: { id: booking.meetingId },
+      await prisma.meeting.updateMany({
+        where: {
+          id: booking.meetingId,
+          createdById: userId,
+          isDeleted: false,
+        },
         data: {
           meetLink: gcalResult.meetLink,
           location: gcalResult.meetLink,
