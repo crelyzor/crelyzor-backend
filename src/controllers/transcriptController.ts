@@ -46,6 +46,10 @@ export const getTranscript = async (req: Request, res: Response) => {
  */
 export const patchSegment = async (req: Request, res: Response) => {
   const { meetingId, segmentId } = req.params;
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
+  if (!uuidSchema.safeParse(segmentId).success)
+    throw new AppError("Invalid segmentId", 400);
   const userId = req.user!.userId;
 
   const body = patchSegmentBodySchema.safeParse(req.body);
@@ -72,6 +76,8 @@ export const patchSegment = async (req: Request, res: Response) => {
  */
 export const patchSummary = async (req: Request, res: Response) => {
   const { meetingId } = req.params;
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user!.userId;
 
   const body = patchSummaryBodySchema.safeParse(req.body);

@@ -200,8 +200,8 @@ export async function setDefaultSchedule(userId: string, scheduleId: string) {
 
   logger.info("Default schedule set", { userId, scheduleId });
 
-  return prisma.availabilitySchedule.findUnique({
-    where: { id: scheduleId },
+  return prisma.availabilitySchedule.findFirst({
+    where: { id: scheduleId, userId, isDeleted: false },
     select: SCHEDULE_SELECT,
   });
 }

@@ -39,13 +39,21 @@ export const getSummary = async (req: Request, res: Response) => {
   const [summaryText, keyPoints] = await Promise.all([
     decrypt(summary.summary, userId),
     summary.keyPoints
-      ? decrypt(summary.keyPoints, userId).then((s) => {
-          try {
-            return JSON.parse(s) as string[];
-          } catch {
+      ? decrypt(summary.keyPoints, userId)
+          .then((s) => {
+            try {
+              return JSON.parse(s) as string[];
+            } catch {
+              return [] as string[];
+            }
+          })
+          .catch((err) => {
+            logger.warn("Failed to decrypt keyPoints", {
+              meetingId,
+              error: err instanceof Error ? err.message : String(err),
+            });
             return [] as string[];
-          }
-        })
+          })
       : Promise.resolve([] as string[]),
   ]);
 
@@ -93,7 +101,7 @@ export const regenerateSummary = async (req: Request, res: Response) => {
       requireKeyPoints: true,
     });
 
-  apiResponse(res, {
+  return apiResponse(res, {
     statusCode: 200,
     message: "Summary regenerated",
     data: { summary: summaryText, keyPoints },
@@ -138,7 +146,7 @@ export const regenerateTitle = async (req: Request, res: Response) => {
   if (!title) throw new AppError("Failed to generate title", 500);
 
   logger.info("Title regenerated", { meetingId, userId, title });
-  apiResponse(res, {
+  return apiResponse(res, {
     statusCode: 200,
     message: "Title regenerated",
     data: { title },
@@ -167,12 +175,23 @@ export const getNotes = async (req: Request, res: Response) => {
     ? parsedQuery.data
     : { limit: 50, offset: 0 };
 
+  const NOTE_SELECT = {
+    id: true,
+    meetingId: true,
+    content: true,
+    author: true,
+    timestamp: true,
+    createdAt: true,
+    updatedAt: true,
+  } as const;
+
   const [rawNotes, total] = await Promise.all([
     prisma.meetingNote.findMany({
       where: { meetingId, author: userId, isDeleted: false },
       orderBy: { createdAt: "desc" },
       take: limit,
       skip: offset,
+      select: NOTE_SELECT,
     }),
     prisma.meetingNote.count({
       where: { meetingId, author: userId, isDeleted: false },
@@ -221,6 +240,15 @@ export const createNote = async (req: Request, res: Response) => {
       content: encryptedContent,
       author: userId,
       timestamp: parsed.data.timestamp,
+    },
+    select: {
+      id: true,
+      meetingId: true,
+      content: true,
+      author: true,
+      timestamp: true,
+      createdAt: true,
+      updatedAt: true,
     },
   });
 
@@ -279,7 +307,7 @@ export const generateContent = async (req: Request, res: Response) => {
     validated.data.type,
   );
 
-  apiResponse(res, {
+  return apiResponse(res, {
     statusCode: 200,
     message: "Content generated",
     data: { type: validated.data.type, content },
@@ -298,7 +326,7 @@ export const getGeneratedContents = async (req: Request, res: Response) => {
   if (!userId) throw new AppError("Unauthorized", 401);
 
   const contents = await aiService.getGeneratedContents(meetingId, userId);
-  apiResponse(res, {
+  return apiResponse(res, {
     statusCode: 200,
     message: "Generated contents fetched",
     data: { contents },
@@ -310,6 +338,8 @@ export const getGeneratedContents = async (req: Request, res: Response) => {
  */
 export const deleteNote = async (req: Request, res: Response) => {
   const noteId = req.params.noteId as string;
+  if (!uuidSchema.safeParse(noteId).success)
+    throw new AppError("Invalid noteId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -325,10 +355,15 @@ export const deleteNote = async (req: Request, res: Response) => {
   });
   if (!note) throw new AppError("Note not found", 404);
 
-  await prisma.meetingNote.update({
-    where: { id: noteId },
+  const deleted = await prisma.meetingNote.updateMany({
+    where: {
+      id: noteId,
+      isDeleted: false,
+      meeting: { createdById: userId, isDeleted: false },
+    },
     data: { isDeleted: true, deletedAt: new Date() },
   });
+  if (deleted.count === 0) throw new AppError("Note not found", 404);
 
   return apiResponse(res, {
     statusCode: 200,

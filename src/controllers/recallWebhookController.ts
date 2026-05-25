@@ -313,8 +313,8 @@ async function handleStatusChange(
 
     case "done": {
       // Mark as completed when Recall reports done states.
-      await prisma.meeting.update({
-        where: { id: meetingId },
+      await prisma.meeting.updateMany({
+        where: { id: meetingId, isDeleted: false },
         data: { status: MeetingStatus.COMPLETED },
       });
 
@@ -355,8 +355,8 @@ async function handleStatusChange(
     }
 
     case "call_ended":
-      await prisma.meeting.update({
-        where: { id: meetingId },
+      await prisma.meeting.updateMany({
+        where: { id: meetingId, isDeleted: false },
         data: { status: MeetingStatus.COMPLETED },
       });
       logger.info("Meeting marked COMPLETED via Recall webhook (call_ended)", {

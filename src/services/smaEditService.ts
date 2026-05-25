@@ -91,8 +91,8 @@ export async function updateSummary(
   if (hasSummaryUpdate && hasTitleUpdate) {
     await prisma.$transaction(
       async (tx) => {
-        await tx.meetingAISummary.update({
-          where: { meetingId },
+        await tx.meetingAISummary.updateMany({
+          where: { meetingId, isDeleted: false },
           data: summaryUpdateData,
         });
         await tx.meeting.update({
@@ -110,8 +110,8 @@ export async function updateSummary(
   }
 
   if (hasSummaryUpdate) {
-    await prisma.meetingAISummary.update({
-      where: { meetingId },
+    await prisma.meetingAISummary.updateMany({
+      where: { meetingId, isDeleted: false },
       data: summaryUpdateData,
     });
     logger.info("Summary updated", { meetingId, userId });

@@ -522,7 +522,7 @@ export const updateTask = async (req: Request, res: Response) => {
       : description; // null means clear, undefined means no-op
 
   let task = await prisma.task.update({
-    where: { id: taskId },
+    where: { id: taskId, userId },
     data: {
       ...(title !== undefined && { title }),
       ...(description !== undefined && { description: encryptedDescriptionUpdate }),
@@ -584,7 +584,7 @@ export const updateTask = async (req: Request, res: Response) => {
 
     if (eventId) {
       task = await prisma.task.update({
-        where: { id: taskId },
+        where: { id: taskId, userId },
         data: { googleEventId: eventId },
       });
       logger.info("Task GCal block created", { taskId, userId, eventId });
@@ -593,7 +593,7 @@ export const updateTask = async (req: Request, res: Response) => {
     // Request to remove the GCal block without clearing scheduledTime
     await deleteCalendarEvent(userId, existingCalendarEventId);
     task = await prisma.task.update({
-      where: { id: taskId },
+      where: { id: taskId, userId },
       data: { googleEventId: null },
     });
     logger.info("Task GCal block removed", { taskId, userId });
@@ -614,7 +614,7 @@ export const updateTask = async (req: Request, res: Response) => {
 
         if (taskRef) {
           task = await prisma.task.update({
-            where: { id: taskId },
+            where: { id: taskId, userId },
             data: { googleEventId: taskRef },
           });
         }
@@ -622,7 +622,7 @@ export const updateTask = async (req: Request, res: Response) => {
     } else if (dueDate === null && existingGoogleTaskRef) {
       await deleteGoogleTask(userId, existingGoogleTaskRef);
       task = await prisma.task.update({
-        where: { id: taskId },
+        where: { id: taskId, userId },
         data: { googleEventId: null },
       });
     }
@@ -714,8 +714,8 @@ export const deleteTask = async (req: Request, res: Response) => {
   await prisma.$transaction(
     async (tx) => {
       // Soft-delete parent
-      await tx.task.update({
-        where: { id: taskId },
+      await tx.task.updateMany({
+        where: { id: taskId, userId, isDeleted: false },
         data: { isDeleted: true, deletedAt: now },
       });
       // Cascade soft-delete to direct subtasks

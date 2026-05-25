@@ -253,14 +253,16 @@ export async function renewExpiringChannels(): Promise<number> {
   const expiring = await prisma.gCalSyncState.findMany({
     where: { expiration: { lt: threshold } },
     select: { userId: true },
+    take: 500,
   });
 
-  let renewed = 0;
-  for (const { userId } of expiring) {
-    await stopWatchChannel(userId);
-    await registerWatchChannel(userId);
-    renewed += 1;
-  }
+  await Promise.all(
+    expiring.map(async ({ userId }) => {
+      await stopWatchChannel(userId);
+      await registerWatchChannel(userId);
+    }),
+  );
+  const renewed = expiring.length;
 
   logger.info("GCal push: channel renewal completed", { renewed });
   return renewed;

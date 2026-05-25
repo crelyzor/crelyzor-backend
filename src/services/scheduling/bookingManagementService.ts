@@ -163,8 +163,8 @@ export async function confirmBooking(userId: string, bookingId: string) {
 
   await prisma.$transaction(
     async (tx) => {
-      await tx.booking.update({
-        where: { id: bookingId },
+      await tx.booking.updateMany({
+        where: { id: bookingId, userId },
         data: { status: "CONFIRMED" },
       });
 
@@ -446,8 +446,8 @@ export async function declineBooking(
 
   await prisma.$transaction(
     async (tx) => {
-      await tx.booking.update({
-        where: { id: bookingId },
+      await tx.booking.updateMany({
+        where: { id: bookingId, userId },
         data: {
           status: "DECLINED",
           cancelReason: reason ?? null,
@@ -563,8 +563,8 @@ export async function cancelBooking(
 
   await prisma.$transaction(
     async (tx) => {
-      await tx.booking.update({
-        where: { id: bookingId },
+      await tx.booking.updateMany({
+        where: { id: bookingId, userId },
         data: {
           status: "CANCELLED",
           cancelReason: reason ?? null,

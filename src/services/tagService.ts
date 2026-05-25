@@ -24,6 +24,7 @@ export async function listTags(userId: string) {
         where: { userId, isDeleted: false },
         select: TAG_SELECT,
         orderBy: { name: "asc" },
+        take: 500,
       }),
       prisma.meetingTag.groupBy({
         by: ["tagId"],

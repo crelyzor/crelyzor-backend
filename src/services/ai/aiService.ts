@@ -79,7 +79,7 @@ export const generateSummary = async (
   }
 
   const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, isDeleted: false },
+    where: { id: meetingId, createdById: userId, isDeleted: false },
   });
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
@@ -230,7 +230,7 @@ export const generateSummaryAndKeyPoints = async (
   }
 
   const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, isDeleted: false },
+    where: { id: meetingId, createdById: userId, isDeleted: false },
     select: { title: true, description: true },
   });
 

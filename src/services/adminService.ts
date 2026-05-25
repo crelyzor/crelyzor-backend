@@ -42,6 +42,7 @@ export async function listAdmins() {
   return prisma.adminUser.findMany({
     orderBy: { createdAt: "asc" },
     select: { id: true, name: true, email: true, createdAt: true },
+    take: 100,
   });
 }
 

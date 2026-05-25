@@ -609,8 +609,11 @@ export const meetingService = {
             },
           });
         }
-      } catch {
-        // fail-open — meeting update already committed
+      } catch (err) {
+        logger.warn("GCal update failed after meeting update — fail-open", {
+          meetingId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
@@ -1104,16 +1107,19 @@ async function removeExistingRecallDeployJobs(
   ]);
 
   const prefix = `recall-bot-${meetingId}`;
-  for (const job of jobs) {
+  const matchingJobs = jobs.filter((job) => {
     const currentJobId = job.id ? String(job.id) : "";
-    if (!currentJobId.startsWith(prefix)) {
-      continue;
-    }
+    return currentJobId.startsWith(prefix);
+  });
 
-    await job.remove();
-    logger.info("Removed existing Recall bot deploy job before reschedule", {
-      meetingId,
-      jobId: currentJobId,
-    });
-  }
+  await Promise.all(
+    matchingJobs.map(async (job) => {
+      const currentJobId = job.id ? String(job.id) : "";
+      await job.remove();
+      logger.info("Removed existing Recall bot deploy job before reschedule", {
+        meetingId,
+        jobId: currentJobId,
+      });
+    }),
+  );
 }

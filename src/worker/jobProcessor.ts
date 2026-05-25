@@ -753,12 +753,11 @@ export const startWorker = async (): Promise<void> => {
       await processIncomingNotification(data.channelId);
       return { success: true };
     } catch (err) {
-      // Fail-open — Google will retry on next change anyway
       logger.error("GCal push sync job failed", {
         channelId: data.channelId,
         error: err instanceof Error ? err.message : String(err),
       });
-      return { success: false };
+      throw err;
     }
   });
 

@@ -5,6 +5,7 @@ import {
   ErrorFactory,
   globalErrorHandler,
 } from "../utils/globalErrorHandler";
+import { apiResponse } from "../utils/globalResponseHandler";
 import { authService } from "../services/auth/authService";
 import { logger } from "../utils/logging/logger";
 import { env } from "../config/environment";
@@ -75,7 +76,7 @@ export const googleController = {
       }
 
       const url = googleService.getCalendarConnectUrl(redirectUrl, userId);
-      res.json({ url });
+      return apiResponse(res, { statusCode: 200, message: "Calendar connect URL", data: { url } });
     } catch (error) {
       globalErrorHandler(error as BaseError, req, res);
     }
