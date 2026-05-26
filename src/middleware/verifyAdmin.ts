@@ -59,6 +59,6 @@ export const verifyAdmin = (
         res,
       );
     }
-    globalErrorHandler(error as BaseError, req, res);
+    globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
   }
 };

@@ -42,6 +42,9 @@ const startServer = async () => {
     logger.error("❌ Queue initialization failed (job processing disabled):", {
       error: error instanceof Error ? error.message : String(error),
     });
+    if (process.env.NODE_ENV === "production") {
+      process.exitCode = 1; // signal degraded state to health checks
+    }
   }
 
   // Validate required env vars — hard-fail in production, warn in dev
@@ -132,6 +135,21 @@ process.on("SIGINT", async () => {
   closeRedisClient();
   await prisma.$disconnect();
   process.exit(0);
+});
+
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled promise rejection", {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+});
+
+process.on("uncaughtException", (error) => {
+  logger.error("Uncaught exception — shutting down", {
+    error: error.message,
+    stack: error.stack,
+  });
+  process.exit(1);
 });
 
 startServer();

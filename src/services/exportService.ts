@@ -53,7 +53,10 @@ async function buildSummaryText(
   if (summary.keyPoints) {
     try {
       keyPoints = JSON.parse(await decrypt(summary.keyPoints, userId)) as string[];
-    } catch {
+    } catch (err) {
+      logger.warn("Failed to parse keyPoints during export", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       keyPoints = [];
     }
   }

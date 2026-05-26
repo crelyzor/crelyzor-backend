@@ -27,7 +27,7 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
       );
       return res
         .status(503)
-        .json({ error: "Webhook verification not configured" });
+        .json({ success: false, message: "Webhook error" });
     }
     logger.warn(
       "RECALL_WEBHOOK_SECRET not set — accepting unverified webhook in non-production",
@@ -49,7 +49,7 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
     if (hasStandardHeaders) {
       if (!req.rawBody) {
         logger.warn("Recall webhook rejected: rawBody not captured");
-        return res.status(400).json({ error: "Could not verify request" });
+        return res.status(400).json({ success: false, message: "Webhook error" });
       }
 
       const trusted = verifyStandardWebhookSignature(
@@ -64,7 +64,7 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
         logger.warn(
           "Recall webhook rejected: invalid standard webhook signature",
         );
-        return res.status(401).json({ error: "Invalid signature" });
+        return res.status(401).json({ success: false, message: "Webhook error" });
       }
     } else {
       const signatureHeader =
@@ -77,7 +77,7 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
       if (!signature) {
         if (process.env.NODE_ENV === "production") {
           logger.warn("Recall webhook rejected: missing signature header");
-          return res.status(401).json({ error: "Missing signature" });
+          return res.status(401).json({ success: false, message: "Webhook error" });
         }
 
         logger.warn(
@@ -89,7 +89,7 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
       } else {
         if (!req.rawBody) {
           logger.warn("Recall webhook rejected: rawBody not captured");
-          return res.status(400).json({ error: "Could not verify request" });
+          return res.status(400).json({ success: false, message: "Webhook error" });
         }
 
         const expected = crypto
@@ -99,7 +99,7 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
 
         if (signature.length !== expected.length) {
           logger.warn("Recall webhook rejected: invalid signature length");
-          return res.status(401).json({ error: "Invalid signature" });
+          return res.status(401).json({ success: false, message: "Webhook error" });
         }
 
         const trusted = crypto.timingSafeEqual(
@@ -109,7 +109,7 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
 
         if (!trusted) {
           logger.warn("Recall webhook rejected: invalid signature");
-          return res.status(401).json({ error: "Invalid signature" });
+          return res.status(401).json({ success: false, message: "Webhook error" });
         }
       }
     }
@@ -121,7 +121,7 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
     logger.warn("Recall webhook rejected: invalid payload shape", {
       errors: parsed.error.issues,
     });
-    return res.status(400).json({ error: "Invalid payload" });
+    return res.status(400).json({ success: false, message: "Webhook error" });
   }
 
   const { event, data } = parsed.data;
@@ -134,7 +134,7 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
       event,
       body: req.body,
     });
-    return res.status(400).json({ error: "Missing bot id" });
+    return res.status(400).json({ success: false, message: "Webhook error" });
   }
 
   logger.info("Recall webhook received", { event, botId, statusCode });

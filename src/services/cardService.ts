@@ -477,7 +477,6 @@ export const cardService = {
         name: true,
         username: true,
         avatarUrl: true,
-        plan: true,
         cards: {
           where: cardWhere,
           orderBy: slug
@@ -513,7 +512,6 @@ export const cardService = {
         name: user.name,
         username: user.username,
         avatarUrl: user.avatarUrl,
-        plan: user.plan,
       },
       card: publicCard,
     };
@@ -1069,12 +1067,18 @@ export const cardService = {
           some: { cardId },
         },
       },
-      include: {
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        status: true,
+        startTime: true,
+        endTime: true,
+        timezone: true,
         participants: {
-          include: {
-            user: {
-              select: { id: true, name: true, email: true, avatarUrl: true },
-            },
+          select: {
+            participantType: true,
+            user: { select: { id: true, name: true, avatarUrl: true } },
             card: { select: { id: true, displayName: true, slug: true } },
           },
         },

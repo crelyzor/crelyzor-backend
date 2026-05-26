@@ -80,6 +80,7 @@ export const generateSummary = async (
 
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { title: true, description: true },
   });
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
@@ -761,7 +762,7 @@ export const askAI = async (
       segments: {
         orderBy: { startTime: "asc" },
         select: { speaker: true, text: true, startTime: true },
-        take: 5000,
+        take: 1500,
       },
     },
   });
@@ -780,6 +781,7 @@ export const askAI = async (
   const speakers = await prisma.meetingSpeaker.findMany({
     where: { meetingId },
     select: { speakerLabel: true, displayName: true },
+    take: 50,
   });
 
   const rawTranscript = buildTranscriptContext(decryptedSegments, speakers);

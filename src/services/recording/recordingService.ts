@@ -180,7 +180,7 @@ export const getRecordings = async (
   }
 
   const recordings = await prisma.meetingRecording.findMany({
-    where: { meetingId, isDeleted: false },
+    where: { meetingId, isDeleted: false, meeting: { createdById: userId } },
     orderBy: { uploadedAt: "desc" },
     take: 20,
   });

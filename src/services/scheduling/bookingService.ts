@@ -490,7 +490,7 @@ export async function createBooking(data: CreateBookingInput) {
     user.id,
     "BOOKING_RECEIVED",
     `${data.guestName} booked ${result.eventTypeSummary.title}`,
-    `${data.guestName} (${data.guestEmail}) booked a ${result.eventTypeSummary.duration}-minute session.`,
+    `${data.guestName} booked a ${result.eventTypeSummary.duration}-minute session.`,
     "booking",
     result.booking.id,
   ).catch(() => {});

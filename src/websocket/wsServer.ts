@@ -46,8 +46,11 @@ async function checkConnectionRateLimit(ip: string): Promise<boolean> {
     const count = await redis.incr(key);
     if (count === 1) await redis.expire(key, RATE_LIMIT_WINDOW_SECONDS);
     return count <= RATE_LIMIT_MAX;
-  } catch {
-    // Fail-open: if Redis is unavailable, allow the connection
+  } catch (err) {
+    logger.warn("WS rate limiter: Redis unavailable — failing open", {
+      ip,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return true;
   }
 }

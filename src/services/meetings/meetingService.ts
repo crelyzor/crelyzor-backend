@@ -335,8 +335,11 @@ export const meetingService = {
           committedMeeting = updatedMeeting;
           gcalSynced = true;
         }
-      } catch {
-        // fail-open — meeting is already committed
+      } catch (err) {
+        logger.warn("GCal sync failed during meeting create — fail-open", {
+          meetingId: committedMeeting.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
@@ -366,8 +369,11 @@ export const meetingService = {
               delayMs: delay,
             });
           }
-        } catch {
-          // fail-open — meeting is already committed
+        } catch (err) {
+          logger.warn("Recall bot queue failed during meeting create — fail-open", {
+            meetingId: committedMeeting.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       }
     }
@@ -1011,6 +1017,18 @@ export const meetingService = {
     let skipped = existingMeetings.length;
     const errors: string[] = [];
 
+    // Parse and validate all events first, collecting per-event errors
+    type ValidEvent = {
+      uid?: string;
+      title: string;
+      description?: string;
+      location?: string;
+      timezone: string;
+      startTime: Date;
+      endTime: Date;
+    };
+    const toCreate: ValidEvent[] = [];
+
     for (const component of events) {
       try {
         const event = new ICAL.Event(component);
@@ -1036,46 +1054,69 @@ export const meetingService = {
             ? parsedEnd
             : new Date(startTime.getTime() + 30 * 60 * 1000);
 
-        const title = event.summary?.trim() || "Imported meeting";
-        const description = event.description?.trim() || undefined;
-        const location = event.location?.trim() || undefined;
-        const timezone = event.startDate?.zone?.tzid || "UTC";
-
-        await prisma.$transaction(
-          async (tx) => {
-            const meeting = await tx.meeting.create({
-              data: {
-                title,
-                description,
-                type: MeetingType.SCHEDULED,
-                startTime,
-                endTime,
-                timezone,
-                status: MeetingStatus.CREATED,
-                location,
-                createdById: userId,
-                ...(uid ? { googleEventId: uid } : {}),
-              },
-            });
-
-            await tx.meetingParticipant.create({
-              data: {
-                meetingId: meeting.id,
-                userId,
-                participantType: "ORGANIZER",
-              },
-            });
-          },
-          { timeout: 15000 },
-        );
-
-        if (uid) existingUids.add(uid);
-        created += 1;
+        toCreate.push({
+          uid: uid || undefined,
+          title: event.summary?.trim() || "Imported meeting",
+          description: event.description?.trim() || undefined,
+          location: event.location?.trim() || undefined,
+          timezone: event.startDate?.zone?.tzid || "UTC",
+          startTime,
+          endTime,
+        });
       } catch (error) {
         skipped += 1;
         const message =
           error instanceof Error ? error.message : "Failed to import event";
         errors.push(message);
+      }
+    }
+
+    // Batch all valid events into a single transaction
+    if (toCreate.length > 0) {
+      try {
+        await prisma.$transaction(
+          async (tx) => {
+            for (const ev of toCreate) {
+              const meeting = await tx.meeting.create({
+                data: {
+                  title: ev.title,
+                  description: ev.description,
+                  type: MeetingType.SCHEDULED,
+                  startTime: ev.startTime,
+                  endTime: ev.endTime,
+                  timezone: ev.timezone,
+                  status: MeetingStatus.CREATED,
+                  location: ev.location,
+                  createdById: userId,
+                  ...(ev.uid ? { googleEventId: ev.uid } : {}),
+                },
+              });
+
+              await tx.meetingParticipant.create({
+                data: {
+                  meetingId: meeting.id,
+                  userId,
+                  participantType: "ORGANIZER",
+                },
+              });
+
+              if (ev.uid) existingUids.add(ev.uid);
+            }
+          },
+          { timeout: 30000 },
+        );
+        created = toCreate.length;
+      } catch (error) {
+        logger.error("ICS import batch transaction failed", {
+          userId,
+          eventCount: toCreate.length,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        skipped += toCreate.length;
+        errors.push(
+          "Batch insert failed: " +
+            (error instanceof Error ? error.message : String(error)),
+        );
       }
     }
 

@@ -39,7 +39,7 @@ const uuidSchema = z.string().uuid();
 
 // Shared include for task list responses
 const taskInclude = {
-  meeting: { select: { id: true, title: true, type: true } },
+  meeting: { select: { id: true, title: true, type: true, isDeleted: true } },
   taskTags: {
     where: { tag: { isDeleted: false } },
     select: { tag: { select: { id: true, name: true, color: true } } },
@@ -51,10 +51,15 @@ const taskInclude = {
 function flattenTags<
   T extends {
     taskTags: Array<{ tag: { id: string; name: string; color: string } }>;
+    meeting?: { id: string; title: string; type: string; isDeleted: boolean } | null;
   },
 >(task: T) {
-  const { taskTags, ...rest } = task;
-  return { ...rest, tags: taskTags.map((tt) => tt.tag) };
+  const { taskTags, meeting, ...rest } = task;
+  // Strip soft-deleted meetings from task responses
+  const cleanMeeting = meeting && !meeting.isDeleted
+    ? (({ isDeleted: _d, ...m }) => m)(meeting)
+    : null;
+  return { ...rest, meeting: cleanMeeting, tags: taskTags.map((tt) => tt.tag) };
 }
 
 /**
@@ -215,18 +220,22 @@ export const getTasks = async (req: Request, res: Response) => {
 
   if (!meeting) throw new AppError("Meeting not found", 404);
 
-  const rawTasks = await prisma.task.findMany({
-    where: { meetingId, userId, isDeleted: false },
-    orderBy: { createdAt: "asc" },
-    take: 200,
-  });
+  const TASK_LIMIT = 200;
+  const [rawTasks, total] = await Promise.all([
+    prisma.task.findMany({
+      where: { meetingId, userId, isDeleted: false },
+      orderBy: { createdAt: "asc" },
+      take: TASK_LIMIT,
+    }),
+    prisma.task.count({ where: { meetingId, userId, isDeleted: false } }),
+  ]);
 
   const tasks = await decryptTaskDescriptions(rawTasks, userId);
 
   return apiResponse(res, {
     statusCode: 200,
     message: "Tasks fetched",
-    data: { tasks },
+    data: { tasks, total, hasMore: total > TASK_LIMIT },
   });
 };
 

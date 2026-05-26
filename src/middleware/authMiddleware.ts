@@ -66,7 +66,7 @@ export const verifyJWT = async (
         error: error instanceof Error ? error.message : String(error),
       });
     }
-    globalErrorHandler(error as BaseError, req, res);
+    globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
   }
 };
 
@@ -141,7 +141,7 @@ export const validateRefreshToken = async (
 
     next();
   } catch (error) {
-    globalErrorHandler(error as BaseError, req, res);
+    globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
   }
 };
 

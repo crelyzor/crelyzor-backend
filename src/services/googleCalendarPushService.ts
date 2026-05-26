@@ -256,14 +256,30 @@ export async function renewExpiringChannels(): Promise<number> {
     take: 500,
   });
 
-  await Promise.all(
+  const results = await Promise.allSettled(
     expiring.map(async ({ userId }) => {
       await stopWatchChannel(userId);
       await registerWatchChannel(userId);
     }),
   );
-  const renewed = expiring.length;
 
-  logger.info("GCal push: channel renewal completed", { renewed });
+  const failures = results.filter((r) => r.status === "rejected");
+  if (failures.length > 0) {
+    logger.warn("GCal push: some channel renewals failed", {
+      total: expiring.length,
+      failed: failures.length,
+      errors: failures.map((f) =>
+        f.status === "rejected"
+          ? f.reason instanceof Error
+            ? f.reason.message
+            : String(f.reason)
+          : undefined,
+      ),
+    });
+  }
+
+  const renewed = results.filter((r) => r.status === "fulfilled").length;
+
+  logger.info("GCal push: channel renewal completed", { renewed, failed: failures.length });
   return renewed;
 }

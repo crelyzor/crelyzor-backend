@@ -214,7 +214,7 @@ export async function getPublicMeetingByShortId(shortId: string) {
             isCompleted: true,
           },
           orderBy: { createdAt: "asc" },
-          take: 500,
+          take: 50,
         })
       : Promise.resolve(null),
   ]);

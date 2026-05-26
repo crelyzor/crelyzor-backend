@@ -6,7 +6,6 @@ import { AppError } from "../utils/errors/AppError";
 export interface UserSearchResult {
   id: string;
   name: string;
-  email: string;
   avatarUrl: string | null;
   username: string | null;
 }
@@ -38,7 +37,6 @@ export const userService = {
       select: {
         id: true,
         name: true,
-        email: true,
         avatarUrl: true,
         username: true,
       },

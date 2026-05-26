@@ -418,7 +418,13 @@ export const startWorker = async (): Promise<void> => {
       // Decrypt guest PII using host's DEK (booking.userId is the host)
       const [guestName, guestEmail] = await Promise.all([
         decrypt(booking.guestName, booking.userId).catch(() => "Guest"),
-        decrypt(booking.guestEmail, booking.userId).catch(() => ""),
+        decrypt(booking.guestEmail, booking.userId).catch((err: unknown) => {
+          logger.warn("Failed to decrypt guestEmail for booking reminder — skipping", {
+            bookingId: booking.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return "";
+        }),
       ]);
 
       const host = await prisma.user.findUnique({

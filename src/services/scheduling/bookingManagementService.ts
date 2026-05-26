@@ -407,8 +407,8 @@ export async function confirmBooking(userId: string, bookingId: string) {
     bookingId,
   );
 
-  return prisma.booking.findUnique({
-    where: { id: bookingId },
+  return prisma.booking.findFirst({
+    where: { id: bookingId, userId, isDeleted: false },
     select: BOOKING_ACTION_SELECT,
   });
 }
@@ -518,8 +518,8 @@ export async function declineBooking(
     );
   }
 
-  return prisma.booking.findUnique({
-    where: { id: bookingId },
+  return prisma.booking.findFirst({
+    where: { id: bookingId, userId, isDeleted: false },
     select: BOOKING_ACTION_SELECT,
   });
 }
@@ -655,8 +655,8 @@ export async function cancelBooking(
     });
   }
 
-  return prisma.booking.findUnique({
-    where: { id: bookingId },
+  return prisma.booking.findFirst({
+    where: { id: bookingId, userId, isDeleted: false },
     select: BOOKING_ACTION_SELECT,
   });
 }

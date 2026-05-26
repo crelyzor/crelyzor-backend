@@ -41,7 +41,7 @@ export class MeetingController {
         data: { meeting, gcalSynced },
       });
     } catch (error) {
-      globalErrorHandler(error as Error, req, res);
+      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
     }
   }
 
@@ -63,7 +63,7 @@ export class MeetingController {
         data: meeting,
       });
     } catch (error) {
-      globalErrorHandler(error as Error, req, res);
+      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
     }
   }
 
@@ -86,7 +86,7 @@ export class MeetingController {
         data: meeting,
       });
     } catch (error) {
-      globalErrorHandler(error as Error, req, res);
+      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
     }
   }
 
@@ -107,7 +107,7 @@ export class MeetingController {
         data: meeting,
       });
     } catch (error) {
-      globalErrorHandler(error as Error, req, res);
+      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
     }
   }
 
@@ -140,7 +140,7 @@ export class MeetingController {
         },
       });
     } catch (error) {
-      globalErrorHandler(error as Error, req, res);
+      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
     }
   }
 
@@ -169,7 +169,7 @@ export class MeetingController {
         data: { meetings, truncated },
       });
     } catch (error) {
-      globalErrorHandler(error as Error, req, res);
+      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
     }
   }
 
@@ -233,7 +233,7 @@ export class MeetingController {
         data: meeting,
       });
     } catch (error) {
-      globalErrorHandler(error as Error, req, res);
+      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
     }
   }
 
@@ -249,7 +249,7 @@ export class MeetingController {
         message: "Meeting deleted successfully",
       });
     } catch (error) {
-      globalErrorHandler(error as Error, req, res);
+      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
     }
   }
 
@@ -272,7 +272,7 @@ export class MeetingController {
         data: result,
       });
     } catch (error) {
-      globalErrorHandler(error as Error, req, res);
+      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
     }
   }
 }
