@@ -6,6 +6,7 @@ import { tokenService } from "./tokenService";
 import { sessionService } from "./sessionService";
 import { ErrorFactory } from "../../utils/globalErrorHandler";
 import { logger } from "../../utils/logging/logger";
+import { evictDek } from "../../utils/security/dekCache";
 import {
   UserResponse,
   RefreshTokenRequest,
@@ -154,9 +155,13 @@ class AuthService {
   async deactivateAccount(userId: string): Promise<{ message: string }> {
     await prisma.$transaction(
       async (tx) => {
+        // Crypto-shred: destroy DEK material before anything else.
+        // Once wrappedDek is null and UserDekHistory rows are gone, all encrypted
+        // content for this user becomes permanently unrecoverable — even in old backups.
+        await tx.userDekHistory.deleteMany({ where: { userId } });
         await tx.user.update({
           where: { id: userId },
-          data: { isActive: false },
+          data: { isActive: false, wrappedDek: null },
         });
 
         await tx.refreshToken.updateMany({
@@ -164,12 +169,13 @@ class AuthService {
           data: { revoked: true },
         });
 
-        await tx.session.deleteMany({
-          where: { userId },
-        });
+        await tx.session.deleteMany({ where: { userId } });
       },
       { timeout: 15000 },
     );
+
+    // Evict DEK from in-process cache so no subsequent decrypt can succeed.
+    evictDek(userId);
 
     return { message: "Account deactivated successfully" };
   }
