@@ -782,8 +782,8 @@ Call `createNotification()` alongside each existing email send. Never replace em
 
 ### P0 — KMS foundations
 
-- [ ] Provision Cloud KMS keyring + KEK in GCP for each env (dev / staging / prod) ← ops task, see `docs/dev-notes/encryption.md`
-- [ ] IAM bind backend service account to `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the KEK only ← ops task
+- [x] Provision Cloud KMS keyrings + KEKs: `crelyzor-kek-dev`, `crelyzor-kek-staging`, `crelyzor-kek-prod` in `asia` multi-region
+- [ ] IAM bind backend service account to `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the KEK ← pending: need backend service account email
 - [x] Add env vars to `.env.example`: `KMS_PROVIDER`, `GCP_KMS_KEY_NAME`, `LOCAL_KMS_KEY`, `HMAC_BLIND_INDEX_KEY`
 - [x] `LocalKmsProvider` + `GcpKmsProvider` — both implement `IKmsProvider`, toggled by `KMS_PROVIDER` (`src/utils/security/kmsProviders.ts`)
 - [x] Document KMS setup, IAM bindings, key-naming conventions, and DR runbook in `docs/dev-notes/encryption.md`
@@ -834,16 +834,15 @@ Call `createNotification()` alongside each existing email send. Never replace em
 
 ### P6 — GCS CMEK
 
-- [ ] Grant Cloud Storage service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the KEK ← ops task
-- [ ] `gsutil kms encryption -k <key-resource-name> gs://<recordings-bucket>` ← ops task
-- [ ] Background `gsutil rewrite -k` on existing recording objects ← ops task
-- See `docs/dev-notes/encryption.md` for exact commands
+- [x] Grant Cloud Storage service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` on all three KEKs (dev/staging/prod)
+- [x] `gsutil kms encryption` set on `gs://crelyzor-dev`, `gs://crelyzor-staging`, `gs://crelyzor-prod`
+- [x] All existing objects re-encrypted via `gcloud storage objects update --encryption-key --recursive`
 
 ### P7 — Schema migration + service deploy
 
 - [x] Single-step migration done — in-scope columns are `Bytes?` directly (no shadow-column rename needed)
 - [x] Service code deploys alongside schema (same PR/branch)
-- [ ] Monitor 7 days post-prod deploy: KMS audit logs healthy, no decrypt failures ← ops
+- [ ] Monitor 7 days post-prod deploy: KMS audit logs healthy, no decrypt failures ← ongoing
 
 ### P8 — Crypto-shredding for account delete
 
@@ -853,8 +852,8 @@ Call `createNotification()` alongside each existing email send. Never replace em
 ### P9 — Hardening + observability
 
 - [x] KMS disaster-recovery runbook in `docs/dev-notes/encryption.md` (key destruction protection, regional failover, IAM hygiene checklist)
-- [ ] Cloud Logging alert on anomalous KMS unwrap volume ← ops task (GCP console)
-- [ ] Pre-encryption backup inventory + re-encrypt old backups ← ops task (no automated backups yet at current scale)
+- [x] Cloud Monitoring alert created: policy `8638838345955756167` — KMS API requests > 100/hour triggers alert
+- [ ] Pre-encryption backup inventory ← no automated backups at current scale, revisit at Phase 6
 - [ ] DB dump spot-check: `grep -ic "<known plaintext snippet>"` against prod dump ← ops step post-deploy
 
 ### P10 — Tests
