@@ -90,7 +90,13 @@ export async function getAuthedCalendarClient(
   // Decrypt OAuth tokens before passing to Google client
   const decryptedAccessToken = await decrypt(oauthAccount.accessToken, userId);
   const decryptedRefreshToken = oauthAccount.refreshToken
-    ? await decrypt(oauthAccount.refreshToken, userId).catch(() => undefined)
+    ? await decrypt(oauthAccount.refreshToken, userId).catch((err) => {
+        logger.warn("Failed to decrypt refresh token — token may be stale", {
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return undefined;
+      })
     : undefined;
 
   const client = getOAuthClient(

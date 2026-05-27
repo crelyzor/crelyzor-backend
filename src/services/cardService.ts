@@ -1051,7 +1051,11 @@ export const cardService = {
   /**
    * Get meetings linked to a card via participants
    */
-  async getCardMeetings(userId: string, cardId: string) {
+  async getCardMeetings(
+    userId: string,
+    cardId: string,
+    { take = 20, skip = 0 }: { take?: number; skip?: number } = {},
+  ) {
     const card = await prisma.card.findFirst({
       where: { id: cardId, userId, isDeleted: false },
       select: { id: true },
@@ -1060,33 +1064,37 @@ export const cardService = {
       throw ErrorFactory.notFound("Card not found");
     }
 
-    const meetings = await prisma.meeting.findMany({
-      where: {
-        isDeleted: false,
-        participants: {
-          some: { cardId },
-        },
-      },
-      select: {
-        id: true,
-        title: true,
-        type: true,
-        status: true,
-        startTime: true,
-        endTime: true,
-        timezone: true,
-        participants: {
-          select: {
-            participantType: true,
-            user: { select: { id: true, name: true, avatarUrl: true } },
-            card: { select: { id: true, displayName: true, slug: true } },
+    const where = {
+      isDeleted: false,
+      participants: { some: { cardId } },
+    };
+
+    const [meetings, total] = await Promise.all([
+      prisma.meeting.findMany({
+        where,
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          status: true,
+          startTime: true,
+          endTime: true,
+          timezone: true,
+          participants: {
+            select: {
+              participantType: true,
+              user: { select: { id: true, name: true, avatarUrl: true } },
+              card: { select: { id: true, displayName: true, slug: true } },
+            },
           },
         },
-      },
-      orderBy: { startTime: "desc" },
-      take: 50,
-    });
+        orderBy: { startTime: "desc" },
+        take,
+        skip,
+      }),
+      prisma.meeting.count({ where }),
+    ]);
 
-    return meetings;
+    return { meetings, total, hasMore: skip + meetings.length < total };
   },
 };

@@ -70,21 +70,27 @@ async function backfillOAuthAccount() {
     WHERE "accessToken_enc" IS NULL OR ("refreshToken" IS NOT NULL AND length("refreshToken") > 0 AND "refreshToken_enc" IS NULL)
   `);
 
-  let n = 0;
+  let processed = 0;
+  let failed = 0;
   for (const row of rows) {
-    const dek = await dekFor(row.userId);
-    const accEnc = enc(row.accessToken, dek);
-    const refEnc = row.refreshToken && row.refreshToken.length > 0 ? enc(row.refreshToken, dek) : null;
+    try {
+      const dek = await dekFor(row.userId);
+      const accEnc = enc(row.accessToken, dek);
+      const refEnc = row.refreshToken && row.refreshToken.length > 0 ? enc(row.refreshToken, dek) : null;
 
-    await prisma.$executeRawUnsafe(
-      `UPDATE "OAuthAccount" SET "accessToken_enc" = $1, "refreshToken_enc" = $2 WHERE id = $3::uuid`,
-      accEnc,
-      refEnc,
-      row.id,
-    );
-    n++;
+      await prisma.$executeRawUnsafe(
+        `UPDATE "OAuthAccount" SET "accessToken_enc" = $1, "refreshToken_enc" = $2 WHERE id = $3::uuid`,
+        accEnc,
+        refEnc,
+        row.id,
+      );
+      processed++;
+    } catch (err) {
+      failed++;
+      logger.error("Backfill row failed", { table: "OAuthAccount", id: row.id, error: err instanceof Error ? err.message : String(err) });
+    }
   }
-  logger.info("Backfill: OAuthAccount", { rows: n });
+  logger.info("Backfill: OAuthAccount", { processed, failed });
 }
 
 async function backfillTask() {
@@ -100,17 +106,24 @@ async function backfillTask() {
     `);
     if (rows.length === 0) break;
 
+    let failed = 0;
     for (const row of rows) {
-      if (row.description === null) continue;
-      const dek = await dekFor(row.userId);
-      const ct = enc(row.description, dek);
-      await prisma.$executeRawUnsafe(
-        `UPDATE "Task" SET "description_enc" = $1 WHERE id = $2::uuid`,
-        ct,
-        row.id,
-      );
-      processed++;
+      try {
+        if (row.description === null) continue;
+        const dek = await dekFor(row.userId);
+        const ct = enc(row.description, dek);
+        await prisma.$executeRawUnsafe(
+          `UPDATE "Task" SET "description_enc" = $1 WHERE id = $2::uuid`,
+          ct,
+          row.id,
+        );
+        processed++;
+      } catch (err) {
+        failed++;
+        logger.error("Backfill row failed", { table: "Task", id: row.id, error: err instanceof Error ? err.message : String(err) });
+      }
     }
+    if (failed > 0) logger.warn("Backfill: Task batch had failures", { failed });
   }
   logger.info("Backfill: Task.description", { rows: processed });
 }
@@ -137,29 +150,36 @@ async function backfillCardContact() {
     `);
     if (rows.length === 0) break;
 
+    let failed = 0;
     for (const row of rows) {
-      const dek = await dekFor(row.userId);
-      const emailEnc = row.email ? enc(row.email, dek) : null;
-      const phoneEnc = row.phone ? enc(row.phone, dek) : null;
-      const noteEnc = row.note ? enc(row.note, dek) : null;
-      const emailBidx = row.email ? blindIndex(row.email) : null;
-      const phoneBidx = row.phone ? blindIndex(row.phone) : null;
+      try {
+        const dek = await dekFor(row.userId);
+        const emailEnc = row.email ? enc(row.email, dek) : null;
+        const phoneEnc = row.phone ? enc(row.phone, dek) : null;
+        const noteEnc = row.note ? enc(row.note, dek) : null;
+        const emailBidx = row.email ? blindIndex(row.email) : null;
+        const phoneBidx = row.phone ? blindIndex(row.phone) : null;
 
-      await prisma.$executeRawUnsafe(
-        `UPDATE "CardContact"
-           SET "email_enc" = $1, "phone_enc" = $2, "note_enc" = $3,
-               "emailBidx" = COALESCE("emailBidx", $4),
-               "phoneBidx" = COALESCE("phoneBidx", $5)
-         WHERE id = $6::uuid`,
-        emailEnc,
-        phoneEnc,
-        noteEnc,
-        emailBidx,
-        phoneBidx,
-        row.id,
-      );
-      processed++;
+        await prisma.$executeRawUnsafe(
+          `UPDATE "CardContact"
+             SET "email_enc" = $1, "phone_enc" = $2, "note_enc" = $3,
+                 "emailBidx" = COALESCE("emailBidx", $4),
+                 "phoneBidx" = COALESCE("phoneBidx", $5)
+           WHERE id = $6::uuid`,
+          emailEnc,
+          phoneEnc,
+          noteEnc,
+          emailBidx,
+          phoneBidx,
+          row.id,
+        );
+        processed++;
+      } catch (err) {
+        failed++;
+        logger.error("Backfill row failed", { table: "CardContact", id: row.id, error: err instanceof Error ? err.message : String(err) });
+      }
     }
+    if (failed > 0) logger.warn("Backfill: CardContact batch had failures", { failed });
   }
   logger.info("Backfill: CardContact", { rows: processed });
 }
@@ -186,26 +206,33 @@ async function backfillBooking() {
     `);
     if (rows.length === 0) break;
 
+    let failed = 0;
     for (const row of rows) {
-      const dek = await dekFor(row.userId);
-      const nameEnc = enc(row.guestName, dek);
-      const emailEnc = enc(row.guestEmail, dek);
-      const noteEnc = row.guestNote ? enc(row.guestNote, dek) : null;
-      const emailBidxBuf = blindIndex(row.guestEmail);
+      try {
+        const dek = await dekFor(row.userId);
+        const nameEnc = enc(row.guestName, dek);
+        const emailEnc = enc(row.guestEmail, dek);
+        const noteEnc = row.guestNote ? enc(row.guestNote, dek) : null;
+        const emailBidxBuf = blindIndex(row.guestEmail);
 
-      await prisma.$executeRawUnsafe(
-        `UPDATE "Booking"
-           SET "guestName_enc" = $1, "guestEmail_enc" = $2, "guestNote_enc" = $3,
-               "guestEmailBidx" = COALESCE("guestEmailBidx", $4)
-         WHERE id = $5::uuid`,
-        nameEnc,
-        emailEnc,
-        noteEnc,
-        emailBidxBuf,
-        row.id,
-      );
-      processed++;
+        await prisma.$executeRawUnsafe(
+          `UPDATE "Booking"
+             SET "guestName_enc" = $1, "guestEmail_enc" = $2, "guestNote_enc" = $3,
+                 "guestEmailBidx" = COALESCE("guestEmailBidx", $4)
+           WHERE id = $5::uuid`,
+          nameEnc,
+          emailEnc,
+          noteEnc,
+          emailBidxBuf,
+          row.id,
+        );
+        processed++;
+      } catch (err) {
+        failed++;
+        logger.error("Backfill row failed", { table: "Booking", id: row.id, error: err instanceof Error ? err.message : String(err) });
+      }
     }
+    if (failed > 0) logger.warn("Backfill: Booking batch had failures", { failed });
   }
   logger.info("Backfill: Booking", { rows: processed });
 }
@@ -224,21 +251,28 @@ async function backfillMeetingParticipant() {
     `);
     if (rows.length === 0) break;
 
+    let failed = 0;
     for (const row of rows) {
-      const dek = await dekFor(row.userId);
-      const ct = enc(row.guestEmail, dek);
-      const bidx = blindIndex(row.guestEmail);
-      await prisma.$executeRawUnsafe(
-        `UPDATE "MeetingParticipant"
-           SET "guestEmail_enc" = $1,
-               "guestEmailBidx" = COALESCE("guestEmailBidx", $2)
-         WHERE id = $3::uuid`,
-        ct,
-        bidx,
-        row.id,
-      );
-      processed++;
+      try {
+        const dek = await dekFor(row.userId);
+        const ct = enc(row.guestEmail, dek);
+        const bidx = blindIndex(row.guestEmail);
+        await prisma.$executeRawUnsafe(
+          `UPDATE "MeetingParticipant"
+             SET "guestEmail_enc" = $1,
+                 "guestEmailBidx" = COALESCE("guestEmailBidx", $2)
+           WHERE id = $3::uuid`,
+          ct,
+          bidx,
+          row.id,
+        );
+        processed++;
+      } catch (err) {
+        failed++;
+        logger.error("Backfill row failed", { table: "MeetingParticipant", id: row.id, error: err instanceof Error ? err.message : String(err) });
+      }
     }
+    if (failed > 0) logger.warn("Backfill: MeetingParticipant batch had failures", { failed });
   }
   logger.info("Backfill: MeetingParticipant.guestEmail", { rows: processed });
 }
@@ -257,16 +291,23 @@ async function backfillMeetingNote() {
     `);
     if (rows.length === 0) break;
 
+    let failed = 0;
     for (const row of rows) {
-      const dek = await dekFor(row.userId);
-      const ct = enc(row.content, dek);
-      await prisma.$executeRawUnsafe(
-        `UPDATE "MeetingNote" SET "content_enc" = $1 WHERE id = $2::uuid`,
-        ct,
-        row.id,
-      );
-      processed++;
+      try {
+        const dek = await dekFor(row.userId);
+        const ct = enc(row.content, dek);
+        await prisma.$executeRawUnsafe(
+          `UPDATE "MeetingNote" SET "content_enc" = $1 WHERE id = $2::uuid`,
+          ct,
+          row.id,
+        );
+        processed++;
+      } catch (err) {
+        failed++;
+        logger.error("Backfill row failed", { table: "MeetingNote", id: row.id, error: err instanceof Error ? err.message : String(err) });
+      }
     }
+    if (failed > 0) logger.warn("Backfill: MeetingNote batch had failures", { failed });
   }
   logger.info("Backfill: MeetingNote.content", { rows: processed });
 }
@@ -292,24 +333,31 @@ async function backfillMeetingAISummary() {
     `);
     if (rows.length === 0) break;
 
+    let failed = 0;
     for (const row of rows) {
-      const dek = await dekFor(row.userId);
-      const summaryEnc = enc(row.summary, dek);
-      const keyPointsEnc =
-        row.keyPoints && row.keyPoints.length > 0
-          ? enc(JSON.stringify(row.keyPoints), dek)
-          : null;
+      try {
+        const dek = await dekFor(row.userId);
+        const summaryEnc = enc(row.summary, dek);
+        const keyPointsEnc =
+          row.keyPoints && row.keyPoints.length > 0
+            ? enc(JSON.stringify(row.keyPoints), dek)
+            : null;
 
-      await prisma.$executeRawUnsafe(
-        `UPDATE "MeetingAISummary"
-           SET "summary_enc" = $1, "keyPoints_enc" = COALESCE("keyPoints_enc", $2)
-         WHERE id = $3::uuid`,
-        summaryEnc,
-        keyPointsEnc,
-        row.id,
-      );
-      processed++;
+        await prisma.$executeRawUnsafe(
+          `UPDATE "MeetingAISummary"
+             SET "summary_enc" = $1, "keyPoints_enc" = COALESCE("keyPoints_enc", $2)
+           WHERE id = $3::uuid`,
+          summaryEnc,
+          keyPointsEnc,
+          row.id,
+        );
+        processed++;
+      } catch (err) {
+        failed++;
+        logger.error("Backfill row failed", { table: "MeetingAISummary", id: row.id, error: err instanceof Error ? err.message : String(err) });
+      }
     }
+    if (failed > 0) logger.warn("Backfill: MeetingAISummary batch had failures", { failed });
   }
   logger.info("Backfill: MeetingAISummary", { rows: processed });
 }
@@ -328,16 +376,23 @@ async function backfillMeetingAIContent() {
     `);
     if (rows.length === 0) break;
 
+    let failed = 0;
     for (const row of rows) {
-      const dek = await dekFor(row.userId);
-      const ct = enc(row.content, dek);
-      await prisma.$executeRawUnsafe(
-        `UPDATE "MeetingAIContent" SET "content_enc" = $1 WHERE id = $2::uuid`,
-        ct,
-        row.id,
-      );
-      processed++;
+      try {
+        const dek = await dekFor(row.userId);
+        const ct = enc(row.content, dek);
+        await prisma.$executeRawUnsafe(
+          `UPDATE "MeetingAIContent" SET "content_enc" = $1 WHERE id = $2::uuid`,
+          ct,
+          row.id,
+        );
+        processed++;
+      } catch (err) {
+        failed++;
+        logger.error("Backfill row failed", { table: "MeetingAIContent", id: row.id, error: err instanceof Error ? err.message : String(err) });
+      }
     }
+    if (failed > 0) logger.warn("Backfill: MeetingAIContent batch had failures", { failed });
   }
   logger.info("Backfill: MeetingAIContent.content", { rows: processed });
 }
@@ -357,16 +412,23 @@ async function backfillMeetingTranscript() {
     `);
     if (rows.length === 0) break;
 
+    let failed = 0;
     for (const row of rows) {
-      const dek = await dekFor(row.userId);
-      const ct = enc(row.fullText, dek);
-      await prisma.$executeRawUnsafe(
-        `UPDATE "MeetingTranscript" SET "fullText_enc" = $1 WHERE id = $2::uuid`,
-        ct,
-        row.id,
-      );
-      processed++;
+      try {
+        const dek = await dekFor(row.userId);
+        const ct = enc(row.fullText, dek);
+        await prisma.$executeRawUnsafe(
+          `UPDATE "MeetingTranscript" SET "fullText_enc" = $1 WHERE id = $2::uuid`,
+          ct,
+          row.id,
+        );
+        processed++;
+      } catch (err) {
+        failed++;
+        logger.error("Backfill row failed", { table: "MeetingTranscript", id: row.id, error: err instanceof Error ? err.message : String(err) });
+      }
     }
+    if (failed > 0) logger.warn("Backfill: MeetingTranscript batch had failures", { failed });
   }
   logger.info("Backfill: MeetingTranscript.fullText", { rows: processed });
 }
@@ -387,16 +449,23 @@ async function backfillTranscriptSegment() {
     `);
     if (rows.length === 0) break;
 
+    let failed = 0;
     for (const row of rows) {
-      const dek = await dekFor(row.userId);
-      const ct = enc(row.text, dek);
-      await prisma.$executeRawUnsafe(
-        `UPDATE "TranscriptSegment" SET "text_enc" = $1 WHERE id = $2::uuid`,
-        ct,
-        row.id,
-      );
-      processed++;
+      try {
+        const dek = await dekFor(row.userId);
+        const ct = enc(row.text, dek);
+        await prisma.$executeRawUnsafe(
+          `UPDATE "TranscriptSegment" SET "text_enc" = $1 WHERE id = $2::uuid`,
+          ct,
+          row.id,
+        );
+        processed++;
+      } catch (err) {
+        failed++;
+        logger.error("Backfill row failed", { table: "TranscriptSegment", id: row.id, error: err instanceof Error ? err.message : String(err) });
+      }
     }
+    if (failed > 0) logger.warn("Backfill: TranscriptSegment batch had failures", { failed });
   }
   logger.info("Backfill: TranscriptSegment.text", { rows: processed });
 }
@@ -415,16 +484,23 @@ async function backfillAskAIMessage() {
     `);
     if (rows.length === 0) break;
 
+    let failed = 0;
     for (const row of rows) {
-      const dek = await dekFor(row.userId);
-      const ct = enc(row.content, dek);
-      await prisma.$executeRawUnsafe(
-        `UPDATE "AskAIMessage" SET "content_enc" = $1 WHERE id = $2::uuid`,
-        ct,
-        row.id,
-      );
-      processed++;
+      try {
+        const dek = await dekFor(row.userId);
+        const ct = enc(row.content, dek);
+        await prisma.$executeRawUnsafe(
+          `UPDATE "AskAIMessage" SET "content_enc" = $1 WHERE id = $2::uuid`,
+          ct,
+          row.id,
+        );
+        processed++;
+      } catch (err) {
+        failed++;
+        logger.error("Backfill row failed", { table: "AskAIMessage", id: row.id, error: err instanceof Error ? err.message : String(err) });
+      }
     }
+    if (failed > 0) logger.warn("Backfill: AskAIMessage batch had failures", { failed });
   }
   logger.info("Backfill: AskAIMessage.content", { rows: processed });
 }
@@ -445,18 +521,34 @@ async function main() {
   logger.info("Initialised DEKs for users", { count: usersMissingDek.length });
 
   // 2. Per-table backfills. Order doesn't matter; each is independent.
-  await backfillOAuthAccount();
-  await backfillTask();
-  await backfillCardContact();
-  await backfillBooking();
-  await backfillMeetingParticipant();
-  await backfillMeetingNote();
-  await backfillMeetingAISummary();
-  await backfillMeetingAIContent();
-  await backfillMeetingTranscript();
-  await backfillTranscriptSegment();
-  await backfillAskAIMessage();
+  // Each table is wrapped individually so one failure doesn't abort the rest.
+  const tables = [
+    { name: "OAuthAccount", fn: backfillOAuthAccount },
+    { name: "Task", fn: backfillTask },
+    { name: "CardContact", fn: backfillCardContact },
+    { name: "Booking", fn: backfillBooking },
+    { name: "MeetingParticipant", fn: backfillMeetingParticipant },
+    { name: "MeetingNote", fn: backfillMeetingNote },
+    { name: "MeetingAISummary", fn: backfillMeetingAISummary },
+    { name: "MeetingAIContent", fn: backfillMeetingAIContent },
+    { name: "MeetingTranscript", fn: backfillMeetingTranscript },
+    { name: "TranscriptSegment", fn: backfillTranscriptSegment },
+    { name: "AskAIMessage", fn: backfillAskAIMessage },
+  ];
+  let tablesFailed = 0;
+  for (const { name, fn } of tables) {
+    try {
+      await fn();
+    } catch (err) {
+      tablesFailed++;
+      logger.error("Backfill table failed entirely", { table: name, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
 
+  if (tablesFailed > 0) {
+    logger.error("Phase 5 backfill — completed with table-level failures", { tablesFailed });
+    process.exit(1);
+  }
   logger.info("Phase 5 backfill — done");
 }
 

@@ -20,7 +20,9 @@ import prisma from "../db/prismaClient";
 
 const ALLOWED_REDIRECT_ORIGINS = (
   env.ALLOWED_ORIGINS ??
-  `${env.FRONTEND_URL},http://localhost:5173,http://localhost:5174`
+  (env.NODE_ENV !== "production"
+    ? `${env.FRONTEND_URL},http://localhost:5173,http://localhost:5174`
+    : env.FRONTEND_URL)
 )
   .split(",")
   .map((o) => o.trim())
@@ -104,8 +106,10 @@ export const googleController = {
       ) {
         redirectUrl = parsed.redirectUrl;
       }
-    } catch {
-      // Use fallback — state is malformed
+    } catch (err) {
+      logger.warn("OAuth state parse failed — using fallback redirect", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     const sep = redirectUrl.includes("?") ? "&" : "?";

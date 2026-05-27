@@ -154,6 +154,7 @@ model RefreshToken {
 
   @@index([userId])
   @@index([token])
+  @@index([expiresAt])
 }
 
 model OAuthAccount {

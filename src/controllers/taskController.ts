@@ -285,6 +285,7 @@ export const createTask = async (req: Request, res: Response) => {
     },
   });
 
+  // GCal write-back is fail-open — task already persisted; missing googleEventId is recoverable.
   if (task.scheduledTime) {
     const eventId = await createTaskBlock(userId, {
       title: task.title,
@@ -394,6 +395,7 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
     },
   });
 
+  // GCal write-back is fail-open — task already persisted; missing googleEventId is recoverable.
   if (task.scheduledTime) {
     const eventId = await createTaskBlock(userId, {
       title: task.title,

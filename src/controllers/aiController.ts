@@ -13,6 +13,9 @@ import { encrypt, decrypt } from "../utils/security/crypto";
 
 const uuidSchema = z.string().uuid();
 
+// All AI endpoints gate on createdById — intentional: participants never receive AI
+// output for meetings they didn't create. This matches the Phase 1 data ownership model.
+
 /**
  * Get AI summary for a meeting
  */

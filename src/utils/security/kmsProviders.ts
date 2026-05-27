@@ -29,12 +29,16 @@ export class LocalKmsProvider implements IKmsProvider {
   }
 
   async unwrapKey(wrappedKey: Buffer): Promise<Buffer> {
-    const iv = wrappedKey.subarray(0, 12);
-    const tag = wrappedKey.subarray(wrappedKey.length - 16);
-    const ct = wrappedKey.subarray(12, wrappedKey.length - 16);
-    const decipher = crypto.createDecipheriv("aes-256-gcm", this.masterKey, iv);
-    decipher.setAuthTag(tag);
-    return Buffer.concat([decipher.update(ct), decipher.final()]);
+    try {
+      const iv = wrappedKey.subarray(0, 12);
+      const tag = wrappedKey.subarray(wrappedKey.length - 16);
+      const ct = wrappedKey.subarray(12, wrappedKey.length - 16);
+      const decipher = crypto.createDecipheriv("aes-256-gcm", this.masterKey, iv);
+      decipher.setAuthTag(tag);
+      return Buffer.concat([decipher.update(ct), decipher.final()]);
+    } catch {
+      throw new Error("Key operation failed");
+    }
   }
 }
 
@@ -68,12 +72,16 @@ export class GcpKmsProvider implements IKmsProvider {
   }
 
   async unwrapKey(wrappedKey: Buffer): Promise<Buffer> {
-    const client = await this.getClient();
-    const [result] = await client.decrypt({
-      name: this.keyName,
-      ciphertext: wrappedKey,
-    });
-    return Buffer.from(result.plaintext as Uint8Array);
+    try {
+      const client = await this.getClient();
+      const [result] = await client.decrypt({
+        name: this.keyName,
+        ciphertext: wrappedKey,
+      });
+      return Buffer.from(result.plaintext as Uint8Array);
+    } catch {
+      throw new Error("Key operation failed");
+    }
   }
 }
 

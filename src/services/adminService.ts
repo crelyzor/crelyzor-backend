@@ -102,7 +102,9 @@ export async function sendInvite(
     { timeout: 10000 },
   );
 
-  const portalUrl = process.env.ADMIN_PORTAL_URL ?? "http://localhost:5175";
+  const portalUrl =
+    process.env.ADMIN_PORTAL_URL ??
+    (process.env.NODE_ENV !== "production" ? "http://localhost:5175" : "");
   const acceptUrl = `${portalUrl}/invite/${token}`;
 
   await sendEmail({

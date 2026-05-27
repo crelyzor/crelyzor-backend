@@ -28,7 +28,9 @@ export class MeetingController {
   async createMeeting(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const validatedData = createMeetingSchema.parse(req.body);
+      const parsed = createMeetingSchema.safeParse(req.body);
+      if (!parsed.success) throw ErrorFactory.validation("Validation failed");
+      const validatedData = parsed.data;
 
       const { meeting, gcalSynced } = await meetingService.createMeeting({
         createdById: user.userId,
@@ -49,7 +51,9 @@ export class MeetingController {
     try {
       const user = req.user as TokenPayload;
       const meetingId = parseMeetingId(req.params.meetingId);
-      const validatedData = updateMeetingSchema.parse(req.body);
+      const parsedUpdate = updateMeetingSchema.safeParse(req.body);
+      if (!parsedUpdate.success) throw ErrorFactory.validation("Validation failed");
+      const validatedData = parsedUpdate.data;
 
       const meeting = await meetingService.updateMeeting(
         meetingId,
@@ -71,7 +75,9 @@ export class MeetingController {
     try {
       const user = req.user as TokenPayload;
       const meetingId = parseMeetingId(req.params.meetingId);
-      const validatedData = meetingActionSchema.parse(req.body);
+      const parsedAction = meetingActionSchema.safeParse(req.body);
+      if (!parsedAction.success) throw ErrorFactory.validation("Validation failed");
+      const validatedData = parsedAction.data;
 
       const meeting = await meetingService.cancelMeeting({
         meetingId,
@@ -114,7 +120,9 @@ export class MeetingController {
   async getMeetings(req: Request, res: Response): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const validatedData = getMeetingsSchema.parse(req.query);
+      const parsedQuery = getMeetingsSchema.safeParse(req.query);
+      if (!parsedQuery.success) throw ErrorFactory.validation("Validation failed");
+      const validatedData = parsedQuery.data;
 
       const { meetings, total } = await meetingService.getMeetings({
         userId: user.userId,
@@ -150,7 +158,9 @@ export class MeetingController {
   ): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const validatedData = getMeetingsWithoutPaginationSchema.parse(req.query);
+      const parsedNoPag = getMeetingsWithoutPaginationSchema.safeParse(req.query);
+      if (!parsedNoPag.success) throw ErrorFactory.validation("Validation failed");
+      const validatedData = parsedNoPag.data;
 
       const { meetings, truncated } =
         await meetingService.getMeetingsWithoutPagination({

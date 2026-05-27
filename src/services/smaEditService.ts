@@ -123,7 +123,7 @@ export async function updateSummary(
 
   // Title-only update
   await prisma.meeting.update({
-    where: { id: meetingId },
+    where: { id: meetingId, createdById: userId },
     data: { title: data.title },
   });
   logger.info("Meeting title updated via summary edit", { meetingId, userId });

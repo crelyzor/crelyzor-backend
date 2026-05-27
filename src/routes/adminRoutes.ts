@@ -21,7 +21,7 @@ const adminRouter = Router();
 
 // ─── Public (no auth) ────────────────────────────────────────────────────────
 adminRouter.post("/auth/login", authLimiter, login);
-adminRouter.get("/auth/me", apiLimiter, me);
+adminRouter.get("/auth/me", authLimiter, me);
 adminRouter.post("/auth/logout", logout);
 adminRouter.get("/auth/invite/:token", authLimiter, checkInvite);
 adminRouter.post("/auth/accept-invite", authLimiter, acceptInviteHandler);

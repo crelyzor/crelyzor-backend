@@ -296,7 +296,7 @@ ${capped}`;
       throw new Error("Parsed summary is empty");
     }
   } catch (err) {
-    logger.warn("Single-call summary parse failed — using fallback", {
+    logger.error("Single-call summary parse failed — using fallback", {
       meetingId,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -549,7 +549,11 @@ export const processTranscriptWithAI = async (
         await decrypt(existingSummary.keyPoints, userId),
       ) as string[];
       if (!Array.isArray(keyPoints)) keyPoints = [];
-    } catch {
+    } catch (err) {
+      logger.warn("Failed to decrypt or parse keyPoints — using empty array", {
+        meetingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
       keyPoints = [];
     }
   }
@@ -754,7 +758,8 @@ export const askAI = async (
     throw new AppError("Meeting not found", 404);
   }
 
-  // Cap segments to prevent OOM on long meetings; 5000 covers a ~3-hour transcript
+  // Cap segments to avoid decrypting far more than MAX_ASK_AI_CHARS needs.
+  // At ~150 chars/segment, 500 segments ≈ 75k chars — 1.5× the 50k MAX_ASK_AI_CHARS buffer.
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
     select: {
@@ -762,7 +767,7 @@ export const askAI = async (
       segments: {
         orderBy: { startTime: "asc" },
         select: { speaker: true, text: true, startTime: true },
-        take: 1500,
+        take: 500,
       },
     },
   });
@@ -886,7 +891,13 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
       meetingId,
       userId,
     });
-    res.write(`data: ${JSON.stringify({ error: "AI response failed" })}\n\n`);
+    let userMessage = "AI response failed — please try again";
+    if (err instanceof AppError) {
+      if (err.statusCode === 429) userMessage = "Rate limit reached — please wait before asking again";
+      else if (err.statusCode === 402) userMessage = err.message;
+      else if (err.statusCode === 400) userMessage = err.message;
+    }
+    res.write(`data: ${JSON.stringify({ error: userMessage })}\n\n`);
     res.end();
   }
 };

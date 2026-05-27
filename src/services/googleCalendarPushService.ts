@@ -236,7 +236,7 @@ export async function processIncomingNotification(
       eventCount: items.length,
     });
   } catch (err) {
-    logger.warn("GCal push: processIncomingNotification failed — fail-open", {
+    logger.error("GCal push: processIncomingNotification failed — fail-open", {
       channelId,
       userId,
       error: err instanceof Error ? err.message : String(err),

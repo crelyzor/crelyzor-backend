@@ -22,6 +22,8 @@ const uuidSchema = z.string().uuid();
  */
 export const getTranscript = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user!.userId;
 
   const transcript = await transcriptionService.getTranscript(
@@ -122,6 +124,8 @@ export const mergeConsecutiveSegments = async (req: Request, res: Response) => {
  */
 export const getTranscriptionStatus = async (req: Request, res: Response) => {
   const meetingId = req.params.meetingId as string;
+  if (!uuidSchema.safeParse(meetingId).success)
+    throw new AppError("Invalid meetingId", 400);
   const userId = req.user!.userId;
 
   const transcript = await transcriptionService.getTranscript(

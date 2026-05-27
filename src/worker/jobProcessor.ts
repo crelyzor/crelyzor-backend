@@ -144,6 +144,7 @@ export const startWorker = async (): Promise<void> => {
         (user?.settings?.meetingReadyEmailEnabled ?? true);
 
       if (emailsEnabled && user?.email && meeting?.title) {
+        // fail-open — email failure must not fail the AI job
         await sendEmail({
           to: user.email,
           subject: meetingReadySubject({ meetingTitle: meeting.title }),
@@ -153,6 +154,11 @@ export const startWorker = async (): Promise<void> => {
             meetingId: data.meetingId,
             appBaseUrl: APP_BASE_URL,
           }),
+        }).catch((err: unknown) => {
+          logger.warn("Meeting-ready email failed — notification still sent", {
+            meetingId: data.meetingId,
+            error: err instanceof Error ? err.message : String(err),
+          });
         });
       }
 
@@ -462,6 +468,7 @@ export const startWorker = async (): Promise<void> => {
         meetingLink,
       };
 
+      // fail-open — individual email failure should not fail the whole reminder job
       await Promise.all([
         host?.email
           ? sendEmail({
@@ -476,6 +483,11 @@ export const startWorker = async (): Promise<void> => {
                 role: "host",
                 ...sharedParams,
               }),
+            }).catch((err: unknown) => {
+              logger.warn("Booking reminder host email failed", {
+                bookingId,
+                error: err instanceof Error ? err.message : String(err),
+              });
             })
           : Promise.resolve(),
         guestEmail
@@ -491,6 +503,11 @@ export const startWorker = async (): Promise<void> => {
                 role: "guest",
                 ...sharedParams,
               }),
+            }).catch((err: unknown) => {
+              logger.warn("Booking reminder guest email failed", {
+                bookingId,
+                error: err instanceof Error ? err.message : String(err),
+              });
             })
           : Promise.resolve(),
       ]);

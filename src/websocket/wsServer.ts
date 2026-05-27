@@ -34,6 +34,10 @@ let heartbeatInterval: NodeJS.Timeout | null = null;
 function getAllowedOrigins(): Set<string> {
   const raw = process.env.ALLOWED_ORIGINS ?? "";
   if (!raw) {
+    if (process.env.NODE_ENV === "production") {
+      logger.warn("ALLOWED_ORIGINS not set in production — WebSocket will reject all connections");
+      return new Set();
+    }
     return new Set(["http://localhost:5173", "http://localhost:5174"]);
   }
   return new Set(raw.split(",").map((o) => o.trim()));

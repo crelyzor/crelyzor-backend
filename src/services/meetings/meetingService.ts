@@ -275,14 +275,9 @@ export const meetingService = {
       throw ErrorFactory.validation("Failed to create meeting");
     }
 
-    let committedMeeting = await prisma.meeting.findUnique({
-      where: { id: meeting.id },
-      include: meetingInclude,
-    });
-
-    if (!committedMeeting) {
-      throw ErrorFactory.validation("Failed to load created meeting");
-    }
+    // The transaction already returns the fully-populated meeting via meetingInclude.
+    // No second round-trip needed.
+    let committedMeeting = meeting;
 
     const attendeeEmails = committedMeeting.participants.reduce<
       Array<{ email: string; displayName?: string }>
@@ -1076,6 +1071,8 @@ export const meetingService = {
       try {
         await prisma.$transaction(
           async (tx) => {
+            const participantRows: Array<{ meetingId: string; userId: string; participantType: "ORGANIZER" }> = [];
+
             for (const ev of toCreate) {
               const meeting = await tx.meeting.create({
                 data: {
@@ -1092,16 +1089,17 @@ export const meetingService = {
                 },
               });
 
-              await tx.meetingParticipant.create({
-                data: {
-                  meetingId: meeting.id,
-                  userId,
-                  participantType: "ORGANIZER",
-                },
+              participantRows.push({
+                meetingId: meeting.id,
+                userId,
+                participantType: "ORGANIZER" as const,
               });
 
               if (ev.uid) existingUids.add(ev.uid);
             }
+
+            // Batch all participant inserts in a single round-trip
+            await tx.meetingParticipant.createMany({ data: participantRows });
           },
           { timeout: 30000 },
         );
@@ -1139,13 +1137,9 @@ async function removeExistingRecallDeployJobs(
   meetingId: string,
 ): Promise<void> {
   const queue = getRecallBotQueue();
-  const jobs = await queue.getJobs([
-    "waiting",
-    "delayed",
-    "paused",
-    "completed",
-    "failed",
-  ]);
+  // Scan only active states — completed/failed jobs are irrelevant for rescheduling
+  // and scanning all states would load the entire job history into memory.
+  const jobs = await queue.getJobs(["waiting", "delayed"]);
 
   const prefix = `recall-bot-${meetingId}`;
   const matchingJobs = jobs.filter((job) => {

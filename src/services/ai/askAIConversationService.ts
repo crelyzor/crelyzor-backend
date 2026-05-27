@@ -1,5 +1,6 @@
 import prisma from "../../db/prismaClient";
 import { encrypt, decrypt } from "../../utils/security/crypto";
+import { logger } from "../../utils/logging/logger";
 
 /**
  * Get-or-create the single conversation record for a (user, meeting) pair.
@@ -29,22 +30,29 @@ export const getMessages = async (
     where: { meetingId_userId: { meetingId, userId } },
     select: {
       messages: {
-        orderBy: { createdAt: "asc" },
+        orderBy: { createdAt: "desc" },
         select: { role: true, content: true, createdAt: true },
-        take: 200,
+        take: 6,
       },
     },
   });
   if (!conversation) return [];
 
-  return Promise.all(
-    conversation.messages.map(async (m) => ({
+  const messages = await Promise.all(
+    // Reverse to restore oldest-first order (query fetches newest-first to get last 6)
+    [...conversation.messages].reverse().map(async (m) => ({
       role: m.role,
       // Pre-Phase-5 rows were stored as plaintext cast to BYTEA — fail gracefully
-      content: await decrypt(m.content, userId).catch(() => ""),
+      content: await decrypt(m.content, userId).catch((err) => {
+        logger.warn("Failed to decrypt AskAI message content", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return "";
+      }),
       createdAt: m.createdAt,
     })),
   );
+  return messages;
 };
 
 /**
