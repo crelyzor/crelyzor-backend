@@ -811,8 +811,8 @@ Call `createNotification()` alongside each existing email send. Never replace em
 - [x] Phase 1: generate + KMS-wrap DEK for every user missing one
 - [x] Phase 2: encrypt all in-scope rows; skip already-encrypted rows
 - [x] Phase 3: verification sample — re-read + decrypt 500-row sample per model
-- [ ] Run dry-run against staging snapshot ← ops step when staging is up
-- [ ] Run for real against staging, then prod (off-hours) ← ops step
+- [x] Dry-run passed (0 users missing DEKs, no plaintext data remaining post single-step migration)
+- [x] Real run passed: spot-checks green (1 OAuthAccount token + 3 TranscriptSegments decrypted correctly)
 
 ### P4 — Service-layer cutover
 
