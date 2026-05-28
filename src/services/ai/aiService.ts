@@ -7,6 +7,7 @@ import { AppError } from "../../utils/errors/AppError";
 import { getRedisClient } from "../../config/redisClient";
 import { checkAndDeductCredits } from "../billing/usageService";
 import * as conversationService from "./askAIConversationService";
+import { encrypt, decrypt } from "../../utils/security/crypto";
 
 const MAX_PIPELINE_CHARS = 150000; // ~37.5k tokens — Gemini 1M context handles full meetings
 const MAX_ASK_AI_CHARS = 50000; // ~12.5k tokens for Ask AI context
@@ -71,13 +72,15 @@ export interface SummaryAndKeyPointsResult {
 export const generateSummary = async (
   meetingId: string,
   transcriptText: string,
+  userId: string,
 ): Promise<string> => {
   if (!process.env.GEMINI_API_KEY) {
     throw new AppError("GEMINI_API_KEY is required for AI features", 503);
   }
 
   const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, isDeleted: false },
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { title: true, description: true },
   });
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
@@ -116,10 +119,11 @@ Provide a summary in 2-3 paragraphs.`;
     usage: result.response.usageMetadata,
   });
 
+  const encryptedSummary = await encrypt(summary, userId);
   await prisma.meetingAISummary.upsert({
     where: { meetingId },
-    create: { meetingId, summary },
-    update: { summary, updatedAt: new Date() },
+    create: { meetingId, summary: encryptedSummary },
+    update: { summary: encryptedSummary, updatedAt: new Date() },
   });
 
   logger.info(`Summary generated for meeting ${meetingId}`);
@@ -129,6 +133,7 @@ Provide a summary in 2-3 paragraphs.`;
 export const extractKeyPoints = async (
   meetingId: string,
   transcriptText: string,
+  userId: string,
 ): Promise<string[]> => {
   if (!process.env.GEMINI_API_KEY) {
     throw new AppError("GEMINI_API_KEY is required for AI features", 503);
@@ -180,10 +185,16 @@ Return ONLY a JSON array, no other text.`;
     );
   }
 
+  const encryptedKeyPoints = await encrypt(JSON.stringify(keyPoints), userId);
+  const encryptedEmptySummary = await encrypt("", userId);
   await prisma.meetingAISummary.upsert({
     where: { meetingId },
-    create: { meetingId, summary: "", keyPoints },
-    update: { keyPoints, updatedAt: new Date() },
+    create: {
+      meetingId,
+      summary: encryptedEmptySummary,
+      keyPoints: encryptedKeyPoints,
+    },
+    update: { keyPoints: encryptedKeyPoints, updatedAt: new Date() },
   });
 
   logger.info(`Key points extracted for meeting ${meetingId}`);
@@ -212,6 +223,7 @@ const deriveKeyPointsFromSummary = (summary: string): string[] => {
 export const generateSummaryAndKeyPoints = async (
   meetingId: string,
   transcriptText: string,
+  userId: string,
   options?: { requireKeyPoints?: boolean },
 ): Promise<SummaryAndKeyPointsResult> => {
   if (!process.env.GEMINI_API_KEY) {
@@ -219,7 +231,7 @@ export const generateSummaryAndKeyPoints = async (
   }
 
   const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, isDeleted: false },
+    where: { id: meetingId, createdById: userId, isDeleted: false },
     select: { title: true, description: true },
   });
 
@@ -284,15 +296,15 @@ ${capped}`;
       throw new Error("Parsed summary is empty");
     }
   } catch (err) {
-    logger.warn("Single-call summary parse failed — using fallback", {
+    logger.error("Single-call summary parse failed — using fallback", {
       meetingId,
       error: err instanceof Error ? err.message : String(err),
     });
 
-    summary = await generateSummary(meetingId, transcriptText);
+    summary = await generateSummary(meetingId, transcriptText, userId);
     keyPoints = [];
     try {
-      keyPoints = await extractKeyPoints(meetingId, transcriptText);
+      keyPoints = await extractKeyPoints(meetingId, transcriptText, userId);
     } catch (keyPointErr) {
       if (options?.requireKeyPoints) {
         throw new AppError("Failed to extract key points", 502);
@@ -307,10 +319,22 @@ ${capped}`;
     }
   }
 
+  const [encryptedSummary2, encryptedKeyPoints2] = await Promise.all([
+    encrypt(summary, userId),
+    encrypt(JSON.stringify(keyPoints), userId),
+  ]);
   await prisma.meetingAISummary.upsert({
     where: { meetingId },
-    create: { meetingId, summary, keyPoints },
-    update: { summary, keyPoints, updatedAt: new Date() },
+    create: {
+      meetingId,
+      summary: encryptedSummary2,
+      keyPoints: encryptedKeyPoints2,
+    },
+    update: {
+      summary: encryptedSummary2,
+      keyPoints: encryptedKeyPoints2,
+      updatedAt: new Date(),
+    },
   });
 
   logger.info(
@@ -388,17 +412,20 @@ Return ONLY a JSON array, no other text.`;
   }));
 
   if (tasks.length > 0) {
+    const encryptedTasks = await Promise.all(
+      tasks.map(async (task) => ({
+        meetingId,
+        userId,
+        title: task.title,
+        description: task.description
+          ? await encrypt(task.description, userId)
+          : undefined,
+        source: "AI_EXTRACTED" as const,
+      })),
+    );
     await prisma.$transaction(
       async (tx) => {
-        await tx.task.createMany({
-          data: tasks.map((task) => ({
-            meetingId,
-            userId,
-            title: task.title,
-            description: task.description,
-            source: "AI_EXTRACTED" as const,
-          })),
-        });
+        await tx.task.createMany({ data: encryptedTasks });
       },
       { timeout: 15000 },
     );
@@ -489,6 +516,10 @@ export const processTranscriptWithAI = async (
     throw new AppError(`No transcript found for meeting ${meetingId}`, 422);
   }
 
+  const fullText = transcript.fullText
+    ? await decrypt(transcript.fullText, userId)
+    : "";
+
   const [existingSummary, existingTasks] = await Promise.all([
     prisma.meetingAISummary.findFirst({
       where: { meetingId, isDeleted: false },
@@ -501,28 +532,43 @@ export const processTranscriptWithAI = async (
     }),
   ]);
 
-  void generateMeetingTitle(meetingId, transcript.fullText).catch((err) =>
+  void generateMeetingTitle(meetingId, fullText).catch((err) =>
     logger.error("generateMeetingTitle failed (non-fatal)", {
       meetingId,
       error: err instanceof Error ? err.message : String(err),
     }),
   );
 
-  let summary = existingSummary?.summary?.trim() || "";
-  let keyPoints = Array.isArray(existingSummary?.keyPoints)
-    ? (existingSummary?.keyPoints as string[]).filter(Boolean)
-    : [];
+  let summary = existingSummary?.summary
+    ? (await decrypt(existingSummary.summary, userId)).trim()
+    : "";
+  let keyPoints: string[] = [];
+  if (existingSummary?.keyPoints) {
+    try {
+      keyPoints = JSON.parse(
+        await decrypt(existingSummary.keyPoints, userId),
+      ) as string[];
+      if (!Array.isArray(keyPoints)) keyPoints = [];
+    } catch (err) {
+      logger.warn("Failed to decrypt or parse keyPoints — using empty array", {
+        meetingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      keyPoints = [];
+    }
+  }
 
   if (!summary) {
     const summaryAndKeyPoints = await generateSummaryAndKeyPoints(
       meetingId,
-      transcript.fullText,
+      fullText,
+      userId,
     );
     summary = summaryAndKeyPoints.summary;
     keyPoints = summaryAndKeyPoints.keyPoints;
   } else if (keyPoints.length === 0) {
     try {
-      keyPoints = await extractKeyPoints(meetingId, transcript.fullText);
+      keyPoints = await extractKeyPoints(meetingId, fullText, userId);
     } catch (err) {
       logger.error("extractKeyPoints failed during backfill (non-fatal)", {
         meetingId,
@@ -535,10 +581,14 @@ export const processTranscriptWithAI = async (
     const fallbackKeyPoints = deriveKeyPointsFromSummary(summary);
     if (fallbackKeyPoints.length > 0) {
       keyPoints = fallbackKeyPoints;
+      const [encS, encKP] = await Promise.all([
+        encrypt(summary, userId),
+        encrypt(JSON.stringify(keyPoints), userId),
+      ]);
       await prisma.meetingAISummary.upsert({
         where: { meetingId },
-        create: { meetingId, summary, keyPoints },
-        update: { keyPoints, updatedAt: new Date() },
+        create: { meetingId, summary: encS, keyPoints: encKP },
+        update: { keyPoints: encKP, updatedAt: new Date() },
       });
       logger.info("Derived fallback key points from summary", {
         meetingId,
@@ -547,13 +597,19 @@ export const processTranscriptWithAI = async (
     }
   }
 
-  let tasks: ExtractedTask[] = existingTasks.map((task) => ({
-    title: task.title,
-    description: task.description ?? undefined,
-  }));
+  const tasks: ExtractedTask[] = await Promise.all(
+    existingTasks.map(async (task) => ({
+      title: task.title,
+      description: task.description
+        ? await decrypt(task.description, userId)
+        : undefined,
+    })),
+  );
+
   if (tasks.length === 0) {
     try {
-      tasks = await extractTasks(meetingId, transcript.fullText, userId);
+      const extracted = await extractTasks(meetingId, fullText, userId);
+      return { summary, keyPoints, tasks: extracted };
     } catch (taskErr) {
       logger.error("extractTasks failed (non-fatal)", {
         meetingId,
@@ -702,7 +758,8 @@ export const askAI = async (
     throw new AppError("Meeting not found", 404);
   }
 
-  // No segment cap — Gemini 1M context handles full meetings
+  // Cap segments to avoid decrypting far more than MAX_ASK_AI_CHARS needs.
+  // At ~150 chars/segment, 500 segments ≈ 75k chars — 1.5× the 50k MAX_ASK_AI_CHARS buffer.
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
     select: {
@@ -710,6 +767,7 @@ export const askAI = async (
       segments: {
         orderBy: { startTime: "asc" },
         select: { speaker: true, text: true, startTime: true },
+        take: 500,
       },
     },
   });
@@ -718,12 +776,20 @@ export const askAI = async (
     throw new AppError("No transcript available for this meeting", 400);
   }
 
+  const decryptedSegments = await Promise.all(
+    transcript.segments.map(async (seg) => ({
+      ...seg,
+      text: seg.text ? await decrypt(seg.text, userId) : "",
+    })),
+  );
+
   const speakers = await prisma.meetingSpeaker.findMany({
     where: { meetingId },
     select: { speakerLabel: true, displayName: true },
+    take: 50,
   });
 
-  const rawTranscript = buildTranscriptContext(transcript.segments, speakers);
+  const rawTranscript = buildTranscriptContext(decryptedSegments, speakers);
   const transcriptContext = buildRelevantAskAIContext(
     rawTranscript,
     question,
@@ -758,7 +824,12 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
   const askAIPromptChars =
     systemPrompt.length + userMessage.length + historyChars;
 
-  await conversationService.appendMessage(conversationId, "user", question);
+  await conversationService.appendMessage(
+    conversationId,
+    "user",
+    question,
+    userId,
+  );
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -811,6 +882,7 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
         conversationId,
         "assistant",
         fullAssistantResponse,
+        userId,
       );
     }
 
@@ -824,7 +896,14 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
       meetingId,
       userId,
     });
-    res.write(`data: ${JSON.stringify({ error: "AI response failed" })}\n\n`);
+    let userMessage = "AI response failed — please try again";
+    if (err instanceof AppError) {
+      if (err.statusCode === 429)
+        userMessage = "Rate limit reached — please wait before asking again";
+      else if (err.statusCode === 402) userMessage = err.message;
+      else if (err.statusCode === 400) userMessage = err.message;
+    }
+    res.write(`data: ${JSON.stringify({ error: userMessage })}\n\n`);
     res.end();
   }
 };
@@ -861,7 +940,7 @@ export const generateContent = async (
   const cached = await prisma.meetingAIContent.findUnique({
     where: { meetingId_type: { meetingId, type } },
   });
-  if (cached) return cached.content;
+  if (cached) return decrypt(cached.content, userId);
 
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
@@ -873,7 +952,10 @@ export const generateContent = async (
     );
   }
 
-  const capped = transcript.fullText.slice(0, MAX_PIPELINE_CHARS);
+  const fullText = transcript.fullText
+    ? await decrypt(transcript.fullText, userId)
+    : "";
+  const capped = fullText.slice(0, MAX_PIPELINE_CHARS);
   const prompt = CONTENT_PROMPTS[type](capped);
   const systemContent =
     "You are a professional meeting assistant that generates well-structured content from meeting transcripts. Be concise, accurate, and professional.";
@@ -910,10 +992,11 @@ export const generateContent = async (
     usage?.candidatesTokenCount ?? Math.ceil(content.length / 4),
   );
 
+  const encryptedContent = await encrypt(content, userId);
   await prisma.meetingAIContent.upsert({
     where: { meetingId_type: { meetingId, type } },
-    create: { meetingId, type, content },
-    update: { content, updatedAt: new Date() },
+    create: { meetingId, type, content: encryptedContent },
+    update: { content: encryptedContent, updatedAt: new Date() },
   });
 
   logger.info(`Generated ${type} content for meeting ${meetingId}`);
@@ -930,11 +1013,17 @@ export const getGeneratedContents = async (
   });
   if (!meeting) throw new AppError("Meeting not found", 404);
 
-  return prisma.meetingAIContent.findMany({
+  const rows = await prisma.meetingAIContent.findMany({
     where: { meetingId },
     select: { type: true, content: true },
     take: 50,
   });
+  return Promise.all(
+    rows.map(async (row) => ({
+      type: row.type,
+      content: await decrypt(row.content, userId),
+    })),
+  );
 };
 
 export const aiService = {

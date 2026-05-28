@@ -6,6 +6,7 @@ import { tokenService } from "./tokenService";
 import { sessionService } from "./sessionService";
 import { ErrorFactory } from "../../utils/globalErrorHandler";
 import { logger } from "../../utils/logging/logger";
+import { evictDek } from "../../utils/security/dekCache";
 import {
   UserResponse,
   RefreshTokenRequest,
@@ -60,8 +61,8 @@ class AuthService {
   }
 
   async getUserProfile(userId: string): Promise<UserResponse> {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
+    const user = await prisma.user.findFirst({
+      where: { id: userId, isDeleted: false },
       select: {
         id: true,
         email: true,
@@ -97,13 +98,25 @@ class AuthService {
       avatarUrl: string;
     }>,
   ): Promise<UserResponse> {
-    const user = await prisma.user.update({
-      where: { id: userId },
+    const result = await prisma.user.updateMany({
+      where: { id: userId, isDeleted: false },
       data: {
         ...updateData,
         updatedAt: new Date(),
       },
     });
+
+    if (result.count === 0) {
+      throw ErrorFactory.notFound("User not found");
+    }
+
+    const user = await prisma.user.findFirst({
+      where: { id: userId, isDeleted: false },
+    });
+
+    if (!user) {
+      throw ErrorFactory.notFound("User not found");
+    }
 
     return this.mapUserToResponse(user);
   }
@@ -121,8 +134,8 @@ class AuthService {
   }
 
   async validateUserAccess(userId: string): Promise<boolean> {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
+    const user = await prisma.user.findFirst({
+      where: { id: userId, isDeleted: false },
       select: { isActive: true, deletedAt: true },
     });
 
@@ -142,9 +155,13 @@ class AuthService {
   async deactivateAccount(userId: string): Promise<{ message: string }> {
     await prisma.$transaction(
       async (tx) => {
+        // Crypto-shred: destroy DEK material before anything else.
+        // Once wrappedDek is null and UserDekHistory rows are gone, all encrypted
+        // content for this user becomes permanently unrecoverable — even in old backups.
+        await tx.userDekHistory.deleteMany({ where: { userId } });
         await tx.user.update({
           where: { id: userId },
-          data: { isActive: false },
+          data: { isActive: false, wrappedDek: null },
         });
 
         await tx.refreshToken.updateMany({
@@ -152,12 +169,13 @@ class AuthService {
           data: { revoked: true },
         });
 
-        await tx.session.deleteMany({
-          where: { userId },
-        });
+        await tx.session.deleteMany({ where: { userId } });
       },
       { timeout: 15000 },
     );
+
+    // Evict DEK from in-process cache so no subsequent decrypt can succeed.
+    evictDek(userId);
 
     return { message: "Account deactivated successfully" };
   }

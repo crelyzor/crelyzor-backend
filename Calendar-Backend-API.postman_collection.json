@@ -1279,7 +1279,13 @@
             "url": {
               "raw": "{{base_url}}/meetings/:meetingId/reschedule/:requestId/respond",
               "host": ["{{base_url}}"],
-              "path": ["meetings", ":meetingId", "reschedule", ":requestId", "respond"],
+              "path": [
+                "meetings",
+                ":meetingId",
+                "reschedule",
+                ":requestId",
+                "respond"
+              ],
               "variable": [
                 {
                   "key": "meetingId",
@@ -1389,7 +1395,13 @@
             "url": {
               "raw": "{{base_url}}/meetings/:meetingId/guests/:guestEmail/accept",
               "host": ["{{base_url}}"],
-              "path": ["meetings", ":meetingId", "guests", ":guestEmail", "accept"],
+              "path": [
+                "meetings",
+                ":meetingId",
+                "guests",
+                ":guestEmail",
+                "accept"
+              ],
               "variable": [
                 {
                   "key": "meetingId",
@@ -1429,7 +1441,13 @@
             "url": {
               "raw": "{{base_url}}/meetings/:meetingId/guests/:guestEmail/decline",
               "host": ["{{base_url}}"],
-              "path": ["meetings", ":meetingId", "guests", ":guestEmail", "decline"],
+              "path": [
+                "meetings",
+                ":meetingId",
+                "guests",
+                ":guestEmail",
+                "decline"
+              ],
               "variable": [
                 {
                   "key": "meetingId",
@@ -2014,7 +2032,13 @@
                 "url": {
                   "raw": "{{base_url}}/sma/meetings/:meetingId/transcript/status",
                   "host": ["{{base_url}}"],
-                  "path": ["sma", "meetings", ":meetingId", "transcript", "status"],
+                  "path": [
+                    "sma",
+                    "meetings",
+                    ":meetingId",
+                    "transcript",
+                    "status"
+                  ],
                   "variable": [
                     {
                       "key": "meetingId",
@@ -2057,7 +2081,13 @@
                 "url": {
                   "raw": "{{base_url}}/sma/meetings/:meetingId/summary/regenerate",
                   "host": ["{{base_url}}"],
-                  "path": ["sma", "meetings", ":meetingId", "summary", "regenerate"],
+                  "path": [
+                    "sma",
+                    "meetings",
+                    ":meetingId",
+                    "summary",
+                    "regenerate"
+                  ],
                   "variable": [
                     {
                       "key": "meetingId",

@@ -34,6 +34,12 @@ let heartbeatInterval: NodeJS.Timeout | null = null;
 function getAllowedOrigins(): Set<string> {
   const raw = process.env.ALLOWED_ORIGINS ?? "";
   if (!raw) {
+    if (process.env.NODE_ENV === "production") {
+      logger.warn(
+        "ALLOWED_ORIGINS not set in production — WebSocket will reject all connections",
+      );
+      return new Set();
+    }
     return new Set(["http://localhost:5173", "http://localhost:5174"]);
   }
   return new Set(raw.split(",").map((o) => o.trim()));
@@ -46,8 +52,11 @@ async function checkConnectionRateLimit(ip: string): Promise<boolean> {
     const count = await redis.incr(key);
     if (count === 1) await redis.expire(key, RATE_LIMIT_WINDOW_SECONDS);
     return count <= RATE_LIMIT_MAX;
-  } catch {
-    // Fail-open: if Redis is unavailable, allow the connection
+  } catch (err) {
+    logger.warn("WS rate limiter: Redis unavailable — failing open", {
+      ip,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return true;
   }
 }
@@ -77,7 +86,9 @@ export function createWsServer(httpServer: HttpServer): void {
     const origin = req.headers.origin;
     const allowedOrigins = getAllowedOrigins();
     if (origin && !allowedOrigins.has(origin)) {
-      logger.warn("WebSocket: rejected connection from disallowed origin", { origin });
+      logger.warn("WebSocket: rejected connection from disallowed origin", {
+        origin,
+      });
       ws.close(4000, "Origin not allowed");
       return;
     }
@@ -176,9 +187,12 @@ export function createWsServer(httpServer: HttpServer): void {
             break;
           case "AUTH":
             // Re-auth attempt on an established connection — reject
-            logger.warn("WebSocket: re-auth attempt on established connection", {
-              userId,
-            });
+            logger.warn(
+              "WebSocket: re-auth attempt on established connection",
+              {
+                userId,
+              },
+            );
             ws.close(4003, "Already authenticated");
             break;
           default:

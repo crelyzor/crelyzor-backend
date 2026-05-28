@@ -58,4 +58,19 @@ process.on("SIGINT", async () => {
   process.exit(0);
 });
 
+process.on("unhandledRejection", (reason) => {
+  logger.error("Worker: unhandled promise rejection", {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+});
+
+process.on("uncaughtException", (error) => {
+  logger.error("Worker: uncaught exception — shutting down", {
+    error: error.message,
+    stack: error.stack,
+  });
+  process.exit(1);
+});
+
 main();

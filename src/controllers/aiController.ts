@@ -9,8 +9,12 @@ import { generateContentSchema } from "../validators/generateContentSchema";
 import { noteSchema, notesQuerySchema } from "../validators/noteSchema";
 import { apiResponse } from "../utils/globalResponseHandler";
 import * as conversationService from "../services/ai/askAIConversationService";
+import { encrypt, decrypt } from "../utils/security/crypto";
 
 const uuidSchema = z.string().uuid();
+
+// All AI endpoints gate on createdById — intentional: participants never receive AI
+// output for meetings they didn't create. This matches the Phase 1 data ownership model.
 
 /**
  * Get AI summary for a meeting
@@ -35,10 +39,31 @@ export const getSummary = async (req: Request, res: Response) => {
 
   if (!summary) throw new AppError("No AI summary found for this meeting", 404);
 
+  const [summaryText, keyPoints] = await Promise.all([
+    decrypt(summary.summary, userId),
+    summary.keyPoints
+      ? decrypt(summary.keyPoints, userId)
+          .then((s) => {
+            try {
+              return JSON.parse(s) as string[];
+            } catch {
+              return [] as string[];
+            }
+          })
+          .catch((err) => {
+            logger.warn("Failed to decrypt keyPoints", {
+              meetingId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            return [] as string[];
+          })
+      : Promise.resolve([] as string[]),
+  ]);
+
   return apiResponse(res, {
     statusCode: 200,
     message: "Summary fetched",
-    data: summary,
+    data: { ...summary, summary: summaryText, keyPoints },
   });
 };
 
@@ -70,18 +95,19 @@ export const regenerateSummary = async (req: Request, res: Response) => {
     );
   }
 
-  await aiService.generateSummaryAndKeyPoints(meetingId, transcript.fullText, {
-    requireKeyPoints: true,
-  });
+  const fullText = transcript.fullText
+    ? await decrypt(transcript.fullText, userId)
+    : "";
 
-  const updatedSummary = await prisma.meetingAISummary.findFirst({
-    where: { meetingId, isDeleted: false },
-  });
+  const { summary: summaryText, keyPoints } =
+    await aiService.generateSummaryAndKeyPoints(meetingId, fullText, userId, {
+      requireKeyPoints: true,
+    });
 
-  apiResponse(res, {
+  return apiResponse(res, {
     statusCode: 200,
     message: "Summary regenerated",
-    data: updatedSummary,
+    data: { summary: summaryText, keyPoints },
   });
 };
 
@@ -113,14 +139,17 @@ export const regenerateTitle = async (req: Request, res: Response) => {
     );
   }
 
+  const transcriptFullText = transcript.fullText
+    ? await decrypt(transcript.fullText, userId)
+    : "";
   const title = await aiService.generateMeetingTitle(
     meetingId,
-    transcript.fullText,
+    transcriptFullText,
   );
   if (!title) throw new AppError("Failed to generate title", 500);
 
   logger.info("Title regenerated", { meetingId, userId, title });
-  apiResponse(res, {
+  return apiResponse(res, {
     statusCode: 200,
     message: "Title regenerated",
     data: { title },
@@ -149,17 +178,35 @@ export const getNotes = async (req: Request, res: Response) => {
     ? parsedQuery.data
     : { limit: 50, offset: 0 };
 
-  const [notes, total] = await Promise.all([
+  const NOTE_SELECT = {
+    id: true,
+    meetingId: true,
+    content: true,
+    author: true,
+    timestamp: true,
+    createdAt: true,
+    updatedAt: true,
+  } as const;
+
+  const [rawNotes, total] = await Promise.all([
     prisma.meetingNote.findMany({
       where: { meetingId, author: userId, isDeleted: false },
       orderBy: { createdAt: "desc" },
       take: limit,
       skip: offset,
+      select: NOTE_SELECT,
     }),
     prisma.meetingNote.count({
       where: { meetingId, author: userId, isDeleted: false },
     }),
   ]);
+
+  const notes = await Promise.all(
+    rawNotes.map(async (note) => ({
+      ...note,
+      content: await decrypt(note.content, userId),
+    })),
+  );
 
   return apiResponse(res, {
     statusCode: 200,
@@ -189,19 +236,29 @@ export const createNote = async (req: Request, res: Response) => {
   });
   if (!meeting) throw new AppError("Meeting not found", 404);
 
+  const encryptedContent = await encrypt(parsed.data.content, userId);
   const note = await prisma.meetingNote.create({
     data: {
       meetingId,
-      content: parsed.data.content,
+      content: encryptedContent,
       author: userId,
       timestamp: parsed.data.timestamp,
+    },
+    select: {
+      id: true,
+      meetingId: true,
+      content: true,
+      author: true,
+      timestamp: true,
+      createdAt: true,
+      updatedAt: true,
     },
   });
 
   return apiResponse(res, {
     statusCode: 201,
     message: "Note created",
-    data: note,
+    data: { ...note, content: parsed.data.content },
   });
 };
 
@@ -253,7 +310,7 @@ export const generateContent = async (req: Request, res: Response) => {
     validated.data.type,
   );
 
-  apiResponse(res, {
+  return apiResponse(res, {
     statusCode: 200,
     message: "Content generated",
     data: { type: validated.data.type, content },
@@ -272,7 +329,7 @@ export const getGeneratedContents = async (req: Request, res: Response) => {
   if (!userId) throw new AppError("Unauthorized", 401);
 
   const contents = await aiService.getGeneratedContents(meetingId, userId);
-  apiResponse(res, {
+  return apiResponse(res, {
     statusCode: 200,
     message: "Generated contents fetched",
     data: { contents },
@@ -284,6 +341,8 @@ export const getGeneratedContents = async (req: Request, res: Response) => {
  */
 export const deleteNote = async (req: Request, res: Response) => {
   const noteId = req.params.noteId as string;
+  if (!uuidSchema.safeParse(noteId).success)
+    throw new AppError("Invalid noteId", 400);
   const userId = req.user?.userId;
 
   if (!userId) throw new AppError("Unauthorized", 401);
@@ -299,10 +358,15 @@ export const deleteNote = async (req: Request, res: Response) => {
   });
   if (!note) throw new AppError("Note not found", 404);
 
-  await prisma.meetingNote.update({
-    where: { id: noteId },
+  const deleted = await prisma.meetingNote.updateMany({
+    where: {
+      id: noteId,
+      isDeleted: false,
+      meeting: { createdById: userId, isDeleted: false },
+    },
     data: { isDeleted: true, deletedAt: new Date() },
   });
+  if (deleted.count === 0) throw new AppError("Note not found", 404);
 
   return apiResponse(res, {
     statusCode: 200,

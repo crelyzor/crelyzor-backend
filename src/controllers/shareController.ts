@@ -18,7 +18,7 @@ import {
  */
 export const createShare = async (req: Request, res: Response) => {
   const params = meetingIdParamSchema.safeParse(req.params);
-  if (!params.success) throw new AppError("Invalid meeting ID", 400);
+  if (!params.success) throw new AppError("Meeting not found", 404);
 
   const userId = req.user!.userId;
   const share = await createOrGetShare(params.data.meetingId, userId);
@@ -36,7 +36,7 @@ export const createShare = async (req: Request, res: Response) => {
  */
 export const patchShare = async (req: Request, res: Response) => {
   const params = meetingIdParamSchema.safeParse(req.params);
-  if (!params.success) throw new AppError("Invalid meeting ID", 400);
+  if (!params.success) throw new AppError("Meeting not found", 404);
 
   const body = updateShareSchema.safeParse(req.body);
   if (!body.success) throw new AppError("Validation failed", 400);

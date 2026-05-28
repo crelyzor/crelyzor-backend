@@ -5,14 +5,24 @@ import {
   ErrorFactory,
   globalErrorHandler,
 } from "../utils/globalErrorHandler";
+import { apiResponse } from "../utils/globalResponseHandler";
 import { authService } from "../services/auth/authService";
 import { logger } from "../utils/logging/logger";
 import { env } from "../config/environment";
+import {
+  initDekForNewUser,
+  encrypt,
+  encryptWithKey,
+  prismaBytes,
+} from "../utils/security/crypto";
+import { setCachedDek } from "../utils/security/dekCache";
 import prisma from "../db/prismaClient";
 
 const ALLOWED_REDIRECT_ORIGINS = (
   env.ALLOWED_ORIGINS ??
-  `${env.FRONTEND_URL},http://localhost:5173,http://localhost:5174`
+  (env.NODE_ENV !== "production"
+    ? `${env.FRONTEND_URL},http://localhost:5173,http://localhost:5174`
+    : env.FRONTEND_URL)
 )
   .split(",")
   .map((o) => o.trim())
@@ -68,7 +78,11 @@ export const googleController = {
       }
 
       const url = googleService.getCalendarConnectUrl(redirectUrl, userId);
-      res.json({ url });
+      return apiResponse(res, {
+        statusCode: 200,
+        message: "Calendar connect URL",
+        data: { url },
+      });
     } catch (error) {
       globalErrorHandler(error as BaseError, req, res);
     }
@@ -96,8 +110,10 @@ export const googleController = {
       ) {
         redirectUrl = parsed.redirectUrl;
       }
-    } catch {
-      // Use fallback — state is malformed
+    } catch (err) {
+      logger.warn("OAuth state parse failed — using fallback redirect", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     const sep = redirectUrl.includes("?") ? "&" : "?";
@@ -151,6 +167,11 @@ export const googleController = {
       const { email, name, picture, googleId, tokens } =
         await googleService.handleLoginCallback(String(code));
 
+      // Declared outside tx so we can populate the DEK cache after the transaction commits.
+      // Caching inside the tx risks a ghost DEK if the transaction later rolls back.
+      let newUserDek: Buffer | undefined;
+      let newUserId: string | undefined;
+
       const user = await prisma.$transaction(
         async (tx) => {
           let u = await tx.user.findUnique({ where: { email } });
@@ -166,13 +187,41 @@ export const googleController = {
             throw ErrorFactory.unauthorized("User account is inactive");
           }
 
+          // Encrypt OAuth tokens under the user's DEK.
+          // New users: initDekForNewUser runs FIRST (so rawDek is available), then
+          // encryptWithKey is used directly because the wrappedDek update isn't committed yet.
+          // Existing users: encrypt() uses the main prisma client (wrappedDek is already committed).
+          let encAccessToken: Uint8Array<ArrayBuffer>;
+          let encRefreshToken: Uint8Array<ArrayBuffer> | null;
+
+          if (isNewUser) {
+            newUserDek = await initDekForNewUser(u.id, tx);
+            newUserId = u.id;
+            encAccessToken = prismaBytes(
+              encryptWithKey(tokens.access_token ?? "", newUserDek, 1),
+            );
+            encRefreshToken = tokens.refresh_token
+              ? prismaBytes(encryptWithKey(tokens.refresh_token, newUserDek, 1))
+              : null;
+          } else {
+            const [acc, ref] = await Promise.all([
+              encrypt(tokens.access_token ?? "", u.id),
+              tokens.refresh_token
+                ? encrypt(tokens.refresh_token, u.id)
+                : Promise.resolve(null),
+            ]);
+            encAccessToken = acc;
+            encRefreshToken = ref;
+          }
+
           await tx.oAuthAccount.upsert({
             where: {
               provider_providerId: { provider: "GOOGLE", providerId: googleId },
             },
             update: {
-              accessToken: tokens.access_token ?? "",
-              refreshToken: tokens.refresh_token ?? "",
+              accessToken: encAccessToken,
+              // Only overwrite refresh_token when Google issued a new one — preserves the existing token otherwise
+              ...(encRefreshToken ? { refreshToken: encRefreshToken } : {}),
               expiry: tokens.expiry_date
                 ? Math.floor(tokens.expiry_date / 1000)
                 : 0,
@@ -182,8 +231,8 @@ export const googleController = {
             create: {
               provider: "GOOGLE",
               providerId: googleId,
-              accessToken: tokens.access_token ?? "",
-              refreshToken: tokens.refresh_token ?? "",
+              accessToken: encAccessToken,
+              refreshToken: encRefreshToken,
               expiry: tokens.expiry_date
                 ? Math.floor(tokens.expiry_date / 1000)
                 : 0,
@@ -219,6 +268,11 @@ export const googleController = {
         },
         { timeout: 15000 },
       );
+
+      // Transaction committed — safe to populate DEK cache for new users
+      if (newUserDek && newUserId) {
+        setCachedDek(newUserId, 1, newUserDek);
+      }
 
       const deviceInfo = req.headers["user-agent"] ?? "Unknown Device";
       const ipAddress =

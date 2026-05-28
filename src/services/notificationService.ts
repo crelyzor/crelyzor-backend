@@ -82,22 +82,23 @@ export async function listNotifications(
 
   const hasMore = notifications.length > take;
   const items = hasMore ? notifications.slice(0, take) : notifications;
-  const nextCursor = hasMore ? items[items.length - 1].createdAt.toISOString() : null;
+  const nextCursor = hasMore
+    ? items[items.length - 1].createdAt.toISOString()
+    : null;
 
   return { notifications: items, nextCursor, hasMore };
 }
 
 export async function markRead(userId: string, notificationId: string) {
-  const exists = await prisma.notification.findFirst({
+  const result = await prisma.notification.updateMany({
     where: { id: notificationId, userId, isDeleted: false },
-    select: { id: true },
+    data: { isRead: true, readAt: new Date() },
   });
 
-  if (!exists) return null;
+  if (result.count === 0) return null;
 
-  return prisma.notification.update({
-    where: { id: notificationId },
-    data: { isRead: true, readAt: new Date() },
+  return prisma.notification.findFirst({
+    where: { id: notificationId, userId, isDeleted: false },
     select: NOTIFICATION_SELECT,
   });
 }
@@ -114,19 +115,12 @@ export async function deleteNotification(
   userId: string,
   notificationId: string,
 ) {
-  const notification = await prisma.notification.findFirst({
+  const result = await prisma.notification.updateMany({
     where: { id: notificationId, userId, isDeleted: false },
-    select: { id: true },
-  });
-
-  if (!notification) return false;
-
-  await prisma.notification.update({
-    where: { id: notificationId },
     data: { isDeleted: true, deletedAt: new Date() },
   });
 
-  return true;
+  return result.count > 0;
 }
 
 export async function deleteAllRead(userId: string): Promise<number> {

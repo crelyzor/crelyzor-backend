@@ -12,6 +12,7 @@ import { getRecallBotQueue, JobNames } from "../../config/queue";
 import { env } from "../../config/environment";
 import { logger } from "../../utils/logging/logger";
 import { isVideoMeetingUrl } from "../../utils/isVideoMeetingUrl";
+import { encrypt, blindIndex, prismaBytes } from "../../utils/security/crypto";
 
 const meetingInclude = {
   participants: {
@@ -206,44 +207,68 @@ export const meetingService = {
               where: { id: { in: participantUserIds } },
               select: { id: true, email: true },
             });
-            const participantEmails = participantUsers
-              .map((u) => u.email)
-              .filter(Boolean) as string[];
 
-            const matchedContacts = await tx.cardContact.findMany({
-              where: {
-                card: { userId: createdById },
-                email: { in: participantEmails },
-              },
-              select: { email: true, cardId: true },
-            });
+            // Auto-link registered participants to CardContacts using blind indexes
+            // (CardContact.email is encrypted — ILIKE/in on plaintext won't work)
+            const emailBidxMap = new Map(
+              participantUsers
+                .filter((u): u is typeof u & { email: string } => !!u.email)
+                .map((u) => [u.id, blindIndex(u.email)]),
+            );
+            const bidxBuffers = Array.from(emailBidxMap.values()).map(
+              prismaBytes,
+            );
 
-            const emailToCardId = new Map(
-              matchedContacts.map((c) => [c.email, c.cardId]),
+            const matchedContacts =
+              bidxBuffers.length > 0
+                ? await tx.cardContact.findMany({
+                    where: {
+                      card: { userId: createdById },
+                      emailBidx: { in: bidxBuffers },
+                    },
+                    select: { emailBidx: true, cardId: true },
+                  })
+                : [];
+
+            const bidxHexToCardId = new Map(
+              matchedContacts
+                .filter(
+                  (c): c is typeof c & { emailBidx: Buffer } => !!c.emailBidx,
+                )
+                .map((c) => [
+                  Buffer.from(c.emailBidx).toString("hex"),
+                  c.cardId,
+                ]),
             );
 
             await tx.meetingParticipant.createMany({
-              data: participantUsers.map((u) => ({
-                meetingId: newMeeting.id,
-                userId: u.id,
-                participantType: "ATTENDEE" as const,
-                cardId:
-                  u.email && emailToCardId.has(u.email)
-                    ? emailToCardId.get(u.email)
-                    : null,
-              })),
+              data: participantUsers.map((u) => {
+                const bidx = emailBidxMap.get(u.id);
+                const cardId = bidx
+                  ? (bidxHexToCardId.get(Buffer.from(bidx).toString("hex")) ??
+                    null)
+                  : null;
+                return {
+                  meetingId: newMeeting.id,
+                  userId: u.id,
+                  participantType: "ATTENDEE" as const,
+                  cardId,
+                };
+              }),
             });
           }
 
-          // Add guest participants (external emails)
+          // Add guest participants (external emails) — encrypt before storing
           if (normalizedGuestEmails.length > 0) {
-            await tx.meetingParticipant.createMany({
-              data: normalizedGuestEmails.map((email) => ({
+            const encryptedGuests = await Promise.all(
+              normalizedGuestEmails.map(async (email) => ({
                 meetingId: newMeeting.id,
-                guestEmail: email,
+                guestEmail: await encrypt(email, createdById),
+                guestEmailBidx: prismaBytes(blindIndex(email)),
                 participantType: "ATTENDEE" as const,
               })),
-            });
+            );
+            await tx.meetingParticipant.createMany({ data: encryptedGuests });
           }
         }
 
@@ -259,14 +284,9 @@ export const meetingService = {
       throw ErrorFactory.validation("Failed to create meeting");
     }
 
-    let committedMeeting = await prisma.meeting.findUnique({
-      where: { id: meeting.id },
-      include: meetingInclude,
-    });
-
-    if (!committedMeeting) {
-      throw ErrorFactory.validation("Failed to load created meeting");
-    }
+    // The transaction already returns the fully-populated meeting via meetingInclude.
+    // No second round-trip needed.
+    let committedMeeting = meeting;
 
     const attendeeEmails = committedMeeting.participants.reduce<
       Array<{ email: string; displayName?: string }>
@@ -319,8 +339,11 @@ export const meetingService = {
           committedMeeting = updatedMeeting;
           gcalSynced = true;
         }
-      } catch {
-        // fail-open — meeting is already committed
+      } catch (err) {
+        logger.warn("GCal sync failed during meeting create — fail-open", {
+          meetingId: committedMeeting.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
@@ -350,8 +373,14 @@ export const meetingService = {
               delayMs: delay,
             });
           }
-        } catch {
-          // fail-open — meeting is already committed
+        } catch (err) {
+          logger.warn(
+            "Recall bot queue failed during meeting create — fail-open",
+            {
+              meetingId: committedMeeting.id,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
         }
       }
     }
@@ -494,32 +523,53 @@ export const meetingService = {
               where: { id: { in: toAdd } },
               select: { id: true, email: true },
             });
-            const addedEmails = addedUsers
-              .map((u) => u.email)
-              .filter(Boolean) as string[];
 
-            const matchedContacts = await tx.cardContact.findMany({
-              where: {
-                card: { userId: updatedByUserId },
-                email: { in: addedEmails },
-              },
-              select: { email: true, cardId: true },
-            });
+            // Auto-link using blind indexes (CardContact.email is encrypted)
+            const emailBidxMap = new Map(
+              addedUsers
+                .filter((u): u is typeof u & { email: string } => !!u.email)
+                .map((u) => [u.id, blindIndex(u.email)]),
+            );
+            const bidxBuffers = Array.from(emailBidxMap.values()).map(
+              prismaBytes,
+            );
 
-            const emailToCardId = new Map(
-              matchedContacts.map((c) => [c.email, c.cardId]),
+            const matchedContacts =
+              bidxBuffers.length > 0
+                ? await tx.cardContact.findMany({
+                    where: {
+                      card: { userId: updatedByUserId },
+                      emailBidx: { in: bidxBuffers },
+                    },
+                    select: { emailBidx: true, cardId: true },
+                  })
+                : [];
+
+            const bidxHexToCardId = new Map(
+              matchedContacts
+                .filter(
+                  (c): c is typeof c & { emailBidx: Buffer } => !!c.emailBidx,
+                )
+                .map((c) => [
+                  Buffer.from(c.emailBidx).toString("hex"),
+                  c.cardId,
+                ]),
             );
 
             await tx.meetingParticipant.createMany({
-              data: addedUsers.map((u) => ({
-                meetingId,
-                userId: u.id,
-                participantType: "ATTENDEE" as const,
-                cardId:
-                  u.email && emailToCardId.has(u.email)
-                    ? emailToCardId.get(u.email)
-                    : null,
-              })),
+              data: addedUsers.map((u) => {
+                const bidx = emailBidxMap.get(u.id);
+                const cardId = bidx
+                  ? (bidxHexToCardId.get(Buffer.from(bidx).toString("hex")) ??
+                    null)
+                  : null;
+                return {
+                  meetingId,
+                  userId: u.id,
+                  participantType: "ATTENDEE" as const,
+                  cardId,
+                };
+              }),
             });
           }
         }
@@ -581,8 +631,11 @@ export const meetingService = {
             },
           });
         }
-      } catch {
-        // fail-open — meeting update already committed
+      } catch (err) {
+        logger.warn("GCal update failed after meeting update — fail-open", {
+          meetingId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
@@ -980,6 +1033,18 @@ export const meetingService = {
     let skipped = existingMeetings.length;
     const errors: string[] = [];
 
+    // Parse and validate all events first, collecting per-event errors
+    type ValidEvent = {
+      uid?: string;
+      title: string;
+      description?: string;
+      location?: string;
+      timezone: string;
+      startTime: Date;
+      endTime: Date;
+    };
+    const toCreate: ValidEvent[] = [];
+
     for (const component of events) {
       try {
         const event = new ICAL.Event(component);
@@ -1005,46 +1070,76 @@ export const meetingService = {
             ? parsedEnd
             : new Date(startTime.getTime() + 30 * 60 * 1000);
 
-        const title = event.summary?.trim() || "Imported meeting";
-        const description = event.description?.trim() || undefined;
-        const location = event.location?.trim() || undefined;
-        const timezone = event.startDate?.zone?.tzid || "UTC";
-
-        await prisma.$transaction(
-          async (tx) => {
-            const meeting = await tx.meeting.create({
-              data: {
-                title,
-                description,
-                type: MeetingType.SCHEDULED,
-                startTime,
-                endTime,
-                timezone,
-                status: MeetingStatus.CREATED,
-                location,
-                createdById: userId,
-                ...(uid ? { googleEventId: uid } : {}),
-              },
-            });
-
-            await tx.meetingParticipant.create({
-              data: {
-                meetingId: meeting.id,
-                userId,
-                participantType: "ORGANIZER",
-              },
-            });
-          },
-          { timeout: 15000 },
-        );
-
-        if (uid) existingUids.add(uid);
-        created += 1;
+        toCreate.push({
+          uid: uid || undefined,
+          title: event.summary?.trim() || "Imported meeting",
+          description: event.description?.trim() || undefined,
+          location: event.location?.trim() || undefined,
+          timezone: event.startDate?.zone?.tzid || "UTC",
+          startTime,
+          endTime,
+        });
       } catch (error) {
         skipped += 1;
         const message =
           error instanceof Error ? error.message : "Failed to import event";
         errors.push(message);
+      }
+    }
+
+    // Batch all valid events into a single transaction
+    if (toCreate.length > 0) {
+      try {
+        await prisma.$transaction(
+          async (tx) => {
+            const participantRows: Array<{
+              meetingId: string;
+              userId: string;
+              participantType: "ORGANIZER";
+            }> = [];
+
+            for (const ev of toCreate) {
+              const meeting = await tx.meeting.create({
+                data: {
+                  title: ev.title,
+                  description: ev.description,
+                  type: MeetingType.SCHEDULED,
+                  startTime: ev.startTime,
+                  endTime: ev.endTime,
+                  timezone: ev.timezone,
+                  status: MeetingStatus.CREATED,
+                  location: ev.location,
+                  createdById: userId,
+                  ...(ev.uid ? { googleEventId: ev.uid } : {}),
+                },
+              });
+
+              participantRows.push({
+                meetingId: meeting.id,
+                userId,
+                participantType: "ORGANIZER" as const,
+              });
+
+              if (ev.uid) existingUids.add(ev.uid);
+            }
+
+            // Batch all participant inserts in a single round-trip
+            await tx.meetingParticipant.createMany({ data: participantRows });
+          },
+          { timeout: 30000 },
+        );
+        created = toCreate.length;
+      } catch (error) {
+        logger.error("ICS import batch transaction failed", {
+          userId,
+          eventCount: toCreate.length,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        skipped += toCreate.length;
+        errors.push(
+          "Batch insert failed: " +
+            (error instanceof Error ? error.message : String(error)),
+        );
       }
     }
 
@@ -1067,25 +1162,24 @@ async function removeExistingRecallDeployJobs(
   meetingId: string,
 ): Promise<void> {
   const queue = getRecallBotQueue();
-  const jobs = await queue.getJobs([
-    "waiting",
-    "delayed",
-    "paused",
-    "completed",
-    "failed",
-  ]);
+  // Scan only active states — completed/failed jobs are irrelevant for rescheduling
+  // and scanning all states would load the entire job history into memory.
+  const jobs = await queue.getJobs(["waiting", "delayed"]);
 
   const prefix = `recall-bot-${meetingId}`;
-  for (const job of jobs) {
+  const matchingJobs = jobs.filter((job) => {
     const currentJobId = job.id ? String(job.id) : "";
-    if (!currentJobId.startsWith(prefix)) {
-      continue;
-    }
+    return currentJobId.startsWith(prefix);
+  });
 
-    await job.remove();
-    logger.info("Removed existing Recall bot deploy job before reschedule", {
-      meetingId,
-      jobId: currentJobId,
-    });
-  }
+  await Promise.all(
+    matchingJobs.map(async (job) => {
+      const currentJobId = job.id ? String(job.id) : "";
+      await job.remove();
+      logger.info("Removed existing Recall bot deploy job before reschedule", {
+        meetingId,
+        jobId: currentJobId,
+      });
+    }),
+  );
 }

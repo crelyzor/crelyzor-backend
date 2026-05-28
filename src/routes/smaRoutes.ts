@@ -49,6 +49,7 @@ router.post(
 // Get transcript for a meeting
 router.get(
   "/meetings/:meetingId/transcript",
+  userRateLimit(60, 60 * 60 * 1000, "sma:get-transcript"),
   transcriptController.getTranscript,
 );
 

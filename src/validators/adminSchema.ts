@@ -21,6 +21,6 @@ export const adminInviteSchema = z.object({
 });
 
 export const adminAcceptInviteSchema = z.object({
-  token: z.string().min(1),
+  token: z.string().regex(/^[a-f0-9]{64}$/, "Invalid invite token"),
   password: z.string().min(12, "Password must be at least 12 characters"),
 });

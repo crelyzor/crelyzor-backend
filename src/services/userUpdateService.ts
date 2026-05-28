@@ -6,7 +6,6 @@ import { AppError } from "../utils/errors/AppError";
 export interface UserSearchResult {
   id: string;
   name: string;
-  email: string;
   avatarUrl: string | null;
   username: string | null;
 }
@@ -38,7 +37,6 @@ export const userService = {
       select: {
         id: true,
         name: true,
-        email: true,
         avatarUrl: true,
         username: true,
       },
@@ -52,7 +50,7 @@ export const userService = {
     updateData: UpdateUserProfileInput,
   ): Promise<UserProfileResponse> => {
     const existingUser = await prisma.user.findFirst({
-      where: { id: userId, isActive: true },
+      where: { id: userId, isActive: true, isDeleted: false },
       select: { id: true },
     });
 
@@ -60,7 +58,7 @@ export const userService = {
       throw new AppError("User not found or inactive", 404);
     }
     const updatedUser = await prisma.user.update({
-      where: { id: userId, isActive: true },
+      where: { id: userId, isActive: true, isDeleted: false },
       data: updateData,
       select: {
         id: true,

@@ -366,12 +366,24 @@ export const cardController = {
 
       const cardId = parseUuidParam(req.params.cardId as string, "cardId");
 
-      const meetings = await cardService.getCardMeetings(userId, cardId);
+      const paginationSchema = z.object({
+        take: z.coerce.number().int().min(1).max(100).default(20),
+        skip: z.coerce.number().int().min(0).default(0),
+      });
+      const parsed = paginationSchema.safeParse(req.query);
+      if (!parsed.success)
+        throw ErrorFactory.validation("Invalid pagination params");
+
+      const result = await cardService.getCardMeetings(
+        userId,
+        cardId,
+        parsed.data,
+      );
 
       apiResponse(res, {
         statusCode: 200,
         message: "Card meetings retrieved successfully",
-        data: meetings,
+        data: result,
       });
     } catch (err) {
       globalErrorHandler(err as BaseError, req, res);

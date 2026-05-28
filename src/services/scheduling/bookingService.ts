@@ -10,6 +10,12 @@ import {
   bookingCancelledEmail,
   bookingCancelledSubject,
 } from "../email/templates/bookingCancelled";
+import {
+  encrypt,
+  decrypt,
+  blindIndex,
+  prismaBytes,
+} from "../../utils/security/crypto";
 
 // ── Timezone helpers ───────────────────────────────────────────────────────────
 
@@ -69,23 +75,15 @@ function getDateInTz(utcDate: Date, tz: string): string {
 
 // ── Booking creation ──────────────────────────────────────────────────────────
 
-const BOOKING_SELECT = {
-  id: true,
-  startTime: true,
-  endTime: true,
-  timezone: true,
-  status: true,
-  guestName: true,
-  guestEmail: true,
-  guestNote: true,
-} as const;
-
 async function ensureBookingMeetingParticipants(
   tx: Prisma.TransactionClient,
   meetingId: string,
   hostUserId: string,
-  guestEmail: string,
+  guestEmail: string, // plaintext
 ) {
+  const encGuestEmail = await encrypt(guestEmail, hostUserId);
+  const guestEmailBidx = prismaBytes(blindIndex(guestEmail));
+
   await tx.meetingParticipant.createMany({
     data: [
       {
@@ -95,7 +93,8 @@ async function ensureBookingMeetingParticipants(
       },
       {
         meetingId,
-        guestEmail,
+        guestEmail: encGuestEmail,
+        guestEmailBidx,
         participantType: "ATTENDEE",
       },
     ],
@@ -297,11 +296,15 @@ export async function createBooking(data: CreateBookingInput) {
           }
         }
 
-        // l. Duplicate guard
+        // Compute blind index for guest email — used for all dedup/cap/reschedule checks
+        const guestEmailBidxBuf = blindIndex(data.guestEmail);
+        const guestEmailBidxPrisma = prismaBytes(guestEmailBidxBuf);
+
+        // l. Duplicate guard (blind index — exact match)
         const duplicateBooking = await tx.booking.findFirst({
           where: {
             userId: user.id,
-            guestEmail: data.guestEmail,
+            guestEmailBidx: guestEmailBidxPrisma,
             startTime,
             isDeleted: false,
             status: { notIn: ["CANCELLED", "DECLINED"] },
@@ -315,11 +318,11 @@ export async function createBooking(data: CreateBookingInput) {
           );
         }
 
-        // m. Per-guest-email frequency cap
+        // m. Per-guest-email frequency cap (blind index — exact match)
         const recentGuestBookings = await tx.booking.count({
           where: {
             userId: user.id,
-            guestEmail: data.guestEmail,
+            guestEmailBidx: guestEmailBidxPrisma,
             isDeleted: false,
             status: { notIn: ["CANCELLED", "DECLINED"] },
             createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
@@ -339,7 +342,7 @@ export async function createBooking(data: CreateBookingInput) {
             where: {
               id: data.rescheduleBookingId,
               userId: user.id,
-              guestEmail: data.guestEmail,
+              guestEmailBidx: guestEmailBidxPrisma, // verify email matches via blind index
               isDeleted: false,
             },
             select: {
@@ -405,22 +408,44 @@ export async function createBooking(data: CreateBookingInput) {
           data.guestEmail,
         );
 
+        // Encrypt booking PII under the host's DEK
+        const [encGuestName, encGuestEmail, encGuestNote] = await Promise.all([
+          encrypt(data.guestName, user.id),
+          encrypt(data.guestEmail, user.id),
+          data.guestNote
+            ? encrypt(data.guestNote, user.id)
+            : Promise.resolve(undefined),
+        ]);
+
         // o. Create Booking with PENDING status
-        const booking = await tx.booking.create({
+        const createdBooking = await tx.booking.create({
           data: {
             eventTypeId: eventType.id,
             userId: user.id,
             meetingId: meeting.id,
-            guestName: data.guestName,
-            guestEmail: data.guestEmail,
-            guestNote: data.guestNote,
+            guestName: encGuestName,
+            guestEmail: encGuestEmail,
+            guestNote: encGuestNote ?? undefined,
+            guestEmailBidx: guestEmailBidxPrisma,
             startTime,
             endTime,
             timezone: data.guestTimezone,
             status: "PENDING",
           },
-          select: BOOKING_SELECT,
+          select: { id: true, status: true },
         });
+
+        // Return plaintext PII from input — no need to decrypt what we just encrypted
+        const booking = {
+          id: createdBooking.id,
+          startTime,
+          endTime,
+          timezone: data.guestTimezone,
+          status: createdBooking.status,
+          guestName: data.guestName,
+          guestEmail: data.guestEmail,
+          guestNote: data.guestNote ?? null,
+        };
 
         return {
           booking,
@@ -461,7 +486,7 @@ export async function createBooking(data: CreateBookingInput) {
     user.id,
     "BOOKING_RECEIVED",
     `${data.guestName} booked ${result.eventTypeSummary.title}`,
-    `${data.guestName} (${data.guestEmail}) booked a ${result.eventTypeSummary.duration}-minute session.`,
+    `${data.guestName} booked a ${result.eventTypeSummary.duration}-minute session.`,
     "booking",
     result.booking.id,
   ).catch(() => {});
@@ -582,12 +607,18 @@ export async function cancelBookingAsGuest(bookingId: string, reason?: string) {
       (booking.user.settings?.bookingEmailsEnabled ?? true);
 
     if (emailsEnabled) {
+      // Decrypt guest PII using host's DEK (guests have no Crelyzor account)
+      const [guestName, guestEmail] = await Promise.all([
+        decrypt(booking.guestName, booking.userId).catch(() => "Guest"),
+        decrypt(booking.guestEmail, booking.userId).catch(() => ""),
+      ]);
+
       const cancelledSubject = bookingCancelledSubject({
         eventTypeTitle: booking.eventType.title,
       });
       const hostName = booking.user.name ?? "the host";
       const sharedParams = {
-        cancelledByName: booking.guestName, // Cancelled by the guest
+        cancelledByName: guestName,
         eventTypeTitle: booking.eventType.title,
         startTime: booking.startTime,
         timezone: booking.timezone,
@@ -605,14 +636,16 @@ export async function cancelBookingAsGuest(bookingId: string, reason?: string) {
               }),
             })
           : Promise.resolve(),
-        sendEmail({
-          to: booking.guestEmail,
-          subject: cancelledSubject,
-          html: bookingCancelledEmail({
-            recipientName: booking.guestName,
-            ...sharedParams,
-          }),
-        }),
+        guestEmail
+          ? sendEmail({
+              to: guestEmail,
+              subject: cancelledSubject,
+              html: bookingCancelledEmail({
+                recipientName: guestName,
+                ...sharedParams,
+              }),
+            })
+          : Promise.resolve(),
       ]);
     }
   } catch (err) {
@@ -645,6 +678,7 @@ export async function getPublicBooking(
       status: true,
       timezone: true,
       guestName: true,
+      userId: true,
       eventType: {
         select: {
           title: true,
@@ -674,5 +708,15 @@ export async function getPublicBooking(
     throw new AppError("Booking not found", 404);
   }
 
-  return booking;
+  const guestName = await decrypt(booking.guestName, booking.userId).catch(
+    () => "Guest",
+  );
+
+  // Strip userId (internal key) from the public response
+  const {
+    userId: _userId,
+    guestName: _rawGuestName,
+    ...publicBooking
+  } = booking;
+  return { ...publicBooking, guestName };
 }

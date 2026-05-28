@@ -186,6 +186,7 @@ export async function getSlots(
         endTime: { gt: dayWindowStart },
       },
       select: { startTime: true, endTime: true },
+      take: 200,
     }),
     prisma.meeting.findMany({
       where: {
@@ -196,6 +197,7 @@ export async function getSlots(
         endTime: { gt: dayWindowStart },
       },
       select: { startTime: true, endTime: true },
+      take: 200,
     }),
   ]);
 
