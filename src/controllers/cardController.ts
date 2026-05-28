@@ -371,9 +371,14 @@ export const cardController = {
         skip: z.coerce.number().int().min(0).default(0),
       });
       const parsed = paginationSchema.safeParse(req.query);
-      if (!parsed.success) throw ErrorFactory.validation("Invalid pagination params");
+      if (!parsed.success)
+        throw ErrorFactory.validation("Invalid pagination params");
 
-      const result = await cardService.getCardMeetings(userId, cardId, parsed.data);
+      const result = await cardService.getCardMeetings(
+        userId,
+        cardId,
+        parsed.data,
+      );
 
       apiResponse(res, {
         statusCode: 200,

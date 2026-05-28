@@ -57,7 +57,9 @@ async function buildSummaryText(
   let keyPoints: string[] = [];
   if (summary.keyPoints) {
     try {
-      keyPoints = JSON.parse(await decrypt(summary.keyPoints, userId)) as string[];
+      keyPoints = JSON.parse(
+        await decrypt(summary.keyPoints, userId),
+      ) as string[];
     } catch (err) {
       logger.warn("Failed to parse keyPoints during export", {
         error: err instanceof Error ? err.message : String(err),

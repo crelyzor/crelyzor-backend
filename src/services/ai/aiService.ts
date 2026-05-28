@@ -824,7 +824,12 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
   const askAIPromptChars =
     systemPrompt.length + userMessage.length + historyChars;
 
-  await conversationService.appendMessage(conversationId, "user", question, userId);
+  await conversationService.appendMessage(
+    conversationId,
+    "user",
+    question,
+    userId,
+  );
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -893,7 +898,8 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
     });
     let userMessage = "AI response failed — please try again";
     if (err instanceof AppError) {
-      if (err.statusCode === 429) userMessage = "Rate limit reached — please wait before asking again";
+      if (err.statusCode === 429)
+        userMessage = "Rate limit reached — please wait before asking again";
       else if (err.statusCode === 402) userMessage = err.message;
       else if (err.statusCode === 400) userMessage = err.message;
     }

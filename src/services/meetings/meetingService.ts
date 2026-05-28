@@ -215,29 +215,38 @@ export const meetingService = {
                 .filter((u): u is typeof u & { email: string } => !!u.email)
                 .map((u) => [u.id, blindIndex(u.email)]),
             );
-            const bidxBuffers = Array.from(emailBidxMap.values()).map(prismaBytes);
+            const bidxBuffers = Array.from(emailBidxMap.values()).map(
+              prismaBytes,
+            );
 
-            const matchedContacts = bidxBuffers.length > 0
-              ? await tx.cardContact.findMany({
-                  where: {
-                    card: { userId: createdById },
-                    emailBidx: { in: bidxBuffers },
-                  },
-                  select: { emailBidx: true, cardId: true },
-                })
-              : [];
+            const matchedContacts =
+              bidxBuffers.length > 0
+                ? await tx.cardContact.findMany({
+                    where: {
+                      card: { userId: createdById },
+                      emailBidx: { in: bidxBuffers },
+                    },
+                    select: { emailBidx: true, cardId: true },
+                  })
+                : [];
 
             const bidxHexToCardId = new Map(
               matchedContacts
-                .filter((c): c is typeof c & { emailBidx: Buffer } => !!c.emailBidx)
-                .map((c) => [Buffer.from(c.emailBidx).toString("hex"), c.cardId]),
+                .filter(
+                  (c): c is typeof c & { emailBidx: Buffer } => !!c.emailBidx,
+                )
+                .map((c) => [
+                  Buffer.from(c.emailBidx).toString("hex"),
+                  c.cardId,
+                ]),
             );
 
             await tx.meetingParticipant.createMany({
               data: participantUsers.map((u) => {
                 const bidx = emailBidxMap.get(u.id);
                 const cardId = bidx
-                  ? bidxHexToCardId.get(Buffer.from(bidx).toString("hex")) ?? null
+                  ? (bidxHexToCardId.get(Buffer.from(bidx).toString("hex")) ??
+                    null)
                   : null;
                 return {
                   meetingId: newMeeting.id,
@@ -365,10 +374,13 @@ export const meetingService = {
             });
           }
         } catch (err) {
-          logger.warn("Recall bot queue failed during meeting create — fail-open", {
-            meetingId: committedMeeting.id,
-            error: err instanceof Error ? err.message : String(err),
-          });
+          logger.warn(
+            "Recall bot queue failed during meeting create — fail-open",
+            {
+              meetingId: committedMeeting.id,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
         }
       }
     }
@@ -518,29 +530,38 @@ export const meetingService = {
                 .filter((u): u is typeof u & { email: string } => !!u.email)
                 .map((u) => [u.id, blindIndex(u.email)]),
             );
-            const bidxBuffers = Array.from(emailBidxMap.values()).map(prismaBytes);
+            const bidxBuffers = Array.from(emailBidxMap.values()).map(
+              prismaBytes,
+            );
 
-            const matchedContacts = bidxBuffers.length > 0
-              ? await tx.cardContact.findMany({
-                  where: {
-                    card: { userId: updatedByUserId },
-                    emailBidx: { in: bidxBuffers },
-                  },
-                  select: { emailBidx: true, cardId: true },
-                })
-              : [];
+            const matchedContacts =
+              bidxBuffers.length > 0
+                ? await tx.cardContact.findMany({
+                    where: {
+                      card: { userId: updatedByUserId },
+                      emailBidx: { in: bidxBuffers },
+                    },
+                    select: { emailBidx: true, cardId: true },
+                  })
+                : [];
 
             const bidxHexToCardId = new Map(
               matchedContacts
-                .filter((c): c is typeof c & { emailBidx: Buffer } => !!c.emailBidx)
-                .map((c) => [Buffer.from(c.emailBidx).toString("hex"), c.cardId]),
+                .filter(
+                  (c): c is typeof c & { emailBidx: Buffer } => !!c.emailBidx,
+                )
+                .map((c) => [
+                  Buffer.from(c.emailBidx).toString("hex"),
+                  c.cardId,
+                ]),
             );
 
             await tx.meetingParticipant.createMany({
               data: addedUsers.map((u) => {
                 const bidx = emailBidxMap.get(u.id);
                 const cardId = bidx
-                  ? bidxHexToCardId.get(Buffer.from(bidx).toString("hex")) ?? null
+                  ? (bidxHexToCardId.get(Buffer.from(bidx).toString("hex")) ??
+                    null)
                   : null;
                 return {
                   meetingId,
@@ -1071,7 +1092,11 @@ export const meetingService = {
       try {
         await prisma.$transaction(
           async (tx) => {
-            const participantRows: Array<{ meetingId: string; userId: string; participantType: "ORGANIZER" }> = [];
+            const participantRows: Array<{
+              meetingId: string;
+              userId: string;
+              participantType: "ORGANIZER";
+            }> = [];
 
             for (const ev of toCreate) {
               const meeting = await tx.meeting.create({

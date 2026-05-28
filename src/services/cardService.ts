@@ -2,7 +2,12 @@ import prisma from "../db/prismaClient";
 import { ErrorFactory } from "../utils/globalErrorHandler";
 import { logger } from "../utils/logging/logger";
 import type { Prisma } from "@prisma/client";
-import { encrypt, decrypt, blindIndex, prismaBytes } from "../utils/security/crypto";
+import {
+  encrypt,
+  decrypt,
+  blindIndex,
+  prismaBytes,
+} from "../utils/security/crypto";
 import { parse as parseCsv } from "csv-parse/sync";
 import type {
   CreateCardDTO,
@@ -677,8 +682,12 @@ export const cardService = {
     const contacts = await Promise.all(
       rawContacts.map(async (c) => ({
         ...c,
-        email: c.email ? await decrypt(c.email, userId).catch(() => null) : null,
-        phone: c.phone ? await decrypt(c.phone, userId).catch(() => null) : null,
+        email: c.email
+          ? await decrypt(c.email, userId).catch(() => null)
+          : null,
+        phone: c.phone
+          ? await decrypt(c.phone, userId).catch(() => null)
+          : null,
         note: c.note ? await decrypt(c.note, userId).catch(() => null) : null,
         emailBidx: undefined,
         phoneBidx: undefined,
@@ -788,9 +797,15 @@ export const cardService = {
 
       for (const c of batch) {
         const [email, phone, note] = await Promise.all([
-          c.email ? decrypt(c.email, userId).catch(() => "") : Promise.resolve(""),
-          c.phone ? decrypt(c.phone, userId).catch(() => "") : Promise.resolve(""),
-          c.note ? decrypt(c.note, userId).catch(() => "") : Promise.resolve(""),
+          c.email
+            ? decrypt(c.email, userId).catch(() => "")
+            : Promise.resolve(""),
+          c.phone
+            ? decrypt(c.phone, userId).catch(() => "")
+            : Promise.resolve(""),
+          c.note
+            ? decrypt(c.note, userId).catch(() => "")
+            : Promise.resolve(""),
         ]);
         csvRows.push(
           [
@@ -915,8 +930,12 @@ export const cardService = {
         cardId,
         userId,
         name,
-        ...(encEmail ? { email: encEmail, emailBidx: prismaBytes(blindIndex(email)) } : {}),
-        ...(encPhone ? { phone: encPhone, phoneBidx: prismaBytes(blindIndex(phone)) } : {}),
+        ...(encEmail
+          ? { email: encEmail, emailBidx: prismaBytes(blindIndex(email)) }
+          : {}),
+        ...(encPhone
+          ? { phone: encPhone, phoneBidx: prismaBytes(blindIndex(phone)) }
+          : {}),
         ...(company ? { company } : {}),
         ...(encNote ? { note: encNote } : {}),
       });

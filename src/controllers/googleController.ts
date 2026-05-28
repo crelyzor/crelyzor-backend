@@ -78,7 +78,11 @@ export const googleController = {
       }
 
       const url = googleService.getCalendarConnectUrl(redirectUrl, userId);
-      return apiResponse(res, { statusCode: 200, message: "Calendar connect URL", data: { url } });
+      return apiResponse(res, {
+        statusCode: 200,
+        message: "Calendar connect URL",
+        data: { url },
+      });
     } catch (error) {
       globalErrorHandler(error as BaseError, req, res);
     }
@@ -193,7 +197,9 @@ export const googleController = {
           if (isNewUser) {
             newUserDek = await initDekForNewUser(u.id, tx);
             newUserId = u.id;
-            encAccessToken = prismaBytes(encryptWithKey(tokens.access_token ?? "", newUserDek, 1));
+            encAccessToken = prismaBytes(
+              encryptWithKey(tokens.access_token ?? "", newUserDek, 1),
+            );
             encRefreshToken = tokens.refresh_token
               ? prismaBytes(encryptWithKey(tokens.refresh_token, newUserDek, 1))
               : null;
@@ -237,7 +243,6 @@ export const googleController = {
 
           // Auto-create UserSettings + default schedule + Mon–Fri slots for new users
           if (isNewUser) {
-
             await tx.userSettings.create({ data: { userId: u.id } });
             const defaultSchedule = await tx.availabilitySchedule.create({
               data: {

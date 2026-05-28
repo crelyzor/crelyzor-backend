@@ -29,7 +29,10 @@ export function subscribeUser(userId: string): void {
   // Only subscribe on first connection for this user (avoid duplicate subscriptions)
   if (registry.size(userId) === 1) {
     sharedSub.subscribe(`notify:${userId}`).catch((err) => {
-      logger.error("notificationSubscriber: failed to subscribe", { userId, err });
+      logger.error("notificationSubscriber: failed to subscribe", {
+        userId,
+        err,
+      });
     });
   }
 }
@@ -39,7 +42,10 @@ export function unsubscribeUser(userId: string): void {
   // Only unsubscribe when last connection for this user closes
   if (registry.size(userId) === 0) {
     sharedSub.unsubscribe(`notify:${userId}`).catch((err) => {
-      logger.error("notificationSubscriber: failed to unsubscribe", { userId, err });
+      logger.error("notificationSubscriber: failed to unsubscribe", {
+        userId,
+        err,
+      });
     });
   }
 }
@@ -60,6 +66,9 @@ export function publishNotification(
   getRedisClient()
     .publish(`notify:${userId}`, JSON.stringify(payload))
     .catch((err) => {
-      logger.error("notificationSubscriber: failed to publish", { userId, err });
+      logger.error("notificationSubscriber: failed to publish", {
+        userId,
+        err,
+      });
     });
 }

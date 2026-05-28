@@ -74,20 +74,33 @@ async function spotCheckTable(
     }
   }
   logger.info(`Spot-check ${label}`, { sampled: sample.length, ok, failed });
-  if (failed > 0) throw new Error(`${label} spot-check failed — ${failed} rows could not be decrypted`);
+  if (failed > 0)
+    throw new Error(
+      `${label} spot-check failed — ${failed} rows could not be decrypted`,
+    );
 }
 
 async function runSpotChecks(): Promise<void> {
   // Use raw SQL for Bytes? IS NOT NULL checks — Prisma 6 rejects null comparisons on Bytes filters.
 
-  const oauthRows = await prisma.$queryRaw<Array<{ id: string; userId: string; accessToken: Buffer }>>`
+  const oauthRows = await prisma.$queryRaw<
+    Array<{ id: string; userId: string; accessToken: Buffer }>
+  >`
     SELECT id, "userId", "accessToken" FROM "OAuthAccount"
     WHERE "accessToken" IS NOT NULL LIMIT 10
   `;
-  await spotCheckTable("OAuthAccount.accessToken",
-    oauthRows.map((r) => ({ id: r.id, userId: r.userId, value: r.accessToken })));
+  await spotCheckTable(
+    "OAuthAccount.accessToken",
+    oauthRows.map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      value: r.accessToken,
+    })),
+  );
 
-  const segRows = await prisma.$queryRaw<Array<{ id: string; userId: string; text: Buffer }>>`
+  const segRows = await prisma.$queryRaw<
+    Array<{ id: string; userId: string; text: Buffer }>
+  >`
     SELECT s.id, m."createdById" AS "userId", s."text"
     FROM "TranscriptSegment" s
     JOIN "MeetingTranscript" t ON t.id = s."transcriptId"
@@ -95,17 +108,23 @@ async function runSpotChecks(): Promise<void> {
     JOIN "Meeting" m           ON m.id = r."meetingId"
     WHERE s."text" IS NOT NULL LIMIT 10
   `;
-  await spotCheckTable("TranscriptSegment.text",
-    segRows.map((r) => ({ id: r.id, userId: r.userId, value: r.text })));
+  await spotCheckTable(
+    "TranscriptSegment.text",
+    segRows.map((r) => ({ id: r.id, userId: r.userId, value: r.text })),
+  );
 
-  const contactRows = await prisma.$queryRaw<Array<{ id: string; userId: string; email: Buffer }>>`
+  const contactRows = await prisma.$queryRaw<
+    Array<{ id: string; userId: string; email: Buffer }>
+  >`
     SELECT c.id, card."userId", c."email"
     FROM "CardContact" c
     JOIN "Card" card ON card.id = c."cardId"
     WHERE c."email" IS NOT NULL LIMIT 10
   `;
-  await spotCheckTable("CardContact.email",
-    contactRows.map((r) => ({ id: r.id, userId: r.userId, value: r.email })));
+  await spotCheckTable(
+    "CardContact.email",
+    contactRows.map((r) => ({ id: r.id, userId: r.userId, value: r.email })),
+  );
 
   logger.info("All spot-checks passed");
 }
@@ -129,7 +148,9 @@ async function main() {
 
 main()
   .catch((err) => {
-    logger.error("Phase 5 backfill failed", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("Phase 5 backfill failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     process.exit(1);
   })
   .finally(() => prisma.$disconnect());

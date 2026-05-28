@@ -425,10 +425,13 @@ export const startWorker = async (): Promise<void> => {
       const [guestName, guestEmail] = await Promise.all([
         decrypt(booking.guestName, booking.userId).catch(() => "Guest"),
         decrypt(booking.guestEmail, booking.userId).catch((err: unknown) => {
-          logger.warn("Failed to decrypt guestEmail for booking reminder — skipping", {
-            bookingId: booking.id,
-            error: err instanceof Error ? err.message : String(err),
-          });
+          logger.warn(
+            "Failed to decrypt guestEmail for booking reminder — skipping",
+            {
+              bookingId: booking.id,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
           return "";
         }),
       ]);
@@ -676,7 +679,11 @@ export const startWorker = async (): Promise<void> => {
           id: true,
           timezone: true,
           tasks: {
-            where: { isDeleted: false, status: { not: "DONE" }, dueDate: { not: null } },
+            where: {
+              isDeleted: false,
+              status: { not: "DONE" },
+              dueDate: { not: null },
+            },
             select: { dueDate: true },
           },
         },

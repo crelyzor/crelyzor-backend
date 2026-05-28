@@ -10,7 +10,12 @@ import {
   bookingCancelledEmail,
   bookingCancelledSubject,
 } from "../email/templates/bookingCancelled";
-import { encrypt, decrypt, blindIndex, prismaBytes } from "../../utils/security/crypto";
+import {
+  encrypt,
+  decrypt,
+  blindIndex,
+  prismaBytes,
+} from "../../utils/security/crypto";
 
 // ── Timezone helpers ───────────────────────────────────────────────────────────
 
@@ -69,17 +74,6 @@ function getDateInTz(utcDate: Date, tz: string): string {
 }
 
 // ── Booking creation ──────────────────────────────────────────────────────────
-
-const BOOKING_SELECT = {
-  id: true,
-  startTime: true,
-  endTime: true,
-  timezone: true,
-  status: true,
-  guestName: true,
-  guestEmail: true,
-  guestNote: true,
-} as const;
 
 async function ensureBookingMeetingParticipants(
   tx: Prisma.TransactionClient,
@@ -418,7 +412,9 @@ export async function createBooking(data: CreateBookingInput) {
         const [encGuestName, encGuestEmail, encGuestNote] = await Promise.all([
           encrypt(data.guestName, user.id),
           encrypt(data.guestEmail, user.id),
-          data.guestNote ? encrypt(data.guestNote, user.id) : Promise.resolve(undefined),
+          data.guestNote
+            ? encrypt(data.guestNote, user.id)
+            : Promise.resolve(undefined),
         ]);
 
         // o. Create Booking with PENDING status
@@ -712,9 +708,15 @@ export async function getPublicBooking(
     throw new AppError("Booking not found", 404);
   }
 
-  const guestName = await decrypt(booking.guestName, booking.userId).catch(() => "Guest");
+  const guestName = await decrypt(booking.guestName, booking.userId).catch(
+    () => "Guest",
+  );
 
   // Strip userId (internal key) from the public response
-  const { userId: _userId, guestName: _rawGuestName, ...publicBooking } = booking;
+  const {
+    userId: _userId,
+    guestName: _rawGuestName,
+    ...publicBooking
+  } = booking;
   return { ...publicBooking, guestName };
 }

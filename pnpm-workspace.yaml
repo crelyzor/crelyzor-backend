@@ -1,3 +1,1 @@
-ignoredBuiltDependencies:
-  - argon2
-  - bcrypt
+ignoredBuiltDependencies: -argon2 - bcrypt;

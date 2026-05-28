@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { verifyAdmin } from "../middleware/verifyAdmin";
-import { authLimiter, apiLimiter } from "../utils/rateLimit/rateLimiter";
+import { authLimiter } from "../utils/rateLimit/rateLimiter";
 import {
   login,
   me,

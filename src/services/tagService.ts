@@ -300,7 +300,10 @@ export async function attachTagToMeeting(
   meetingId: string,
   tagId: string,
 ) {
-  await Promise.all([verifyMeetingOwnership(meetingId, userId), verifyTagOwnership(tagId, userId)]);
+  await Promise.all([
+    verifyMeetingOwnership(meetingId, userId),
+    verifyTagOwnership(tagId, userId),
+  ]);
 
   await prisma.meetingTag.upsert({
     where: { meetingId_tagId: { meetingId, tagId } },
@@ -316,7 +319,10 @@ export async function detachTagFromMeeting(
   meetingId: string,
   tagId: string,
 ) {
-  await Promise.all([verifyMeetingOwnership(meetingId, userId), verifyTagOwnership(tagId, userId)]);
+  await Promise.all([
+    verifyMeetingOwnership(meetingId, userId),
+    verifyTagOwnership(tagId, userId),
+  ]);
 
   await prisma.meetingTag.deleteMany({ where: { meetingId, tagId } });
 
@@ -355,7 +361,10 @@ export async function attachTagToCard(
   cardId: string,
   tagId: string,
 ) {
-  await Promise.all([verifyCardOwnership(cardId, userId), verifyTagOwnership(tagId, userId)]);
+  await Promise.all([
+    verifyCardOwnership(cardId, userId),
+    verifyTagOwnership(tagId, userId),
+  ]);
 
   await prisma.cardTag.upsert({
     where: { cardId_tagId: { cardId, tagId } },
@@ -371,7 +380,10 @@ export async function detachTagFromCard(
   cardId: string,
   tagId: string,
 ) {
-  await Promise.all([verifyCardOwnership(cardId, userId), verifyTagOwnership(tagId, userId)]);
+  await Promise.all([
+    verifyCardOwnership(cardId, userId),
+    verifyTagOwnership(tagId, userId),
+  ]);
 
   await prisma.cardTag.deleteMany({ where: { cardId, tagId } });
 
@@ -410,7 +422,10 @@ export async function attachTagToTask(
   taskId: string,
   tagId: string,
 ) {
-  await Promise.all([verifyTaskOwnership(taskId, userId), verifyTagOwnership(tagId, userId)]);
+  await Promise.all([
+    verifyTaskOwnership(taskId, userId),
+    verifyTagOwnership(tagId, userId),
+  ]);
 
   await prisma.taskTag.upsert({
     where: { taskId_tagId: { taskId, tagId } },
@@ -426,7 +441,10 @@ export async function detachTagFromTask(
   taskId: string,
   tagId: string,
 ) {
-  await Promise.all([verifyTaskOwnership(taskId, userId), verifyTagOwnership(tagId, userId)]);
+  await Promise.all([
+    verifyTaskOwnership(taskId, userId),
+    verifyTagOwnership(tagId, userId),
+  ]);
 
   await prisma.taskTag.deleteMany({ where: { taskId, tagId } });
 
@@ -478,7 +496,10 @@ export async function attachTagToContact(
   contactId: string,
   tagId: string,
 ) {
-  await Promise.all([verifyContactOwnership(contactId, userId), verifyTagOwnership(tagId, userId)]);
+  await Promise.all([
+    verifyContactOwnership(contactId, userId),
+    verifyTagOwnership(tagId, userId),
+  ]);
 
   await prisma.contactTag.upsert({
     where: { contactId_tagId: { contactId, tagId } },
@@ -494,7 +515,10 @@ export async function detachTagFromContact(
   contactId: string,
   tagId: string,
 ) {
-  await Promise.all([verifyContactOwnership(contactId, userId), verifyTagOwnership(tagId, userId)]);
+  await Promise.all([
+    verifyContactOwnership(contactId, userId),
+    verifyTagOwnership(tagId, userId),
+  ]);
 
   await prisma.contactTag.deleteMany({ where: { contactId, tagId } });
 

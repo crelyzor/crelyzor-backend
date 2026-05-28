@@ -69,8 +69,7 @@ export const createCheckoutSession = async (req: Request, res: Response) => {
     message: "Payment gateway coming soon",
     data: {
       status: "deferred",
-      message:
-        `Online payments are not yet available. To upgrade to Pro, please contact ${env.SUPPORT_EMAIL} and we will upgrade your account manually.`,
+      message: `Online payments are not yet available. To upgrade to Pro, please contact ${env.SUPPORT_EMAIL} and we will upgrade your account manually.`,
       supportEmail: env.SUPPORT_EMAIL,
     },
   });
@@ -90,8 +89,7 @@ export const createBillingPortalSession = async (
     message: "Billing portal coming soon",
     data: {
       status: "deferred",
-      message:
-        `Billing portal is not yet available. For subscription changes, please contact ${env.SUPPORT_EMAIL}.`,
+      message: `Billing portal is not yet available. For subscription changes, please contact ${env.SUPPORT_EMAIL}.`,
       supportEmail: env.SUPPORT_EMAIL,
     },
   });

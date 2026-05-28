@@ -100,7 +100,9 @@ export async function listBookings(
       const [guestName, guestEmail, guestNote] = await Promise.all([
         decrypt(b.guestName, userId).catch(() => ""),
         decrypt(b.guestEmail, userId).catch(() => ""),
-        b.guestNote ? decrypt(b.guestNote, userId).catch(() => null) : Promise.resolve(null),
+        b.guestNote
+          ? decrypt(b.guestNote, userId).catch(() => null)
+          : Promise.resolve(null),
       ]);
       return { ...b, guestName, guestEmail, guestNote };
     }),
@@ -158,7 +160,9 @@ export async function confirmBooking(userId: string, bookingId: string) {
   const [guestName, guestEmail, guestNote] = await Promise.all([
     decrypt(booking.guestName, userId).catch(() => "Guest"),
     decrypt(booking.guestEmail, userId).catch(() => ""),
-    booking.guestNote ? decrypt(booking.guestNote, userId).catch(() => null) : Promise.resolve(null),
+    booking.guestNote
+      ? decrypt(booking.guestNote, userId).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   await prisma.$transaction(
@@ -181,7 +185,9 @@ export async function confirmBooking(userId: string, bookingId: string) {
               // guestEmail is already encrypted in DB via bookingService; pass the raw Bytes column value.
               // Recompute the blind index from the just-decrypted plaintext so participant lookup-by-email works.
               guestEmail: booking.guestEmail,
-              guestEmailBidx: guestEmail ? prismaBytes(blindIndex(guestEmail)) : undefined,
+              guestEmailBidx: guestEmail
+                ? prismaBytes(blindIndex(guestEmail))
+                : undefined,
               participantType: "ATTENDEE",
             },
           ],

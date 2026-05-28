@@ -3,11 +3,7 @@ import jwt from "jsonwebtoken";
 import { AppError } from "../utils/errors/AppError";
 import { env } from "../config/environment";
 import { logger } from "../utils/logging/logger";
-import {
-  globalErrorHandler,
-  BaseError,
-  ErrorFactory,
-} from "../utils/globalErrorHandler";
+import { globalErrorHandler, ErrorFactory } from "../utils/globalErrorHandler";
 
 interface AdminTokenPayload {
   role: string;
@@ -59,6 +55,10 @@ export const verifyAdmin = (
         res,
       );
     }
-    globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
+    globalErrorHandler(
+      error instanceof Error ? error : new Error(String(error)),
+      req,
+      res,
+    );
   }
 };

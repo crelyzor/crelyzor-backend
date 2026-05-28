@@ -9,8 +9,10 @@ export default defineConfig({
     env: {
       NODE_ENV: "development",
       KMS_PROVIDER: "local",
-      LOCAL_KMS_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", // 32 bytes hex
-      HMAC_BLIND_INDEX_KEY: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", // 32 bytes hex
+      LOCAL_KMS_KEY:
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", // 32 bytes hex
+      HMAC_BLIND_INDEX_KEY:
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", // 32 bytes hex
       // Required vars that environment.ts validates
       JWT_ACCESS_SECRET: "test-jwt-access-secret",
       JWT_REFRESH_SECRET: "test-jwt-refresh-secret",

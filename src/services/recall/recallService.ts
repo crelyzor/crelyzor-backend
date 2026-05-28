@@ -235,4 +235,3 @@ export async function getBotRecordingInfo(
     throw new AppError("Failed to reach Recall.ai API", 502);
   }
 }
-

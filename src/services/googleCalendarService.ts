@@ -916,7 +916,9 @@ export async function backfillGoogleCalendarWrites(
       for (const participant of meeting.participants) {
         if (participant.userId === userId) continue;
         if (participant.guestEmail) {
-          const email = await decrypt(participant.guestEmail, userId).catch(() => null);
+          const email = await decrypt(participant.guestEmail, userId).catch(
+            () => null,
+          );
           if (email) attendees.push({ email });
         } else if (participant.user?.email) {
           attendees.push({

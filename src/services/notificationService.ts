@@ -82,7 +82,9 @@ export async function listNotifications(
 
   const hasMore = notifications.length > take;
   const items = hasMore ? notifications.slice(0, take) : notifications;
-  const nextCursor = hasMore ? items[items.length - 1].createdAt.toISOString() : null;
+  const nextCursor = hasMore
+    ? items[items.length - 1].createdAt.toISOString()
+    : null;
 
   return { notifications: items, nextCursor, hasMore };
 }

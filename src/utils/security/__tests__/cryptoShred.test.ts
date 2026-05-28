@@ -20,14 +20,20 @@ describe("crypto-shredding behaviour", () => {
   beforeAll(async () => {
     // Simulate a user with an active DEK
     originalDek = crypto.randomBytes(32);
-    ciphertext = encryptWithKey("sensitive transcript text", originalDek, version);
+    ciphertext = encryptWithKey(
+      "sensitive transcript text",
+      originalDek,
+      version,
+    );
     setCachedDek(userId, version, originalDek);
   });
 
   it("can decrypt with cached DEK before shred", () => {
     const cached = getCachedDek(userId, version);
     expect(cached).toBeDefined();
-    expect(decryptWithKey(ciphertext, cached!)).toBe("sensitive transcript text");
+    expect(decryptWithKey(ciphertext, cached!)).toBe(
+      "sensitive transcript text",
+    );
   });
 
   it("cache returns undefined after evictDek (DEK shredded)", () => {

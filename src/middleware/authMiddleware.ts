@@ -2,11 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { tokenService } from "../services/auth/tokenService";
 import { sessionService } from "../services/auth/sessionService";
 import { authService } from "../services/auth/authService";
-import {
-  ErrorFactory,
-  globalErrorHandler,
-  BaseError,
-} from "../utils/globalErrorHandler";
+import { ErrorFactory, globalErrorHandler } from "../utils/globalErrorHandler";
 import { TokenPayload } from "../types/authTypes";
 import { ZodError } from "zod";
 import { logger } from "../utils/logging/logger";
@@ -66,7 +62,11 @@ export const verifyJWT = async (
         error: error instanceof Error ? error.message : String(error),
       });
     }
-    globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
+    globalErrorHandler(
+      error instanceof Error ? error : new Error(String(error)),
+      req,
+      res,
+    );
   }
 };
 
@@ -141,7 +141,11 @@ export const validateRefreshToken = async (
 
     next();
   } catch (error) {
-    globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
+    globalErrorHandler(
+      error instanceof Error ? error : new Error(String(error)),
+      req,
+      res,
+    );
   }
 };
 

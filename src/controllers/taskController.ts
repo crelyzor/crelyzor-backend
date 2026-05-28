@@ -26,7 +26,10 @@ import { encrypt, decrypt } from "../utils/security/crypto";
 // Decrypt description field in a batch of tasks
 async function decryptTaskDescriptions<
   T extends { description: Uint8Array | null },
->(tasks: T[], userId: string): Promise<(Omit<T, "description"> & { description: string | null })[]> {
+>(
+  tasks: T[],
+  userId: string,
+): Promise<(Omit<T, "description"> & { description: string | null })[]> {
   return Promise.all(
     tasks.map(async (t) => ({
       ...t,
@@ -51,14 +54,20 @@ const taskInclude = {
 function flattenTags<
   T extends {
     taskTags: Array<{ tag: { id: string; name: string; color: string } }>;
-    meeting?: { id: string; title: string; type: string; isDeleted: boolean } | null;
+    meeting?: {
+      id: string;
+      title: string;
+      type: string;
+      isDeleted: boolean;
+    } | null;
   },
 >(task: T) {
   const { taskTags, meeting, ...rest } = task;
   // Strip soft-deleted meetings from task responses
-  const cleanMeeting = meeting && !meeting.isDeleted
-    ? (({ isDeleted: _d, ...m }) => m)(meeting)
-    : null;
+  const cleanMeeting =
+    meeting && !meeting.isDeleted
+      ? (({ isDeleted: _d, ...m }) => m)(meeting)
+      : null;
   return { ...rest, meeting: cleanMeeting, tags: taskTags.map((tt) => tt.tag) };
 }
 
@@ -536,7 +545,9 @@ export const updateTask = async (req: Request, res: Response) => {
     where: { id: taskId, userId },
     data: {
       ...(title !== undefined && { title }),
-      ...(description !== undefined && { description: encryptedDescriptionUpdate }),
+      ...(description !== undefined && {
+        description: encryptedDescriptionUpdate,
+      }),
       ...(resolvedIsCompleted !== undefined && {
         isCompleted: resolvedIsCompleted,
       }),

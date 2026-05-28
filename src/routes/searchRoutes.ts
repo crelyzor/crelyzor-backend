@@ -6,6 +6,10 @@ const router = Router();
 
 router.use(verifyJWT);
 
-router.get("/", userRateLimit(60, 60 * 60 * 1000, "search"), searchController.search);
+router.get(
+  "/",
+  userRateLimit(60, 60 * 60 * 1000, "search"),
+  searchController.search,
+);
 
 export default router;

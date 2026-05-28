@@ -280,6 +280,9 @@ export async function renewExpiringChannels(): Promise<number> {
 
   const renewed = results.filter((r) => r.status === "fulfilled").length;
 
-  logger.info("GCal push: channel renewal completed", { renewed, failed: failures.length });
+  logger.info("GCal push: channel renewal completed", {
+    renewed,
+    failed: failures.length,
+  });
   return renewed;
 }

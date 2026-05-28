@@ -43,7 +43,11 @@ export class MeetingController {
         data: { meeting, gcalSynced },
       });
     } catch (error) {
-      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
+      globalErrorHandler(
+        error instanceof Error ? error : new Error(String(error)),
+        req,
+        res,
+      );
     }
   }
 
@@ -52,7 +56,8 @@ export class MeetingController {
       const user = req.user as TokenPayload;
       const meetingId = parseMeetingId(req.params.meetingId);
       const parsedUpdate = updateMeetingSchema.safeParse(req.body);
-      if (!parsedUpdate.success) throw ErrorFactory.validation("Validation failed");
+      if (!parsedUpdate.success)
+        throw ErrorFactory.validation("Validation failed");
       const validatedData = parsedUpdate.data;
 
       const meeting = await meetingService.updateMeeting(
@@ -67,7 +72,11 @@ export class MeetingController {
         data: meeting,
       });
     } catch (error) {
-      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
+      globalErrorHandler(
+        error instanceof Error ? error : new Error(String(error)),
+        req,
+        res,
+      );
     }
   }
 
@@ -76,7 +85,8 @@ export class MeetingController {
       const user = req.user as TokenPayload;
       const meetingId = parseMeetingId(req.params.meetingId);
       const parsedAction = meetingActionSchema.safeParse(req.body);
-      if (!parsedAction.success) throw ErrorFactory.validation("Validation failed");
+      if (!parsedAction.success)
+        throw ErrorFactory.validation("Validation failed");
       const validatedData = parsedAction.data;
 
       const meeting = await meetingService.cancelMeeting({
@@ -92,7 +102,11 @@ export class MeetingController {
         data: meeting,
       });
     } catch (error) {
-      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
+      globalErrorHandler(
+        error instanceof Error ? error : new Error(String(error)),
+        req,
+        res,
+      );
     }
   }
 
@@ -113,7 +127,11 @@ export class MeetingController {
         data: meeting,
       });
     } catch (error) {
-      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
+      globalErrorHandler(
+        error instanceof Error ? error : new Error(String(error)),
+        req,
+        res,
+      );
     }
   }
 
@@ -121,7 +139,8 @@ export class MeetingController {
     try {
       const user = req.user as TokenPayload;
       const parsedQuery = getMeetingsSchema.safeParse(req.query);
-      if (!parsedQuery.success) throw ErrorFactory.validation("Validation failed");
+      if (!parsedQuery.success)
+        throw ErrorFactory.validation("Validation failed");
       const validatedData = parsedQuery.data;
 
       const { meetings, total } = await meetingService.getMeetings({
@@ -148,7 +167,11 @@ export class MeetingController {
         },
       });
     } catch (error) {
-      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
+      globalErrorHandler(
+        error instanceof Error ? error : new Error(String(error)),
+        req,
+        res,
+      );
     }
   }
 
@@ -158,8 +181,11 @@ export class MeetingController {
   ): Promise<void> {
     try {
       const user = req.user as TokenPayload;
-      const parsedNoPag = getMeetingsWithoutPaginationSchema.safeParse(req.query);
-      if (!parsedNoPag.success) throw ErrorFactory.validation("Validation failed");
+      const parsedNoPag = getMeetingsWithoutPaginationSchema.safeParse(
+        req.query,
+      );
+      if (!parsedNoPag.success)
+        throw ErrorFactory.validation("Validation failed");
       const validatedData = parsedNoPag.data;
 
       const { meetings, truncated } =
@@ -179,7 +205,11 @@ export class MeetingController {
         data: { meetings, truncated },
       });
     } catch (error) {
-      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
+      globalErrorHandler(
+        error instanceof Error ? error : new Error(String(error)),
+        req,
+        res,
+      );
     }
   }
 
@@ -243,7 +273,11 @@ export class MeetingController {
         data: meeting,
       });
     } catch (error) {
-      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
+      globalErrorHandler(
+        error instanceof Error ? error : new Error(String(error)),
+        req,
+        res,
+      );
     }
   }
 
@@ -259,7 +293,11 @@ export class MeetingController {
         message: "Meeting deleted successfully",
       });
     } catch (error) {
-      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
+      globalErrorHandler(
+        error instanceof Error ? error : new Error(String(error)),
+        req,
+        res,
+      );
     }
   }
 
@@ -282,7 +320,11 @@ export class MeetingController {
         data: result,
       });
     } catch (error) {
-      globalErrorHandler(error instanceof Error ? error : new Error(String(error)), req, res);
+      globalErrorHandler(
+        error instanceof Error ? error : new Error(String(error)),
+        req,
+        res,
+      );
     }
   }
 }

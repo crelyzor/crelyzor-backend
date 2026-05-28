@@ -8,14 +8,21 @@ function cacheKey(userId: string, version: number): string {
   return `${userId}:${version}`;
 }
 
-export function getCachedDek(userId: string, version: number): Buffer | undefined {
+export function getCachedDek(
+  userId: string,
+  version: number,
+): Buffer | undefined {
   const val = cache.get<Buffer>(cacheKey(userId, version));
   if (!val) return undefined;
   // Return a copy — callers must not mutate the cached DEK
   return Buffer.from(val);
 }
 
-export function setCachedDek(userId: string, version: number, dek: Buffer): void {
+export function setCachedDek(
+  userId: string,
+  version: number,
+  dek: Buffer,
+): void {
   cache.set(cacheKey(userId, version), dek);
 }
 

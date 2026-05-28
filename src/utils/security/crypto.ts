@@ -14,7 +14,11 @@ const CURRENT_VERSION = 1;
 
 // ── Pure crypto functions (testable without DB) ──────────────────────────────
 
-export function encryptWithKey(plaintext: string, dek: Buffer, version: number): Buffer {
+export function encryptWithKey(
+  plaintext: string,
+  dek: Buffer,
+  version: number,
+): Buffer {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", dek, iv);
   const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
@@ -33,9 +37,14 @@ export function decryptWithKey(ciphertext: Buffer, dek: Buffer): string {
   const decipher = crypto.createDecipheriv("aes-256-gcm", dek, iv);
   decipher.setAuthTag(tag);
   try {
-    return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
+    return Buffer.concat([decipher.update(ct), decipher.final()]).toString(
+      "utf8",
+    );
   } catch {
-    throw new AppError("Decryption failed — ciphertext is corrupted or DEK is wrong", 500);
+    throw new AppError(
+      "Decryption failed — ciphertext is corrupted or DEK is wrong",
+      500,
+    );
   }
 }
 
@@ -45,7 +54,10 @@ export function decryptWithKey(ciphertext: Buffer, dek: Buffer): string {
 export function blindIndex(value: string): Buffer {
   const hmacKey = Buffer.from(env.HMAC_BLIND_INDEX_KEY, "hex");
   const normalized = value.toLowerCase().trim();
-  return crypto.createHmac("sha256", hmacKey).update(normalized, "utf8").digest();
+  return crypto
+    .createHmac("sha256", hmacKey)
+    .update(normalized, "utf8")
+    .digest();
 }
 
 // ── Prisma 6 Bytes compatibility ──────────────────────────────────────────────
@@ -89,7 +101,10 @@ export async function getDek(userId: string, version: number): Promise<Buffer> {
       select: { wrappedDek: true },
     });
     if (!history) {
-      throw new AppError(`DEK version ${version} not found for user ${userId}`, 500);
+      throw new AppError(
+        `DEK version ${version} not found for user ${userId}`,
+        500,
+      );
     }
     wrappedDek = fromPrismaBytes(history.wrappedDek);
   }
@@ -115,7 +130,7 @@ export async function encrypt(
   if (!user?.wrappedDek) {
     throw new AppError(
       `Encryption not initialized for user ${userId} — initDekForNewUser must run first`,
-      500
+      500,
     );
   }
 
@@ -137,7 +152,10 @@ export async function decrypt(
   const buf = fromPrismaBytes(ciphertext);
   const version = buf[0];
   if (!version || version < 1) {
-    throw new AppError("Invalid ciphertext: missing or invalid version byte", 500);
+    throw new AppError(
+      "Invalid ciphertext: missing or invalid version byte",
+      500,
+    );
   }
   const dek = await getDek(userId, version);
   return decryptWithKey(buf, dek);
@@ -151,7 +169,7 @@ export async function decrypt(
 // (Caching inside the tx risks a ghost DEK if the transaction rolls back.)
 export async function initDekForNewUser(
   userId: string,
-  tx?: Prisma.TransactionClient
+  tx?: Prisma.TransactionClient,
 ): Promise<Buffer> {
   const rawDek = crypto.randomBytes(32);
   // KMS call happens BEFORE any DB write to minimise transaction hold time
