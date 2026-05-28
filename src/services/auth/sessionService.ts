@@ -47,30 +47,35 @@ class SessionService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7); // 7 days from now
 
-    await prisma.session.create({
-      data: {
-        id: sessionId,
-        userId,
-        deviceInfo: deviceInfo || "Unknown Device",
-        ipAddress: ipAddress || "Unknown IP",
-        expiredAt: expiresAt,
-        lastAccessedAt: new Date(),
-      },
-    });
-
     const refreshToken = tokenService.generateRefreshToken(userId, sessionId);
     const refreshTokenPayload = tokenService.verifyRefreshToken(refreshToken);
 
-    await prisma.refreshToken.create({
-      data: {
-        id: refreshTokenPayload.jti,
-        userId,
-        token: refreshToken,
-        expiresAt,
-        deviceInfo: deviceInfo || "Unknown Device",
-        ipAddress: ipAddress || "Unknown IP",
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.session.create({
+          data: {
+            id: sessionId,
+            userId,
+            deviceInfo: deviceInfo || "Unknown Device",
+            ipAddress: ipAddress || "Unknown IP",
+            expiredAt: expiresAt,
+            lastAccessedAt: new Date(),
+          },
+        });
+
+        await tx.refreshToken.create({
+          data: {
+            id: refreshTokenPayload.jti,
+            userId,
+            token: refreshToken,
+            expiresAt,
+            deviceInfo: deviceInfo || "Unknown Device",
+            ipAddress: ipAddress || "Unknown IP",
+          },
+        });
       },
-    });
+      { timeout: 15000 },
+    );
 
     return {
       sessionId,
@@ -113,10 +118,28 @@ class SessionService {
       throw ErrorFactory.unauthorized("User account is inactive");
     }
 
-    await prisma.refreshToken.update({
-      where: { id: refreshTokenPayload.jti },
-      data: { revoked: true },
-    });
+    // Revoke old token + update session/user activity atomically.
+    // The new session creation (its own $transaction) runs separately —
+    // if it fails, the user is still cleanly logged out (no partial state).
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.refreshToken.update({
+          where: { id: refreshTokenPayload.jti },
+          data: { revoked: true },
+        });
+
+        await tx.session.update({
+          where: { id: refreshTokenPayload.sessionId },
+          data: { lastAccessedAt: new Date() },
+        });
+
+        await tx.user.update({
+          where: { id: storedRefreshToken.userId },
+          data: { lastLoginAt: new Date() },
+        });
+      },
+      { timeout: 15000 },
+    );
 
     const { refreshToken: newRefreshToken } = await this.createSession(
       storedRefreshToken.userId,
@@ -129,16 +152,6 @@ class SessionService {
       email: storedRefreshToken.user.email,
       emailVerified: storedRefreshToken.user.emailVerified,
       sessionId: refreshTokenPayload.sessionId,
-    });
-
-    await prisma.session.update({
-      where: { id: refreshTokenPayload.sessionId },
-      data: { lastAccessedAt: new Date() },
-    });
-
-    await prisma.user.update({
-      where: { id: storedRefreshToken.userId },
-      data: { lastLoginAt: new Date() },
     });
 
     return {
@@ -211,6 +224,7 @@ class SessionService {
         expiredAt: { gt: new Date() },
       },
       orderBy: { lastAccessedAt: "desc" },
+      take: 100,
     });
 
     return sessions.map((session) => ({

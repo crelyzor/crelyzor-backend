@@ -12,6 +12,7 @@ import {
   checkTranscription,
   deductTranscription,
 } from "../billing/usageService";
+import { encrypt, decrypt } from "../../utils/security/crypto";
 
 const DEEPGRAM_MODEL = "nova-3"; // Upgraded to nova-3 (multilingual) at Phase 4 start — better accuracy, 45+ languages
 
@@ -147,17 +148,30 @@ export const transcribeRecording = async (
 
     // Persist transcript, status update, and speakers atomically
     const distinctSpeakers = [...new Set(segments.map((seg) => seg.speaker))];
+    const userId = recording.meeting.createdById;
+
+    // Encrypt before the transaction so we don't do async crypto inside Prisma tx
+    const encryptedFullText = await encrypt(
+      alternatives.transcript || "",
+      userId,
+    );
+    const encryptedSegments = await Promise.all(
+      segments.map(async (seg) => ({
+        ...seg,
+        text: await encrypt(seg.text, userId),
+      })),
+    );
 
     const transcript = await prisma.$transaction(
       async (tx) => {
         const created = await tx.meetingTranscript.create({
           data: {
             recordingId: recording.id,
-            fullText: alternatives.transcript || "",
+            fullText: encryptedFullText,
             deepgramJobId: null,
             processedAt: new Date(),
             segments: {
-              create: segments.map((seg) => ({
+              create: encryptedSegments.map((seg) => ({
                 startTime: seg.startTime,
                 endTime: seg.endTime,
                 text: seg.text,
@@ -273,8 +287,8 @@ export const regenerateTranscript = async (
   await prisma.$transaction(
     async (tx) => {
       // Delete existing transcript (CASCADE handles TranscriptSegments)
-      const existing = await tx.meetingTranscript.findUnique({
-        where: { recordingId },
+      const existing = await tx.meetingTranscript.findFirst({
+        where: { recordingId, isDeleted: false },
       });
       if (existing) {
         await tx.meetingTranscript.delete({ where: { id: existing.id } });
@@ -312,7 +326,8 @@ export const regenerateTranscript = async (
 };
 
 /**
- * Get transcript for a meeting (scoped to meeting owner)
+ * Get transcript for a meeting (scoped to meeting owner).
+ * Decrypts segment text before returning.
  */
 export const getTranscript = async (meetingId: string, userId: string) => {
   const meeting = await prisma.meeting.findFirst({
@@ -322,7 +337,7 @@ export const getTranscript = async (meetingId: string, userId: string) => {
   if (!meeting) throw new AppError("Meeting not found", 404);
 
   const MAX_TRANSCRIPT_SEGMENTS = 5000;
-  return prisma.meetingTranscript.findFirst({
+  const result = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
     select: {
       id: true,
@@ -345,6 +360,17 @@ export const getTranscript = async (meetingId: string, userId: string) => {
       },
     },
   });
+
+  if (!result) return null;
+
+  const decryptedSegments = await Promise.all(
+    result.segments.map(async (seg) => ({
+      ...seg,
+      text: seg.text ? await decrypt(seg.text, userId) : "",
+    })),
+  );
+
+  return { ...result, segments: decryptedSegments };
 };
 
 export const transcriptionService = {

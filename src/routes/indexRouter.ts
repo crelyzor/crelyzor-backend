@@ -18,6 +18,7 @@ import integrationRouter from "./integrationRoutes";
 import searchRouter from "./searchRoutes";
 import googleWebhookRouter from "./googleWebhookRoutes";
 import adminRouter from "./adminRoutes";
+import notificationRouter from "./notificationRoutes";
 
 const indexRouter = Router();
 
@@ -90,6 +91,11 @@ indexRouter.use("/search", searchRouter);
 // 📦 STORAGE ROUTES
 // ========================================
 indexRouter.use("/storage", storageRouter);
+
+// ========================================
+// 🔔 NOTIFICATION ROUTES
+// ========================================
+indexRouter.use("/notifications", notificationRouter);
 
 // ========================================
 // 🔐 ADMIN ROUTES (founder/ops only)

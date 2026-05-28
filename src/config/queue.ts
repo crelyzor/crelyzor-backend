@@ -18,6 +18,7 @@ export const JobNames = {
   FETCH_RECALL_RECORDING: "fetch-recording",
   BOOKING_REMINDER: "booking-reminder",
   DAILY_TASK_DIGEST: "daily-task-digest",
+  TASK_DUE_SOON: "task-due-soon",
   MONTHLY_USAGE_RESET: "monthly-usage-reset",
   GCAL_PUSH_SYNC: "gcal-push-sync",
 } as const;
@@ -55,6 +56,10 @@ export interface DailyDigestJobData {
   triggeredAt: string;
 }
 
+export interface TaskDueSoonJobData {
+  triggeredAt: string;
+}
+
 export interface MonthlyUsageResetJobData {
   triggeredAt: string;
 }
@@ -75,6 +80,7 @@ type AnyJobData =
   | RecallRecordingJobData
   | BookingReminderJobData
   | DailyDigestJobData
+  | TaskDueSoonJobData
   | MonthlyUsageResetJobData
   | GCalPushRenewalJobData
   | GCalPushSyncJobData;
@@ -200,6 +206,7 @@ export const getRecallRecordingQueue = (): Bull.Queue<RecallRecordingJobData> =>
 export const getEmailQueue = (): Bull.Queue<
   | BookingReminderJobData
   | DailyDigestJobData
+  | TaskDueSoonJobData
   | MonthlyUsageResetJobData
   | GCalPushSyncJobData
   | GCalPushRenewalJobData
@@ -207,6 +214,7 @@ export const getEmailQueue = (): Bull.Queue<
   getQueue() as unknown as Bull.Queue<
     | BookingReminderJobData
     | DailyDigestJobData
+    | TaskDueSoonJobData
     | MonthlyUsageResetJobData
     | GCalPushSyncJobData
     | GCalPushRenewalJobData

@@ -5,6 +5,7 @@ import {
   getLimitsForPlan,
 } from "../services/billing/usageService";
 import prisma from "../db/prismaClient";
+import { env } from "../config/environment";
 
 /**
  * GET /billing/usage
@@ -68,9 +69,8 @@ export const createCheckoutSession = async (req: Request, res: Response) => {
     message: "Payment gateway coming soon",
     data: {
       status: "deferred",
-      message:
-        "Online payments are not yet available. To upgrade to Pro, please contact harshkeshari100@gmail.com and we will upgrade your account manually.",
-      supportEmail: "harshkeshari100@gmail.com",
+      message: `Online payments are not yet available. To upgrade to Pro, please contact ${env.SUPPORT_EMAIL} and we will upgrade your account manually.`,
+      supportEmail: env.SUPPORT_EMAIL,
     },
   });
 };
@@ -89,9 +89,8 @@ export const createBillingPortalSession = async (
     message: "Billing portal coming soon",
     data: {
       status: "deferred",
-      message:
-        "Billing portal is not yet available. For subscription changes, please contact harshkeshari100@gmail.com.",
-      supportEmail: "harshkeshari100@gmail.com",
+      message: `Billing portal is not yet available. For subscription changes, please contact ${env.SUPPORT_EMAIL}.`,
+      supportEmail: env.SUPPORT_EMAIL,
     },
   });
 };

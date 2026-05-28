@@ -7,6 +7,7 @@ import { logger } from "./utils/logging/logger";
 import prisma from "./db/prismaClient";
 import { getRedisClient, closeRedisClient } from "./config/redisClient";
 import { initializeProducerQueues, closeQueues } from "./config/queue";
+import { createWsServer, closeWsServer } from "./websocket/wsServer";
 
 const PORT = process.env.PORT || 3000;
 
@@ -41,6 +42,9 @@ const startServer = async () => {
     logger.error("❌ Queue initialization failed (job processing disabled):", {
       error: error instanceof Error ? error.message : String(error),
     });
+    if (process.env.NODE_ENV === "production") {
+      process.exitCode = 1; // signal degraded state to health checks
+    }
   }
 
   // Validate required env vars — hard-fail in production, warn in dev
@@ -97,6 +101,7 @@ const startServer = async () => {
     logger.info(`✅ Server is listening on port ${PORT}`);
     logger.info(`🌐 API Base URL: ${process.env.BASE_URL}`);
     logger.info(`📍 Environment: ${process.env.NODE_ENV}`);
+    createWsServer(server);
   });
 
   // Handle port already in use error
@@ -116,6 +121,7 @@ const startServer = async () => {
 // Graceful shutdown
 process.on("SIGTERM", async () => {
   logger.info("SIGTERM received, shutting down gracefully...");
+  closeWsServer();
   await closeQueues();
   closeRedisClient();
   await prisma.$disconnect();
@@ -124,10 +130,26 @@ process.on("SIGTERM", async () => {
 
 process.on("SIGINT", async () => {
   logger.info("SIGINT received, shutting down gracefully...");
+  closeWsServer();
   await closeQueues();
   closeRedisClient();
   await prisma.$disconnect();
   process.exit(0);
+});
+
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled promise rejection", {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+});
+
+process.on("uncaughtException", (error) => {
+  logger.error("Uncaught exception — shutting down", {
+    error: error.message,
+    stack: error.stack,
+  });
+  process.exit(1);
 });
 
 startServer();

@@ -4,6 +4,7 @@ import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
 import prisma from "../db/prismaClient";
 import { registerWatchChannel } from "./googleCalendarPushService";
+import { encrypt } from "../utils/security/crypto";
 
 const LOGIN_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
@@ -178,6 +179,12 @@ export const googleService = {
         });
         if (!user) throw new AppError("User not found", 404);
 
+        // Encrypt tokens under the user's DEK — user exists and DEK is committed (calendar connect is always for existing users)
+        const encAccessToken = await encrypt(tokens.access_token ?? "", userId);
+        const encRefreshToken = tokens.refresh_token
+          ? await encrypt(tokens.refresh_token, userId)
+          : undefined;
+
         await tx.oAuthAccount.upsert({
           where: {
             provider_providerId: {
@@ -186,11 +193,9 @@ export const googleService = {
             },
           },
           update: {
-            accessToken: tokens.access_token ?? "",
+            accessToken: encAccessToken,
             // Only overwrite refresh_token if Google issued a new one — preserves the existing token otherwise
-            ...(tokens.refresh_token
-              ? { refreshToken: tokens.refresh_token }
-              : {}),
+            ...(encRefreshToken ? { refreshToken: encRefreshToken } : {}),
             expiry: tokens.expiry_date
               ? Math.floor(tokens.expiry_date / 1000)
               : 0,
@@ -200,8 +205,8 @@ export const googleService = {
           create: {
             provider: "GOOGLE",
             providerId: data.id!,
-            accessToken: tokens.access_token ?? "",
-            refreshToken: tokens.refresh_token ?? "",
+            accessToken: encAccessToken,
+            refreshToken: encRefreshToken ?? null,
             expiry: tokens.expiry_date
               ? Math.floor(tokens.expiry_date / 1000)
               : 0,

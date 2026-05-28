@@ -89,7 +89,7 @@ export async function updateEventType(
 
   try {
     const eventType = await prisma.eventType.update({
-      where: { id },
+      where: { id, userId },
       data: {
         ...(data.title !== undefined && { title: data.title }),
         ...(data.slug !== undefined && { slug: data.slug }),
@@ -154,8 +154,8 @@ export async function deleteEventType(userId: string, id: string) {
     );
   }
 
-  await prisma.eventType.update({
-    where: { id },
+  await prisma.eventType.updateMany({
+    where: { id, userId, isDeleted: false },
     data: { isDeleted: true, deletedAt: new Date() },
   });
 

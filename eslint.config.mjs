@@ -9,6 +9,7 @@ export default [
       "tsconfig.json",
       "prisma/**/*.ts",
       "test-*.ts",
+      "vitest.config.ts",
     ],
   },
   ...tseslint.configs.recommended,
@@ -26,7 +27,10 @@ export default [
     },
     rules: {
       "prettier/prettier": "error",
-      "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
       "no-console": "off",
       "@typescript-eslint/no-explicit-any": "off",
     },

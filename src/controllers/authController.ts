@@ -217,8 +217,8 @@ export const authController = {
         throw ErrorFactory.validation(parsed.error);
       }
 
-      const existing = await prisma.user.findUnique({
-        where: { username: parsed.data.username },
+      const existing = await prisma.user.findFirst({
+        where: { username: parsed.data.username, isDeleted: false },
         select: { id: true },
       });
 
@@ -249,18 +249,22 @@ export const authController = {
       const { username } = parsed.data;
 
       // Check availability
-      const existing = await prisma.user.findUnique({
-        where: { username },
+      const existing = await prisma.user.findFirst({
+        where: { username, isDeleted: false },
         select: { id: true },
       });
       if (existing && existing.id !== userId) {
         throw ErrorFactory.conflict("Username is already taken");
       }
 
-      await prisma.user.update({
-        where: { id: userId },
+      const result = await prisma.user.updateMany({
+        where: { id: userId, isDeleted: false },
         data: { username },
       });
+
+      if (result.count === 0) {
+        throw ErrorFactory.notFound("User not found");
+      }
 
       const profile = await authService.getUserProfile(userId);
 

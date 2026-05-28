@@ -236,7 +236,7 @@ export async function processIncomingNotification(
       eventCount: items.length,
     });
   } catch (err) {
-    logger.warn("GCal push: processIncomingNotification failed — fail-open", {
+    logger.error("GCal push: processIncomingNotification failed — fail-open", {
       channelId,
       userId,
       error: err instanceof Error ? err.message : String(err),
@@ -253,15 +253,36 @@ export async function renewExpiringChannels(): Promise<number> {
   const expiring = await prisma.gCalSyncState.findMany({
     where: { expiration: { lt: threshold } },
     select: { userId: true },
+    take: 500,
   });
 
-  let renewed = 0;
-  for (const { userId } of expiring) {
-    await stopWatchChannel(userId);
-    await registerWatchChannel(userId);
-    renewed += 1;
+  const results = await Promise.allSettled(
+    expiring.map(async ({ userId }) => {
+      await stopWatchChannel(userId);
+      await registerWatchChannel(userId);
+    }),
+  );
+
+  const failures = results.filter((r) => r.status === "rejected");
+  if (failures.length > 0) {
+    logger.warn("GCal push: some channel renewals failed", {
+      total: expiring.length,
+      failed: failures.length,
+      errors: failures.map((f) =>
+        f.status === "rejected"
+          ? f.reason instanceof Error
+            ? f.reason.message
+            : String(f.reason)
+          : undefined,
+      ),
+    });
   }
 
-  logger.info("GCal push: channel renewal completed", { renewed });
+  const renewed = results.filter((r) => r.status === "fulfilled").length;
+
+  logger.info("GCal push: channel renewal completed", {
+    renewed,
+    failed: failures.length,
+  });
   return renewed;
 }

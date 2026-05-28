@@ -15,6 +15,7 @@ import {
   GCalPushSyncJobData,
   GCalPushRenewalJobData,
 } from "../config/queue";
+import { createNotification } from "../services/notificationService";
 import { transcriptionService } from "../services/transcription/transcriptionService";
 import { aiService } from "../services/ai/aiService";
 import { sendEmail } from "../services/email/emailService";
@@ -49,6 +50,7 @@ import {
   processIncomingNotification,
   renewExpiringChannels,
 } from "../services/googleCalendarPushService";
+import { decrypt } from "../utils/security/crypto";
 
 /** Base URL for the dashboard app — used in email CTAs */
 const APP_BASE_URL = env.FRONTEND_URL;
@@ -142,6 +144,7 @@ export const startWorker = async (): Promise<void> => {
         (user?.settings?.meetingReadyEmailEnabled ?? true);
 
       if (emailsEnabled && user?.email && meeting?.title) {
+        // fail-open — email failure must not fail the AI job
         await sendEmail({
           to: user.email,
           subject: meetingReadySubject({ meetingTitle: meeting.title }),
@@ -151,7 +154,23 @@ export const startWorker = async (): Promise<void> => {
             meetingId: data.meetingId,
             appBaseUrl: APP_BASE_URL,
           }),
+        }).catch((err: unknown) => {
+          logger.warn("Meeting-ready email failed — notification still sent", {
+            meetingId: data.meetingId,
+            error: err instanceof Error ? err.message : String(err),
+          });
         });
+      }
+
+      if (meeting?.title) {
+        await createNotification(
+          data.ownerId,
+          "MEETING_AI_COMPLETE",
+          `"${meeting.title}" is ready`,
+          "Transcript, summary, and tasks are available.",
+          "meeting",
+          data.meetingId,
+        );
       }
 
       return { success: true, result };
@@ -384,6 +403,7 @@ export const startWorker = async (): Promise<void> => {
           eventType: { select: { title: true } },
           meeting: {
             select: {
+              id: true,
               meetLink: true,
               location: true,
               booking: {
@@ -400,6 +420,21 @@ export const startWorker = async (): Promise<void> => {
         });
         return { skipped: true };
       }
+
+      // Decrypt guest PII using host's DEK (booking.userId is the host)
+      const [guestName, guestEmail] = await Promise.all([
+        decrypt(booking.guestName, booking.userId).catch(() => "Guest"),
+        decrypt(booking.guestEmail, booking.userId).catch((err: unknown) => {
+          logger.warn(
+            "Failed to decrypt guestEmail for booking reminder — skipping",
+            {
+              bookingId: booking.id,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
+          return "";
+        }),
+      ]);
 
       const host = await prisma.user.findUnique({
         where: { id: booking.userId },
@@ -436,36 +471,60 @@ export const startWorker = async (): Promise<void> => {
         meetingLink,
       };
 
+      // fail-open — individual email failure should not fail the whole reminder job
       await Promise.all([
         host?.email
           ? sendEmail({
               to: host.email,
               subject: bookingReminderSubject({
                 eventTypeTitle: booking.eventType.title,
-                otherPartyName: booking.guestName,
+                otherPartyName: guestName,
               }),
               html: bookingReminderEmail({
                 recipientName: host?.name ?? "Host",
-                otherPartyName: booking.guestName,
+                otherPartyName: guestName,
                 role: "host",
                 ...sharedParams,
               }),
+            }).catch((err: unknown) => {
+              logger.warn("Booking reminder host email failed", {
+                bookingId,
+                error: err instanceof Error ? err.message : String(err),
+              });
             })
           : Promise.resolve(),
-        sendEmail({
-          to: booking.guestEmail,
-          subject: bookingReminderSubject({
-            eventTypeTitle: booking.eventType.title,
-            otherPartyName: host?.name ?? "Host",
-          }),
-          html: bookingReminderEmail({
-            recipientName: booking.guestName,
-            otherPartyName: host?.name ?? "Host",
-            role: "guest",
-            ...sharedParams,
-          }),
-        }),
+        guestEmail
+          ? sendEmail({
+              to: guestEmail,
+              subject: bookingReminderSubject({
+                eventTypeTitle: booking.eventType.title,
+                otherPartyName: host?.name ?? "Host",
+              }),
+              html: bookingReminderEmail({
+                recipientName: guestName,
+                otherPartyName: host?.name ?? "Host",
+                role: "guest",
+                ...sharedParams,
+              }),
+            }).catch((err: unknown) => {
+              logger.warn("Booking reminder guest email failed", {
+                bookingId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            })
+          : Promise.resolve(),
       ]);
+
+      if (booking.meeting?.id) {
+        await createNotification(
+          booking.userId,
+          "BOOKING_REMINDER",
+          `Upcoming: ${booking.eventType.title} in 24h`,
+          `Your session with ${guestName} starts tomorrow.`,
+          "meeting",
+          booking.meeting.id,
+        );
+      }
 
       return { success: true };
     } catch (err) {
@@ -602,6 +661,87 @@ export const startWorker = async (): Promise<void> => {
     });
   }
 
+  // ── TASK_DUE_SOON in-app notification cron ───────────────────────────────────
+  emailQueue.process(JobNames.TASK_DUE_SOON, async (job) => {
+    logger.info("Processing task-due-soon notification job", { jobId: job.id });
+
+    try {
+      const users = await prisma.user.findMany({
+        where: {
+          isActive: true,
+          isDeleted: false,
+          settings: {
+            inAppNotificationsEnabled: true,
+            inAppTaskDueEnabled: true,
+          },
+        },
+        select: {
+          id: true,
+          timezone: true,
+          tasks: {
+            where: {
+              isDeleted: false,
+              status: { not: "DONE" },
+              dueDate: { not: null },
+            },
+            select: { dueDate: true },
+          },
+        },
+      });
+
+      let notified = 0;
+
+      for (const user of users) {
+        const now = new Date();
+        const userNow = new Date(
+          now.toLocaleString("en-US", { timeZone: user.timezone }),
+        );
+        userNow.setHours(0, 0, 0, 0);
+
+        const dueToday = user.tasks.filter((t) => {
+          if (!t.dueDate) return false;
+          const taskDate = new Date(
+            t.dueDate.toLocaleString("en-US", { timeZone: user.timezone }),
+          );
+          taskDate.setHours(0, 0, 0, 0);
+          return taskDate.getTime() === userNow.getTime();
+        });
+
+        if (dueToday.length === 0) continue;
+
+        await createNotification(
+          user.id,
+          "TASK_DUE_SOON",
+          `You have ${dueToday.length} task${dueToday.length > 1 ? "s" : ""} due today`,
+        );
+        notified += 1;
+      }
+
+      logger.info("Task-due-soon notifications sent", { notified });
+      return { success: true, notified };
+    } catch (err) {
+      logger.error("Task-due-soon notification job failed", {
+        jobId: job.id,
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      throw err;
+    }
+  });
+
+  try {
+    await emailQueue.add(
+      JobNames.TASK_DUE_SOON,
+      { triggeredAt: new Date().toISOString() },
+      { repeat: { cron: "0 8 * * *" }, jobId: "task-due-soon-cron" },
+    );
+    logger.info("Task-due-soon cron scheduled for 08:00 UTC daily");
+  } catch (err) {
+    logger.error("Failed to schedule task-due-soon cron", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   // Monthly usage reset processor
   emailQueue.process(JobNames.MONTHLY_USAGE_RESET, async (job) => {
     const data = job.data as MonthlyUsageResetJobData;
@@ -643,12 +783,11 @@ export const startWorker = async (): Promise<void> => {
       await processIncomingNotification(data.channelId);
       return { success: true };
     } catch (err) {
-      // Fail-open — Google will retry on next change anyway
       logger.error("GCal push sync job failed", {
         channelId: data.channelId,
         error: err instanceof Error ? err.message : String(err),
       });
-      return { success: false };
+      throw err;
     }
   });
 
