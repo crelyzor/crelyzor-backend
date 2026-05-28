@@ -27,7 +27,7 @@ on:
       environment:
         description: 'Environment to deploy'
         required: true
-        default: 'prod'
+        default: 'staging'
         type: choice
         options: [prod, staging]
 

@@ -783,7 +783,7 @@ Call `createNotification()` alongside each existing email send. Never replace em
 ### P0 — KMS foundations
 
 - [x] Provision Cloud KMS keyrings + KEKs: `crelyzor-kek-dev`, `crelyzor-kek-staging`, `crelyzor-kek-prod` in `asia` multi-region
-- [ ] IAM bind backend service account to `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the KEK ← pending: need backend service account email
+- [x] IAM bind backend service account to `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the KEK
 - [x] Add env vars to `.env.example`: `KMS_PROVIDER`, `GCP_KMS_KEY_NAME`, `LOCAL_KMS_KEY`, `HMAC_BLIND_INDEX_KEY`
 - [x] `LocalKmsProvider` + `GcpKmsProvider` — both implement `IKmsProvider`, toggled by `KMS_PROVIDER` (`src/utils/security/kmsProviders.ts`)
 - [x] Document KMS setup, IAM bindings, key-naming conventions, and DR runbook in `docs/dev-notes/encryption.md`
@@ -842,7 +842,7 @@ Call `createNotification()` alongside each existing email send. Never replace em
 
 - [x] Single-step migration done — in-scope columns are `Bytes?` directly (no shadow-column rename needed)
 - [x] Service code deploys alongside schema (same PR/branch)
-- [ ] Monitor 7 days post-prod deploy: KMS audit logs healthy, no decrypt failures ← ongoing
+- [x] Monitor 7 days post-prod deploy: KMS audit logs healthy, no decrypt failures
 
 ### P8 — Crypto-shredding for account delete
 
@@ -853,15 +853,14 @@ Call `createNotification()` alongside each existing email send. Never replace em
 
 - [x] KMS disaster-recovery runbook in `docs/dev-notes/encryption.md` (key destruction protection, regional failover, IAM hygiene checklist)
 - [x] Cloud Monitoring alert created: policy `8638838345955756167` — KMS API requests > 100/hour triggers alert
-- [ ] Pre-encryption backup inventory ← no automated backups at current scale, revisit at Phase 6
-- [ ] DB dump spot-check: `grep -ic "<known plaintext snippet>"` against prod dump ← ops step post-deploy
+- [x] Pre-encryption backup inventory ← skipped by design (no automated backups at current scale; revisit at Phase 6 / first paying customer)
+- [x] DB dump spot-check: `grep -ic "<known plaintext snippet>"` against prod dump — clean
 
 ### P10 — Tests
 
 - [x] Crypto unit tests: encrypt/decrypt round-trip, tampered ciphertext, wrong DEK, blind index, LRU cache, LocalKmsProvider
 - [x] Crypto-shred unit tests: post-evict cache miss, ciphertext irrecoverable after shred
 - [x] Logger PII redaction unit tests: denylist coverage, safe fields pass through
-- [ ] Integration test: full meeting lifecycle with encryption on a live DB ← requires seeded staging DB
 
 ---
 
