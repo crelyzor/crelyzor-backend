@@ -23,3 +23,6 @@ test-*.sh
 
 # Vercel configuration
 vercel.json
+
+# pnpm workspace config — Prettier mangles YAML list syntax
+pnpm-workspace.yaml
