@@ -27,7 +27,7 @@ on:
       environment:
         description: 'Environment to deploy'
         required: true
-        default: 'prod'
+        default: 'staging'
         type: choice
         options: [prod, staging]
 
@@ -92,7 +92,7 @@ jobs:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
-          command_timeout: 40m
+          command_timeout: 90m
           script: |
             cd ${{ secrets.VM_WORKSPACE_PATH }}
             ./deploy.sh ${{ steps.env.outputs.name }}
