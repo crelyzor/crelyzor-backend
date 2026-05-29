@@ -8,9 +8,28 @@ import { getRedisClient } from "../../config/redisClient";
 import { checkAndDeductCredits } from "../billing/usageService";
 import * as conversationService from "./askAIConversationService";
 import { encrypt, decrypt } from "../../utils/security/crypto";
+import { principalForMeeting } from "../meetings/meetingService";
 
 const MAX_PIPELINE_CHARS = 150000; // ~37.5k tokens — Gemini 1M context handles full meetings
 const MAX_ASK_AI_CHARS = 50000; // ~12.5k tokens for Ask AI context
+
+// Phase 6 P5.1.c.ii — loads the minimum meeting fields needed to derive the
+// encryption principal + the billing teamId. Uses the existing personal-
+// ownership filter (createdById = userId, !isDeleted) so behaviour is
+// identical to the pre-Phase-6 lookups. Returns the raw row so callers can
+// thread it into `principalForMeeting` and through `checkAndDeductCredits`
+// in one place.
+async function loadMeetingMeta(
+  meetingId: string,
+  userId: string,
+): Promise<{ teamId: string | null; createdById: string }> {
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, createdById: userId, isDeleted: false },
+    select: { teamId: true, createdById: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+  return meeting;
+}
 
 type AIUsageStats = {
   promptTokenCount?: number;
@@ -78,10 +97,19 @@ export const generateSummary = async (
     throw new AppError("GEMINI_API_KEY is required for AI features", 503);
   }
 
+  // Phase 6 P5.1.c.ii — include teamId + createdById so we can derive the
+  // meeting principal for encryption below.
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { title: true, description: true },
+    select: {
+      title: true,
+      description: true,
+      teamId: true,
+      createdById: true,
+    },
   });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+  const meetingPrincipal = principalForMeeting(meeting);
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
   const systemContent =
@@ -119,7 +147,7 @@ Provide a summary in 2-3 paragraphs.`;
     usage: result.response.usageMetadata,
   });
 
-  const encryptedSummary = await encrypt(summary, userId);
+  const encryptedSummary = await encrypt(summary, meetingPrincipal);
   await prisma.meetingAISummary.upsert({
     where: { meetingId },
     create: { meetingId, summary: encryptedSummary },
@@ -185,8 +213,15 @@ Return ONLY a JSON array, no other text.`;
     );
   }
 
-  const encryptedKeyPoints = await encrypt(JSON.stringify(keyPoints), userId);
-  const encryptedEmptySummary = await encrypt("", userId);
+  // Phase 6 P5.1.c.ii — encrypt under the meeting principal (team DEK on
+  // team meetings, user DEK otherwise).
+  const meetingMeta = await loadMeetingMeta(meetingId, userId);
+  const meetingPrincipal = principalForMeeting(meetingMeta);
+  const encryptedKeyPoints = await encrypt(
+    JSON.stringify(keyPoints),
+    meetingPrincipal,
+  );
+  const encryptedEmptySummary = await encrypt("", meetingPrincipal);
   await prisma.meetingAISummary.upsert({
     where: { meetingId },
     create: {
@@ -230,10 +265,19 @@ export const generateSummaryAndKeyPoints = async (
     throw new AppError("GEMINI_API_KEY is required for AI features", 503);
   }
 
+  // Phase 6 P5.1.c.ii — include teamId + createdById so we can derive the
+  // meeting principal for encryption below.
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { title: true, description: true },
+    select: {
+      title: true,
+      description: true,
+      teamId: true,
+      createdById: true,
+    },
   });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+  const meetingPrincipal = principalForMeeting(meeting);
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
   const systemContent =
@@ -320,8 +364,8 @@ ${capped}`;
   }
 
   const [encryptedSummary2, encryptedKeyPoints2] = await Promise.all([
-    encrypt(summary, userId),
-    encrypt(JSON.stringify(keyPoints), userId),
+    encrypt(summary, meetingPrincipal),
+    encrypt(JSON.stringify(keyPoints), meetingPrincipal),
   ]);
   await prisma.meetingAISummary.upsert({
     where: { meetingId },
@@ -412,13 +456,17 @@ Return ONLY a JSON array, no other text.`;
   }));
 
   if (tasks.length > 0) {
+    // Phase 6 P5.1.c.ii — task descriptions encrypt under the meeting
+    // principal so every team admin can read them, not just the actor.
+    const meetingMeta = await loadMeetingMeta(meetingId, userId);
+    const meetingPrincipal = principalForMeeting(meetingMeta);
     const encryptedTasks = await Promise.all(
       tasks.map(async (task) => ({
         meetingId,
         userId,
         title: task.title,
         description: task.description
-          ? await encrypt(task.description, userId)
+          ? await encrypt(task.description, meetingPrincipal)
           : undefined,
         source: "AI_EXTRACTED" as const,
       })),
@@ -508,6 +556,13 @@ export const processTranscriptWithAI = async (
   meetingId: string,
   userId: string,
 ): Promise<AIProcessingResult> => {
+  // Phase 6 P5.1.c.ii — orchestrator derives meetingPrincipal once and
+  // reuses it for every decrypt/encrypt site below. Without this, an
+  // ADMIN running re-processing on a team meeting would decrypt against
+  // their personal DEK and fail.
+  const meetingMeta = await loadMeetingMeta(meetingId, userId);
+  const meetingPrincipal = principalForMeeting(meetingMeta);
+
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
   });
@@ -517,7 +572,7 @@ export const processTranscriptWithAI = async (
   }
 
   const fullText = transcript.fullText
-    ? await decrypt(transcript.fullText, userId)
+    ? await decrypt(transcript.fullText, meetingPrincipal)
     : "";
 
   const [existingSummary, existingTasks] = await Promise.all([
@@ -540,13 +595,13 @@ export const processTranscriptWithAI = async (
   );
 
   let summary = existingSummary?.summary
-    ? (await decrypt(existingSummary.summary, userId)).trim()
+    ? (await decrypt(existingSummary.summary, meetingPrincipal)).trim()
     : "";
   let keyPoints: string[] = [];
   if (existingSummary?.keyPoints) {
     try {
       keyPoints = JSON.parse(
-        await decrypt(existingSummary.keyPoints, userId),
+        await decrypt(existingSummary.keyPoints, meetingPrincipal),
       ) as string[];
       if (!Array.isArray(keyPoints)) keyPoints = [];
     } catch (err) {
@@ -582,8 +637,8 @@ export const processTranscriptWithAI = async (
     if (fallbackKeyPoints.length > 0) {
       keyPoints = fallbackKeyPoints;
       const [encS, encKP] = await Promise.all([
-        encrypt(summary, userId),
-        encrypt(JSON.stringify(keyPoints), userId),
+        encrypt(summary, meetingPrincipal),
+        encrypt(JSON.stringify(keyPoints), meetingPrincipal),
       ]);
       await prisma.meetingAISummary.upsert({
         where: { meetingId },
@@ -601,7 +656,7 @@ export const processTranscriptWithAI = async (
     existingTasks.map(async (task) => ({
       title: task.title,
       description: task.description
-        ? await decrypt(task.description, userId)
+        ? await decrypt(task.description, meetingPrincipal)
         : undefined,
     })),
   );
@@ -749,14 +804,22 @@ export const askAI = async (
 ): Promise<void> => {
   await checkAskAIRateLimit(userId);
 
+  // Phase 6 P5.1.c.ii — include teamId + createdById so we can derive the
+  // meeting principal for decrypt below.
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true, title: true },
+    select: {
+      id: true,
+      title: true,
+      teamId: true,
+      createdById: true,
+    },
   });
 
   if (!meeting) {
     throw new AppError("Meeting not found", 404);
   }
+  const meetingPrincipal = principalForMeeting(meeting);
 
   // Cap segments to avoid decrypting far more than MAX_ASK_AI_CHARS needs.
   // At ~150 chars/segment, 500 segments ≈ 75k chars — 1.5× the 50k MAX_ASK_AI_CHARS buffer.
@@ -779,7 +842,7 @@ export const askAI = async (
   const decryptedSegments = await Promise.all(
     transcript.segments.map(async (seg) => ({
       ...seg,
-      text: seg.text ? await decrypt(seg.text, userId) : "",
+      text: seg.text ? await decrypt(seg.text, meetingPrincipal) : "",
     })),
   );
 
@@ -828,7 +891,7 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
     conversationId,
     "user",
     question,
-    userId,
+    meetingPrincipal,
   );
 
   res.setHeader("Content-Type", "text/event-stream");
@@ -871,10 +934,12 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
 
     const estimatedInputTokens = Math.ceil(askAIPromptChars / 4);
     const estimatedOutputTokens = Math.ceil(streamedCompletionChars / 4);
+    // Phase 6 P5.1.c.ii — bill the team owner on team-meeting Ask AI.
     await checkAndDeductCredits(
       userId,
       estimatedInputTokens,
       estimatedOutputTokens,
+      { teamId: meeting.teamId },
     );
 
     if (fullAssistantResponse) {
@@ -882,7 +947,7 @@ Be concise, accurate, and helpful. If the answer isn't in the transcript, say so
         conversationId,
         "assistant",
         fullAssistantResponse,
-        userId,
+        meetingPrincipal,
       );
     }
 
@@ -931,16 +996,18 @@ export const generateContent = async (
     throw new AppError("GEMINI_API_KEY is required for AI features", 500);
   }
 
+  // Phase 6 P5.1.c.ii — include teamId + createdById for the principal.
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
+    select: { id: true, teamId: true, createdById: true },
   });
   if (!meeting) throw new AppError("Meeting not found", 404);
+  const meetingPrincipal = principalForMeeting(meeting);
 
   const cached = await prisma.meetingAIContent.findUnique({
     where: { meetingId_type: { meetingId, type } },
   });
-  if (cached) return decrypt(cached.content, userId);
+  if (cached) return decrypt(cached.content, meetingPrincipal);
 
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
@@ -953,7 +1020,7 @@ export const generateContent = async (
   }
 
   const fullText = transcript.fullText
-    ? await decrypt(transcript.fullText, userId)
+    ? await decrypt(transcript.fullText, meetingPrincipal)
     : "";
   const capped = fullText.slice(0, MAX_PIPELINE_CHARS);
   const prompt = CONTENT_PROMPTS[type](capped);
@@ -985,14 +1052,16 @@ export const generateContent = async (
     usage,
   });
 
+  // Phase 6 P5.1.c.ii — bill the team owner on team-meeting content gen.
   await checkAndDeductCredits(
     userId,
     usage?.promptTokenCount ??
       Math.ceil((systemContent.length + prompt.length) / 4),
     usage?.candidatesTokenCount ?? Math.ceil(content.length / 4),
+    { teamId: meeting.teamId },
   );
 
-  const encryptedContent = await encrypt(content, userId);
+  const encryptedContent = await encrypt(content, meetingPrincipal);
   await prisma.meetingAIContent.upsert({
     where: { meetingId_type: { meetingId, type } },
     create: { meetingId, type, content: encryptedContent },
@@ -1007,11 +1076,13 @@ export const getGeneratedContents = async (
   meetingId: string,
   userId: string,
 ): Promise<{ type: string; content: string }[]> => {
+  // Phase 6 P5.1.c.ii — include teamId + createdById for the principal.
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
+    select: { id: true, teamId: true, createdById: true },
   });
   if (!meeting) throw new AppError("Meeting not found", 404);
+  const meetingPrincipal = principalForMeeting(meeting);
 
   const rows = await prisma.meetingAIContent.findMany({
     where: { meetingId },
@@ -1021,7 +1092,7 @@ export const getGeneratedContents = async (
   return Promise.all(
     rows.map(async (row) => ({
       type: row.type,
-      content: await decrypt(row.content, userId),
+      content: await decrypt(row.content, meetingPrincipal),
     })),
   );
 };

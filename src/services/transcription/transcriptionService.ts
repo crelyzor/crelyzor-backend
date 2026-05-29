@@ -13,6 +13,7 @@ import {
   deductTranscription,
 } from "../billing/usageService";
 import { encrypt, decrypt } from "../../utils/security/crypto";
+import { principalForMeeting } from "../meetings/meetingService";
 
 const DEEPGRAM_MODEL = "nova-3"; // Upgraded to nova-3 (multilingual) at Phase 4 start — better accuracy, 45+ languages
 
@@ -51,7 +52,9 @@ export const transcribeRecording = async (
       id: true,
       meetingId: true,
       gcsPath: true,
-      meeting: { select: { isDeleted: true, createdById: true } },
+      meeting: {
+        select: { isDeleted: true, createdById: true, teamId: true },
+      },
     },
   });
 
@@ -59,10 +62,17 @@ export const transcribeRecording = async (
     throw new AppError(`Recording not found: ${recordingId}`, 404);
   }
 
-  // Usage check — throws 402 if user is over their transcription limit.
+  // Phase 6 P5.1.c — derive the meeting principal once for all encryption +
+  // metering calls. Billing goes to the team owner when teamId is set.
+  const meetingPrincipal = principalForMeeting(recording.meeting);
+  const meetingTeamId = recording.meeting.teamId;
+
+  // Usage check — throws 402 if the payer is over their transcription limit.
   // We estimate 60 min as a conservative default; actual deduction uses real duration.
   const ESTIMATE_MINUTES = 60;
-  await checkTranscription(recording.meeting.createdById, ESTIMATE_MINUTES);
+  await checkTranscription(recording.meeting.createdById, ESTIMATE_MINUTES, {
+    teamId: meetingTeamId,
+  });
 
   // Update status to processing
   await prisma.meeting.update({
@@ -148,17 +158,18 @@ export const transcribeRecording = async (
 
     // Persist transcript, status update, and speakers atomically
     const distinctSpeakers = [...new Set(segments.map((seg) => seg.speaker))];
-    const userId = recording.meeting.createdById;
 
-    // Encrypt before the transaction so we don't do async crypto inside Prisma tx
+    // Encrypt before the transaction so we don't do async crypto inside Prisma tx.
+    // Principal comes from the meeting row (team DEK when teamId set, user DEK
+    // otherwise) so cross-admin reads on team meetings decrypt cleanly.
     const encryptedFullText = await encrypt(
       alternatives.transcript || "",
-      userId,
+      meetingPrincipal,
     );
     const encryptedSegments = await Promise.all(
       segments.map(async (seg) => ({
         ...seg,
-        text: await encrypt(seg.text, userId),
+        text: await encrypt(seg.text, meetingPrincipal),
       })),
     );
 
@@ -211,9 +222,12 @@ export const transcribeRecording = async (
     );
     logger.info(`Transcription completed for recording ${recordingId}`);
 
-    // Deduct actual transcription minutes (fail-open)
+    // Deduct actual transcription minutes (fail-open). Payer = team owner
+    // when meeting.teamId is set, else the actor.
     const actualMinutes = (result.metadata?.duration ?? 0) / 60;
-    await deductTranscription(recording.meeting.createdById, actualMinutes);
+    await deductTranscription(recording.meeting.createdById, actualMinutes, {
+      teamId: meetingTeamId,
+    });
 
     return {
       transcriptId: transcript.id,
@@ -330,11 +344,20 @@ export const regenerateTranscript = async (
  * Decrypts segment text before returning.
  */
 export const getTranscript = async (meetingId: string, userId: string) => {
+  // Phase 6 P5.1.c — fetch teamId so we can derive the meeting principal
+  // for decryption. Access control still uses createdById here (personal
+  // path); the SMA controller layer with resolveTeamContext will mount a
+  // proper assertMeetingAccess in a follow-up (P5.1.b retrofit on this
+  // service was deferred). For now, personal-context decrypts work and
+  // team-context calls fall through to the existing 404 — which the
+  // controller-level guard will replace once it's wired.
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
+    select: { id: true, teamId: true, createdById: true },
   });
   if (!meeting) throw new AppError("Meeting not found", 404);
+
+  const meetingPrincipal = principalForMeeting(meeting);
 
   const MAX_TRANSCRIPT_SEGMENTS = 5000;
   const result = await prisma.meetingTranscript.findFirst({
@@ -366,7 +389,7 @@ export const getTranscript = async (meetingId: string, userId: string) => {
   const decryptedSegments = await Promise.all(
     result.segments.map(async (seg) => ({
       ...seg,
-      text: seg.text ? await decrypt(seg.text, userId) : "",
+      text: seg.text ? await decrypt(seg.text, meetingPrincipal) : "",
     })),
   );
 

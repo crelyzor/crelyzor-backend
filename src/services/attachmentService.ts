@@ -4,6 +4,8 @@ import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
 import { gcsService } from "./gcs/gcsService";
 import { AttachmentType } from "@prisma/client";
+import { assertMeetingAccess } from "./meetings/meetingService";
+import type { TeamContext } from "../middleware/authMiddleware";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -39,16 +41,9 @@ export interface AttachmentResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function verifyMeetingOwnership(
-  meetingId: string,
-  userId: string,
-): Promise<void> {
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
-  if (!meeting) throw new AppError("Meeting not found", 404);
-}
+// Phase 6 P5.1.b — local ownership probe replaced by assertMeetingAccess from
+// meetingService, which honours req.teamContext (X-Team-Id). The exported
+// service entry points now require a teamContext arg from the controller.
 
 function detectAttachmentType(mimeType: string): AttachmentType {
   return mimeType.startsWith("image/")
@@ -109,8 +104,9 @@ async function toResponse(attachment: {
 export async function getAttachments(
   meetingId: string,
   userId: string,
+  teamContext: TeamContext | null = null,
 ): Promise<AttachmentResponse[]> {
-  await verifyMeetingOwnership(meetingId, userId);
+  await assertMeetingAccess(userId, meetingId, teamContext, "read");
 
   const rows = await prisma.meetingAttachment.findMany({
     where: { meetingId, isDeleted: false },
@@ -137,8 +133,9 @@ export async function addLink(
   meetingId: string,
   userId: string,
   data: { url: string; name?: string },
+  teamContext: TeamContext | null = null,
 ): Promise<AttachmentResponse> {
-  await verifyMeetingOwnership(meetingId, userId);
+  await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
 
   let name: string;
   try {
@@ -183,8 +180,9 @@ export async function uploadFile(
   userId: string,
   file: Express.Multer.File,
   name?: string,
+  teamContext: TeamContext | null = null,
 ): Promise<AttachmentResponse> {
-  await verifyMeetingOwnership(meetingId, userId);
+  await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
 
   if (file.size > MAX_FILE_SIZE) {
     throw new AppError("File too large (max 50MB)", 400);
@@ -247,8 +245,9 @@ export async function deleteAttachment(
   meetingId: string,
   attachmentId: string,
   userId: string,
+  teamContext: TeamContext | null = null,
 ): Promise<void> {
-  await verifyMeetingOwnership(meetingId, userId);
+  await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
 
   const result = await prisma.meetingAttachment.updateMany({
     where: { id: attachmentId, meetingId, isDeleted: false },

@@ -251,8 +251,10 @@ export const startWorker = async (): Promise<void> => {
 
       // Recall usage check — estimate 1 hr per session. Throws 402 if over limit.
       // Fail-open: if check itself errors unexpectedly, let the job continue.
+      // Phase 6 P5.1.c — propagate teamId from job payload so the team
+      // owner is billed when the meeting was created in team context.
       try {
-        await checkRecall(data.hostUserId, 1);
+        await checkRecall(data.hostUserId, 1, { teamId: data.teamId ?? null });
       } catch (usageErr: unknown) {
         if (
           usageErr instanceof Error &&
@@ -349,10 +351,16 @@ export const startWorker = async (): Promise<void> => {
         { timeout: 15000 },
       );
 
-      // Queue transcription job — same pipeline as manual upload
+      // Queue transcription job — same pipeline as manual upload.
+      // Phase 6 P5.1.c — carry the meeting's teamId so the transcription
+      // worker can attribute Deepgram minutes to the team owner.
       await getTranscriptionQueue().add(
         JobNames.TRANSCRIBE,
-        { recordingId: recording.id, meetingId: data.meetingId },
+        {
+          recordingId: recording.id,
+          meetingId: data.meetingId,
+          ...(data.teamId ? { teamId: data.teamId } : {}),
+        },
         { jobId: `transcribe-${recording.id}` },
       );
 
@@ -364,7 +372,8 @@ export const startWorker = async (): Promise<void> => {
       // Deduct Recall hours based on actual recording duration (fail-open).
       // Duration is unknown at this stage; use 1 hr as a conservative deduction.
       // TODO Phase 5: use actual bot duration from Recall API when available.
-      await deductRecall(data.hostUserId, 1);
+      // Phase 6 P5.1.c — same teamId attribution as the check above.
+      await deductRecall(data.hostUserId, 1, { teamId: data.teamId ?? null });
 
       return { success: true, recordingId: recording.id };
     } catch (err) {

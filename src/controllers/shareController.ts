@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { AppError } from "../utils/errors/AppError";
 import { apiResponse } from "../utils/globalResponseHandler";
+import { getTeamContext } from "../middleware/teamContext";
 import {
   meetingIdParamSchema,
   shortIdParamSchema,
@@ -21,7 +22,11 @@ export const createShare = async (req: Request, res: Response) => {
   if (!params.success) throw new AppError("Meeting not found", 404);
 
   const userId = req.user!.userId;
-  const share = await createOrGetShare(params.data.meetingId, userId);
+  const share = await createOrGetShare(
+    params.data.meetingId,
+    userId,
+    getTeamContext(req),
+  );
 
   return apiResponse(res, {
     statusCode: 200,
@@ -42,7 +47,12 @@ export const patchShare = async (req: Request, res: Response) => {
   if (!body.success) throw new AppError("Validation failed", 400);
 
   const userId = req.user!.userId;
-  const share = await updateShare(params.data.meetingId, userId, body.data);
+  const share = await updateShare(
+    params.data.meetingId,
+    userId,
+    body.data,
+    getTeamContext(req),
+  );
 
   return apiResponse(res, {
     statusCode: 200,

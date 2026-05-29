@@ -46,36 +46,45 @@ const slugField = z
 
 const templateIdField = z.enum(TEMPLATE_IDS).optional();
 
-export const createCardSchema = z.object({
-  slug: slugField,
-  displayName: z.string().min(1).max(100),
-  title: z.string().max(200).optional(),
-  bio: z.string().max(500).optional(),
-  avatarUrl: z.string().url().optional(),
-  coverUrl: z.string().url().optional(),
-  links: z.array(cardLinkSchema).max(20).optional(),
-  contactFields: contactFieldsSchema.optional(),
-  theme: themeSchema.optional(),
-  templateId: templateIdField,
-  showQr: z.boolean().optional(),
-  isDefault: z.boolean().optional(),
-});
+// Phase 6 P5.2.a — `.strict()` rejects unknown keys (including teamId/userId)
+// so a forged PATCH body can't orphan encrypted contacts by flipping
+// `Card.teamId`. The service layer also explicitly never spreads `teamId`
+// from input (belt-and-suspenders), but stopping it at the validator is the
+// first line of defence.
+export const createCardSchema = z
+  .object({
+    slug: slugField,
+    displayName: z.string().min(1).max(100),
+    title: z.string().max(200).optional(),
+    bio: z.string().max(500).optional(),
+    avatarUrl: z.string().url().optional(),
+    coverUrl: z.string().url().optional(),
+    links: z.array(cardLinkSchema).max(20).optional(),
+    contactFields: contactFieldsSchema.optional(),
+    theme: themeSchema.optional(),
+    templateId: templateIdField,
+    showQr: z.boolean().optional(),
+    isDefault: z.boolean().optional(),
+  })
+  .strict();
 
-export const updateCardSchema = z.object({
-  slug: slugField,
-  displayName: z.string().min(1).max(100).optional(),
-  title: z.string().max(200).optional().nullable(),
-  bio: z.string().max(500).optional().nullable(),
-  avatarUrl: z.string().url().optional().nullable(),
-  coverUrl: z.string().url().optional().nullable(),
-  links: z.array(cardLinkSchema).max(20).optional(),
-  contactFields: contactFieldsSchema.optional(),
-  theme: themeSchema.optional(),
-  templateId: templateIdField,
-  showQr: z.boolean().optional(),
-  isDefault: z.boolean().optional(),
-  isActive: z.boolean().optional(),
-});
+export const updateCardSchema = z
+  .object({
+    slug: slugField,
+    displayName: z.string().min(1).max(100).optional(),
+    title: z.string().max(200).optional().nullable(),
+    bio: z.string().max(500).optional().nullable(),
+    avatarUrl: z.string().url().optional().nullable(),
+    coverUrl: z.string().url().optional().nullable(),
+    links: z.array(cardLinkSchema).max(20).optional(),
+    contactFields: contactFieldsSchema.optional(),
+    theme: themeSchema.optional(),
+    templateId: templateIdField,
+    showQr: z.boolean().optional(),
+    isDefault: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+  })
+  .strict();
 
 export const previewCardSchema = z.object({
   templateId: z.enum(TEMPLATE_IDS),

@@ -1,6 +1,8 @@
 import prisma from "../../db/prismaClient";
-import { encrypt, decrypt } from "../../utils/security/crypto";
+import { AppError } from "../../utils/errors/AppError";
+import { encrypt, decrypt, type Principal } from "../../utils/security/crypto";
 import { logger } from "../../utils/logging/logger";
+import { principalForMeeting } from "../meetings/meetingService";
 
 /**
  * Get-or-create the single conversation record for a (user, meeting) pair.
@@ -21,11 +23,22 @@ export const getOrCreateConversation = async (
 
 /**
  * Return all messages for a conversation ordered oldest → newest.
+ *
+ * Phase 6 P5.1.c.ii — decryption principal is derived from the parent
+ * meeting (team DEK on team meetings, user DEK otherwise) so any team
+ * admin reading another admin's Ask AI history decrypts cleanly.
  */
 export const getMessages = async (
   userId: string,
   meetingId: string,
 ): Promise<{ role: string; content: string; createdAt: Date }[]> => {
+  const meeting = await prisma.meeting.findFirst({
+    where: { id: meetingId, isDeleted: false },
+    select: { teamId: true, createdById: true },
+  });
+  if (!meeting) throw new AppError("Meeting not found", 404);
+  const meetingPrincipal = principalForMeeting(meeting);
+
   const conversation = await prisma.askAIConversation.findUnique({
     where: { meetingId_userId: { meetingId, userId } },
     select: {
@@ -43,7 +56,7 @@ export const getMessages = async (
     [...conversation.messages].reverse().map(async (m) => ({
       role: m.role,
       // Pre-Phase-5 rows were stored as plaintext cast to BYTEA — fail gracefully
-      content: await decrypt(m.content, userId).catch((err) => {
+      content: await decrypt(m.content, meetingPrincipal).catch((err) => {
         logger.warn("Failed to decrypt AskAI message content", {
           error: err instanceof Error ? err.message : String(err),
         });
@@ -57,14 +70,19 @@ export const getMessages = async (
 
 /**
  * Append a single message (user or assistant) to the conversation.
+ *
+ * Phase 6 P5.1.c.ii — caller passes the `Principal` derived from the
+ * parent meeting (via `principalForMeeting(meeting)`) so messages are
+ * encrypted under the team DEK on team meetings. Eliminates the need to
+ * re-fetch the meeting for every append.
  */
 export const appendMessage = async (
   conversationId: string,
   role: "user" | "assistant",
   content: string,
-  userId: string,
+  principal: Principal,
 ): Promise<void> => {
-  const encrypted = await encrypt(content, userId);
+  const encrypted = await encrypt(content, principal);
   await prisma.askAIMessage.create({
     data: { conversationId, role, content: encrypted },
   });

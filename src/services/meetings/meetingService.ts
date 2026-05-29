@@ -1,6 +1,7 @@
 import prisma from "../../db/prismaClient";
+import { AppError } from "../../utils/errors/AppError";
 import { ErrorFactory } from "../../utils/globalErrorHandler";
-import { MeetingStatus, MeetingType, Prisma } from "@prisma/client";
+import { MeetingStatus, MeetingType, Prisma, TeamRole } from "@prisma/client";
 import {
   createGCalEventForMeeting,
   updateGCalEventForMeeting,
@@ -12,9 +13,197 @@ import { getRecallBotQueue, JobNames } from "../../config/queue";
 import { env } from "../../config/environment";
 import { logger } from "../../utils/logging/logger";
 import { isVideoMeetingUrl } from "../../utils/isVideoMeetingUrl";
-import { encrypt, blindIndex, prismaBytes } from "../../utils/security/crypto";
+import {
+  encrypt,
+  blindIndex,
+  prismaBytes,
+  type Principal,
+} from "../../utils/security/crypto";
+import type { TeamContext } from "../../middleware/authMiddleware";
+
+// ── Phase 6 P5.1.a team-scoping helpers ──────────────────────────────────────
+
+const NOT_FOUND_MESSAGE = "Meeting not found";
+
+const ROLE_RANK: Record<TeamRole, number> = {
+  OWNER: 3,
+  ADMIN: 2,
+  MEMBER: 1,
+};
+
+/**
+ * Returns the Prisma where-clause fragment that scopes a meeting query to the
+ * caller's current context. All `meetingService` read paths must spread this
+ * into their `where` so a raw `where: { id }` never leaks cross-team data.
+ *
+ * - Personal context (teamContext null): meeting must be personal (`teamId IS NULL`)
+ *   AND the actor must be the creator OR a participant — mirrors the
+ *   pre-Phase-6 personal visibility behaviour.
+ * - Team context + ADMIN/OWNER: `teamId = ctx.teamId` (all team meetings).
+ * - Team context + MEMBER: `teamId = ctx.teamId AND (createdById = actorId OR
+ *   participants.some(userId = actorId))` — only meetings the member created
+ *   or was invited to. (Mutations apply a stricter creator-only rule via
+ *   verifyMeetingAccess; this scope is for reads.)
+ *
+ * Soft-delete is NOT part of the scope — caller must add `isDeleted: false`
+ * explicitly so writes that need to inspect deleted rows still compose
+ * correctly.
+ */
+function meetingScope(
+  actorId: string,
+  teamContext: TeamContext | null,
+): Prisma.MeetingWhereInput {
+  if (!teamContext) {
+    return {
+      teamId: null,
+      OR: [
+        { createdById: actorId },
+        { participants: { some: { userId: actorId } } },
+      ],
+    };
+  }
+  if (teamContext.role === TeamRole.MEMBER) {
+    return {
+      teamId: teamContext.teamId,
+      OR: [
+        { createdById: actorId },
+        { participants: { some: { userId: actorId } } },
+      ],
+    };
+  }
+  return { teamId: teamContext.teamId };
+}
+
+type MeetingForAccess = {
+  teamId: string | null;
+  createdById: string;
+  isDeleted: boolean;
+  participants?: Array<{ userId: string | null }>;
+};
+
+/**
+ * Derives the encrypt/decrypt principal for content scoped to a meeting.
+ * **Always read from the meeting row, never from the actor.** A team admin
+ * editing a team-scoped meeting must re-encrypt under the team DEK so other
+ * admins can read the result.
+ */
+export function principalForMeeting(meeting: {
+  teamId: string | null;
+  createdById: string;
+}): Principal {
+  return meeting.teamId
+    ? { type: "team", id: meeting.teamId }
+    : { type: "user", id: meeting.createdById };
+}
+
+/**
+ * Centralized access gate for all CRUD on a meeting. Throws 404 with a
+ * uniform body for every "not accessible" branch (wrong team, soft-deleted,
+ * non-participant member, missing) — same enumeration-collapse pattern as
+ * P1/P2.
+ *
+ * `action`:
+ * - `"read"` — read-only access. MEMBER may see meetings they created or
+ *   are a participant in.
+ * - `"mutate"` — write access. Under team context, MEMBER can mutate only
+ *   meetings they created (creator-only rule per spec).
+ */
+export function verifyMeetingAccess(
+  actorId: string,
+  meeting: MeetingForAccess,
+  teamContext: TeamContext | null,
+  action: "read" | "mutate",
+): void {
+  if (meeting.isDeleted) {
+    throw new AppError(NOT_FOUND_MESSAGE, 404);
+  }
+
+  const isCreator = meeting.createdById === actorId;
+  const isParticipant = meeting.participants?.some((p) => p.userId === actorId);
+
+  if (!teamContext) {
+    // Personal context: meeting must be personal.
+    if (meeting.teamId !== null) {
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
+    }
+    if (action === "mutate") {
+      // Mutations on a personal meeting are creator-only — matches the
+      // pre-Phase-6 ownership convention.
+      if (!isCreator) throw new AppError(NOT_FOUND_MESSAGE, 404);
+      return;
+    }
+    // Read: creator OR participant.
+    if (!isCreator && !isParticipant) {
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
+    }
+    return;
+  }
+
+  // Team context: meeting must belong to the same team.
+  if (meeting.teamId !== teamContext.teamId) {
+    throw new AppError(NOT_FOUND_MESSAGE, 404);
+  }
+
+  if (teamContext.role === TeamRole.MEMBER) {
+    if (action === "mutate") {
+      // Hard rule: MEMBER can mutate only meetings they created. Being a
+      // participant does NOT grant edit rights — a MEMBER invited to an
+      // ADMIN's meeting must not be able to mutate it.
+      if (!isCreator) throw new AppError(NOT_FOUND_MESSAGE, 404);
+      return;
+    }
+    if (!isCreator && !isParticipant) {
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
+    }
+  }
+  // ADMIN / OWNER: any meeting in the team is accessible (read or mutate).
+  void ROLE_RANK; // keep referenced for symmetry; comparisons happen elsewhere
+}
+
+/**
+ * One-shot meeting access gate for nested services (attachments, notes,
+ * share, tags, etc.). Slim-fetches the meeting, runs verifyMeetingAccess,
+ * and returns the row so callers can use `principalForMeeting(meeting)` for
+ * encrypt/decrypt of meeting-scoped content.
+ *
+ * Throws `AppError 404 "Meeting not found"` on every "not accessible" branch
+ * — uniform body matches the rest of the meeting CRUD surface.
+ */
+export type AssertedMeeting = {
+  id: string;
+  teamId: string | null;
+  createdById: string;
+  isDeleted: boolean;
+  participants: Array<{ userId: string | null }>;
+};
+
+export async function assertMeetingAccess(
+  actorId: string,
+  meetingId: string,
+  teamContext: TeamContext | null,
+  action: "read" | "mutate",
+): Promise<AssertedMeeting> {
+  const meeting = await prisma.meeting.findUnique({
+    where: { id: meetingId },
+    select: {
+      id: true,
+      teamId: true,
+      createdById: true,
+      isDeleted: true,
+      participants: { select: { userId: true } },
+    },
+  });
+  if (!meeting) {
+    throw new AppError(NOT_FOUND_MESSAGE, 404);
+  }
+  verifyMeetingAccess(actorId, meeting, teamContext, action);
+  return meeting;
+}
 
 const meetingInclude = {
+  team: {
+    select: { id: true, name: true, slug: true },
+  },
   participants: {
     include: {
       user: {
@@ -50,10 +239,15 @@ type MeetingWithDetails = Prisma.MeetingGetPayload<{
   include: typeof meetingInclude;
 }>;
 
-// Lighter include for list endpoints — uses _count instead of full participant objects
+// Lighter include for list endpoints — uses _count instead of full participant objects.
+// `teamId` is a scalar so it's already in the payload; `team` join provides the badge
+// data the frontend needs without an extra fetch.
 const meetingListInclude = {
   _count: {
     select: { participants: true },
+  },
+  team: {
+    select: { id: true, name: true, slug: true },
   },
   participants: {
     select: { userId: true },
@@ -113,6 +307,7 @@ export interface ConflictDetectionParams {
 export const meetingService = {
   async createMeeting(
     data: CreateMeetingDTO,
+    teamContext: TeamContext | null = null,
   ): Promise<{ meeting: MeetingWithDetails; gcalSynced: boolean }> {
     const {
       createdById,
@@ -124,6 +319,30 @@ export const meetingService = {
       guestEmails,
       notes,
     } = data;
+
+    // Under team context, MEMBER role is restricted to inviting active
+    // teammates as participants — prevents using a team meeting to leak
+    // visibility to outsiders.
+    if (
+      teamContext &&
+      teamContext.role === TeamRole.MEMBER &&
+      participantUserIds &&
+      participantUserIds.length > 0
+    ) {
+      const teamMemberCount = await prisma.teamMember.count({
+        where: {
+          teamId: teamContext.teamId,
+          userId: { in: participantUserIds },
+          isDeleted: false,
+        },
+      });
+      if (teamMemberCount !== participantUserIds.length) {
+        throw new AppError(
+          "Members can only invite teammates as participants",
+          403,
+        );
+      }
+    }
 
     const normalizedGuestEmails = [
       ...new Set((guestEmails ?? []).map((email) => email.toLowerCase())),
@@ -189,8 +408,14 @@ export const meetingService = {
             location,
             notes,
             createdById,
+            // Phase 6 P5.1.a — write teamId from caller's context so the
+            // meeting is bound to the team for all subsequent reads.
+            teamId: teamContext?.teamId ?? null,
           },
         });
+        // Encryption principal is derived from the meeting row, never from
+        // the actor — see principalForMeeting JSDoc.
+        const meetingPrincipal = principalForMeeting(newMeeting);
 
         // Participants only for scheduled meetings
         if (isScheduled) {
@@ -258,12 +483,14 @@ export const meetingService = {
             });
           }
 
-          // Add guest participants (external emails) — encrypt before storing
+          // Add guest participants (external emails) — encrypt before storing.
+          // Principal comes from the meeting row (team DEK if team-scoped,
+          // user DEK otherwise) so reads under team context decrypt cleanly.
           if (normalizedGuestEmails.length > 0) {
             const encryptedGuests = await Promise.all(
               normalizedGuestEmails.map(async (email) => ({
                 meetingId: newMeeting.id,
-                guestEmail: await encrypt(email, createdById),
+                guestEmail: await encrypt(email, meetingPrincipal),
                 guestEmailBidx: prismaBytes(blindIndex(email)),
                 participantType: "ATTENDEE" as const,
               })),
@@ -365,12 +592,27 @@ export const meetingService = {
 
             await getRecallBotQueue().add(
               JobNames.DEPLOY_RECALL_BOT,
-              { meetingId: committedMeeting.id, hostUserId: createdById },
+              {
+                meetingId: committedMeeting.id,
+                hostUserId: createdById,
+                // Phase 6 P5.1.a — carry teamId so the worker can resolve
+                // the billing principal via getQuotaOwner. Workers do NOT
+                // consume this yet (P5.1.c wires checkRecall/deductRecall
+                // to honour it); for now the bot deploys against
+                // hostUserId quota and the team owner isn't billed.
+                ...(committedMeeting.teamId
+                  ? { teamId: committedMeeting.teamId }
+                  : {}),
+              },
               { delay, jobId: `recall-bot-${committedMeeting.id}` },
             );
             logger.info("Recall bot deployment queued for manual meeting", {
               meetingId: committedMeeting.id,
               delayMs: delay,
+              teamId: committedMeeting.teamId ?? null,
+              // TODO(P5.1.c): switch billedTo to getQuotaOwner({userId:
+              // hostUserId, teamId}) so this reflects the actual payer.
+              billedTo: createdById,
             });
           }
         } catch (err) {
@@ -402,9 +644,12 @@ export const meetingService = {
       notes?: string;
       addToCalendar?: boolean;
     },
+    teamContext: TeamContext | null = null,
   ): Promise<MeetingWithDetails> {
-    const meeting = await prisma.meeting.findFirst({
-      where: { id: meetingId, createdById: updatedByUserId, isDeleted: false },
+    // Resolve identity-only first so verifyMeetingAccess can branch on it
+    // before we run any further scoped reads.
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: meetingId },
       select: {
         id: true,
         status: true,
@@ -412,6 +657,8 @@ export const meetingService = {
         endTime: true,
         timezone: true,
         createdById: true,
+        teamId: true,
+        isDeleted: true,
         googleEventId: true,
         recallBotId: true,
         participants: { select: { userId: true, participantType: true } },
@@ -419,7 +666,32 @@ export const meetingService = {
     });
 
     if (!meeting) {
-      throw ErrorFactory.notFound("Meeting");
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
+    }
+
+    verifyMeetingAccess(updatedByUserId, meeting, teamContext, "mutate");
+
+    // Under team context, MEMBER role can only invite teammates as
+    // participants — same guard as createMeeting.
+    if (
+      teamContext &&
+      teamContext.role === TeamRole.MEMBER &&
+      data.participantUserIds &&
+      data.participantUserIds.length > 0
+    ) {
+      const teamMemberCount = await prisma.teamMember.count({
+        where: {
+          teamId: teamContext.teamId,
+          userId: { in: data.participantUserIds },
+          isDeleted: false,
+        },
+      });
+      if (teamMemberCount !== data.participantUserIds.length) {
+        throw new AppError(
+          "Members can only invite teammates as participants",
+          403,
+        );
+      }
     }
 
     if (["COMPLETED", "CANCELLED"].includes(meeting.status)) {
@@ -660,6 +932,7 @@ export const meetingService = {
             meetLink: true,
             location: true,
             recallBotId: true,
+            teamId: true,
           },
         });
 
@@ -703,12 +976,20 @@ export const meetingService = {
 
           await getRecallBotQueue().add(
             JobNames.DEPLOY_RECALL_BOT,
-            { meetingId: latestMeeting.id, hostUserId: updatedByUserId },
+            {
+              meetingId: latestMeeting.id,
+              hostUserId: updatedByUserId,
+              // Phase 6 P5.1.a — see createMeeting for the consumption
+              // contract. Worker honours teamId only after P5.1.c lands.
+              ...(latestMeeting.teamId ? { teamId: latestMeeting.teamId } : {}),
+            },
             { delay, jobId: `recall-bot-${latestMeeting.id}-${Date.now()}` },
           );
           logger.info("Recall bot deployment re-queued for edited meeting", {
             meetingId: latestMeeting.id,
             delayMs: delay,
+            teamId: latestMeeting.teamId ?? null,
+            billedTo: updatedByUserId, // TODO(P5.1.c): getQuotaOwner
           });
         }
       } catch (err) {
@@ -727,22 +1008,28 @@ export const meetingService = {
 
   async cancelMeeting(
     data: UpdateMeetingStatusDTO,
+    teamContext: TeamContext | null = null,
   ): Promise<MeetingWithDetails> {
     const { meetingId, requesterUserId, reason } = data;
 
-    const meeting = await prisma.meeting.findFirst({
-      where: { id: meetingId, createdById: requesterUserId, isDeleted: false },
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: meetingId },
       select: {
         id: true,
         status: true,
         googleEventId: true,
+        createdById: true,
+        teamId: true,
+        isDeleted: true,
+        participants: { select: { userId: true } },
         booking: { select: { id: true } },
       },
     });
 
     if (!meeting) {
-      throw ErrorFactory.notFound("Meeting");
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
     }
+    verifyMeetingAccess(requesterUserId, meeting, teamContext, "mutate");
 
     const cancelled = await prisma.$transaction(
       async (tx) => {
@@ -791,28 +1078,28 @@ export const meetingService = {
 
   async completeMeeting(
     data: UpdateMeetingStatusDTO,
+    teamContext: TeamContext | null = null,
   ): Promise<MeetingWithDetails> {
     const { meetingId, requesterUserId } = data;
 
-    const meeting = await prisma.meeting.findFirst({
-      where: {
-        id: meetingId,
-        isDeleted: false,
-        OR: [
-          { createdById: requesterUserId },
-          {
-            participants: {
-              some: { userId: requesterUserId, participantType: "ORGANIZER" },
-            },
-          },
-        ],
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: meetingId },
+      select: {
+        id: true,
+        status: true,
+        createdById: true,
+        teamId: true,
+        isDeleted: true,
+        participants: {
+          select: { userId: true, participantType: true },
+        },
       },
-      select: { id: true, status: true },
     });
 
     if (!meeting) {
-      throw ErrorFactory.notFound("Meeting");
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
     }
+    verifyMeetingAccess(requesterUserId, meeting, teamContext, "mutate");
 
     if (meeting.status !== MeetingStatus.CREATED) {
       throw ErrorFactory.conflict(
@@ -852,6 +1139,7 @@ export const meetingService = {
     endDate?: Date;
     limit?: number;
     offset?: number;
+    teamContext?: TeamContext | null;
   }): Promise<{
     meetings: MeetingListItem[];
     total: number;
@@ -864,11 +1152,12 @@ export const meetingService = {
       endDate,
       limit = 20,
       offset = 0,
+      teamContext = null,
     } = params;
 
     const where: Prisma.MeetingWhereInput = {
       isDeleted: false,
-      OR: [{ createdById: userId }, { participants: { some: { userId } } }],
+      ...meetingScope(userId, teamContext),
     };
 
     if (status) where.status = status;
@@ -901,15 +1190,23 @@ export const meetingService = {
     type?: MeetingType;
     startDate?: Date;
     endDate?: Date;
+    teamContext?: TeamContext | null;
   }): Promise<{
     meetings: MeetingListItem[];
     truncated: boolean;
   }> {
-    const { userId, status, type, startDate, endDate } = params;
+    const {
+      userId,
+      status,
+      type,
+      startDate,
+      endDate,
+      teamContext = null,
+    } = params;
 
     const where: Prisma.MeetingWhereInput = {
       isDeleted: false,
-      OR: [{ createdById: userId }, { participants: { some: { userId } } }],
+      ...meetingScope(userId, teamContext),
     };
 
     if (status) where.status = status;
@@ -970,30 +1267,53 @@ export const meetingService = {
     }));
   },
 
-  async deleteMeeting(meetingId: string, userId: string): Promise<void> {
-    const meeting = await prisma.meeting.findFirst({
-      where: { id: meetingId, isDeleted: false, createdById: userId },
-      select: { googleEventId: true },
+  async deleteMeeting(
+    meetingId: string,
+    userId: string,
+    teamContext: TeamContext | null = null,
+  ): Promise<void> {
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: meetingId },
+      select: {
+        id: true,
+        googleEventId: true,
+        createdById: true,
+        teamId: true,
+        isDeleted: true,
+        participants: { select: { userId: true } },
+      },
     });
 
     if (!meeting) {
-      throw ErrorFactory.notFound("Meeting");
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
     }
+    verifyMeetingAccess(userId, meeting, teamContext, "mutate");
 
-    const result = await prisma.meeting.updateMany({
-      where: { id: meetingId, isDeleted: false, createdById: userId },
+    await prisma.meeting.update({
+      where: { id: meetingId },
       data: { isDeleted: true, deletedAt: new Date(), deletedBy: userId },
     });
-
-    if (result.count === 0) {
-      throw ErrorFactory.notFound("Meeting");
-    }
 
     // Remove from Google Calendar after DB is committed. Fail-open.
     await deleteCalendarEvent(userId, meeting.googleEventId);
   },
 
-  async importMeetingsFromIcs(userId: string, fileBuffer: Buffer) {
+  async importMeetingsFromIcs(
+    userId: string,
+    fileBuffer: Buffer,
+    teamContext: TeamContext | null = null,
+  ) {
+    // Phase 6 P5.1.a — ICS import always creates personal meetings for now.
+    // Team-scoped bulk import has different access/visibility semantics
+    // (which member sees the imported events, who pays for transcription
+    // when the user re-imports historical data, etc.) and is deferred to
+    // P5.1.b where we can spec it properly.
+    if (teamContext) {
+      throw new AppError(
+        "ICS import is not yet available in team context",
+        400,
+      );
+    }
     const raw = fileBuffer.toString("utf-8");
 
     let events: ICAL.Component[] = [];

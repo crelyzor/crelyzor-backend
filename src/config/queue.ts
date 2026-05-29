@@ -24,32 +24,49 @@ export const JobNames = {
 } as const;
 
 // ── Job data interfaces ──────────────────────────────────────────────────────
+//
+// Phase 6 P4 — every job interface that touches per-user metering carries an
+// optional `teamId?`. The producer (an HTTP handler or another service) sets
+// it from `req.teamContext?.teamId` so the worker knows whether the work
+// belonged to the user's personal workspace or a specific team.
+//
+// **Workers MUST call `getQuotaOwner({ userId, teamId })` at job start** —
+// never trust the `teamId` carried in the payload without re-resolving the
+// billing principal. Membership and team-existence can change between
+// enqueue and execute; `getQuotaOwner` reads the current state and throws
+// (job-fail) if the team is gone, which is the correct posture vs silently
+// rebilling the per-user actor.
 
 export interface TranscriptionJobData {
   recordingId: string;
   meetingId: string;
   language?: string;
+  teamId?: string;
 }
 
 export interface AIProcessingJobData {
   meetingId: string;
   transcriptId?: string;
   ownerId: string;
+  teamId?: string;
 }
 
 export interface RecallBotJobData {
   meetingId: string;
   hostUserId: string;
+  teamId?: string;
 }
 
 export interface RecallRecordingJobData {
   botId: string;
   meetingId: string;
   hostUserId: string;
+  teamId?: string;
 }
 
 export interface BookingReminderJobData {
   bookingId: string;
+  teamId?: string;
 }
 
 export interface DailyDigestJobData {

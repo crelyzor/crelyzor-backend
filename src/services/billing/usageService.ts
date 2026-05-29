@@ -2,6 +2,7 @@ import type { Plan } from "@prisma/client";
 import prisma from "../../db/prismaClient";
 import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
+import { getQuotaOwner } from "./quotaService";
 
 // ─── Plan Limits ────────────────────────────────────────────────────────────
 
@@ -99,14 +100,29 @@ async function getPlanAndUsage(userId: string) {
 // ─── Transcription ────────────────────────────────────────────────────────────
 
 /**
- * Throws 402 if the user has exceeded their monthly transcription minutes.
- * Call BEFORE starting a Deepgram transcription job.
+ * Phase 6 P5.1.c — billing options accepted by every check/deduct call.
+ * When `teamId` is set, `getQuotaOwner` resolves the team owner as the
+ * payer; the underlying UserUsage row belongs to the owner, not the actor.
+ */
+export interface MeteringOpts {
+  teamId?: string | null;
+}
+
+/**
+ * Throws 402 if the **payer** has exceeded their monthly transcription
+ * minutes. Call BEFORE starting a Deepgram transcription job.
+ *
+ * `opts.teamId` set → payer = team owner (via getQuotaOwner).
+ * `opts.teamId` null/omitted → payer = actor (back-compat with Phase 5
+ * call sites and personal-context usage).
  */
 export async function checkTranscription(
   userId: string,
   estimatedMinutes: number,
+  opts?: MeteringOpts,
 ): Promise<void> {
-  const { limits, usage } = await getPlanAndUsage(userId);
+  const payerId = await getQuotaOwner({ userId, teamId: opts?.teamId ?? null });
+  const { limits, usage } = await getPlanAndUsage(payerId);
   if (limits.transcriptionMinutes === -1) return; // unlimited
 
   const wouldExceed =
@@ -114,7 +130,9 @@ export async function checkTranscription(
     limits.transcriptionMinutes;
   if (wouldExceed) {
     logger.warn("Transcription limit reached", {
-      userId,
+      payerId,
+      actorId: userId,
+      teamId: opts?.teamId ?? null,
       used: usage.transcriptionMinutesUsed,
       limit: limits.transcriptionMinutes,
       requested: estimatedMinutes,
@@ -124,27 +142,36 @@ export async function checkTranscription(
 }
 
 /**
- * Deducts actual transcription minutes after a successful Deepgram call.
- * Call AFTER transcription succeeds. Fail-open: logs error but never throws.
+ * Deducts actual transcription minutes after a successful Deepgram call
+ * against the **payer's** UserUsage row. Call AFTER transcription succeeds.
+ * Fail-open: logs error but never throws.
  */
 export async function deductTranscription(
   userId: string,
   actualMinutes: number,
+  opts?: MeteringOpts,
 ): Promise<void> {
   try {
+    const payerId = await getQuotaOwner({
+      userId,
+      teamId: opts?.teamId ?? null,
+    });
     await prisma.userUsage.update({
-      where: { userId },
+      where: { userId: payerId },
       data: {
         transcriptionMinutesUsed: { increment: Math.ceil(actualMinutes) },
       },
     });
     logger.info("Transcription minutes deducted", {
-      userId,
+      payerId,
+      actorId: userId,
+      teamId: opts?.teamId ?? null,
       minutes: Math.ceil(actualMinutes),
     });
   } catch (err) {
     logger.error("Failed to deduct transcription minutes (non-fatal)", {
-      userId,
+      actorId: userId,
+      teamId: opts?.teamId ?? null,
       minutes: actualMinutes,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -161,8 +188,10 @@ export async function deductTranscription(
 export async function checkRecall(
   userId: string,
   estimatedHours: number,
+  opts?: MeteringOpts,
 ): Promise<void> {
-  const { limits, usage } = await getPlanAndUsage(userId);
+  const payerId = await getQuotaOwner({ userId, teamId: opts?.teamId ?? null });
+  const { limits, usage } = await getPlanAndUsage(payerId);
 
   if (limits.recallHours === -1) return; // unlimited (BUSINESS)
 
@@ -175,7 +204,9 @@ export async function checkRecall(
     usage.recallHoursUsed + estimatedHours > limits.recallHours;
   if (wouldExceed) {
     logger.warn("Recall hours limit reached", {
-      userId,
+      payerId,
+      actorId: userId,
+      teamId: opts?.teamId ?? null,
       used: usage.recallHoursUsed,
       limit: limits.recallHours,
       requested: estimatedHours,
@@ -185,22 +216,33 @@ export async function checkRecall(
 }
 
 /**
- * Deducts Recall hours after a bot session completes.
- * Fail-open: logs error but never throws.
+ * Deducts Recall hours against the **payer's** UserUsage row after a bot
+ * session completes. Fail-open: logs error but never throws.
  */
 export async function deductRecall(
   userId: string,
   actualHours: number,
+  opts?: MeteringOpts,
 ): Promise<void> {
   try {
+    const payerId = await getQuotaOwner({
+      userId,
+      teamId: opts?.teamId ?? null,
+    });
     await prisma.userUsage.update({
-      where: { userId },
+      where: { userId: payerId },
       data: { recallHoursUsed: { increment: actualHours } },
     });
-    logger.info("Recall hours deducted", { userId, hours: actualHours });
+    logger.info("Recall hours deducted", {
+      payerId,
+      actorId: userId,
+      teamId: opts?.teamId ?? null,
+      hours: actualHours,
+    });
   } catch (err) {
     logger.error("Failed to deduct Recall hours (non-fatal)", {
-      userId,
+      actorId: userId,
+      teamId: opts?.teamId ?? null,
       hours: actualHours,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -225,9 +267,14 @@ export async function checkAndDeductCredits(
   userId: string,
   inputTokens: number,
   outputTokens: number,
+  opts?: MeteringOpts,
 ): Promise<void> {
   try {
-    const { limits, usage } = await getPlanAndUsage(userId);
+    const payerId = await getQuotaOwner({
+      userId,
+      teamId: opts?.teamId ?? null,
+    });
+    const { limits, usage } = await getPlanAndUsage(payerId);
 
     if (limits.aiCredits === -1) return; // unlimited (BUSINESS)
 
@@ -239,12 +286,14 @@ export async function checkAndDeductCredits(
     const creditsToDeduct = calculateCredits(inputTokens, outputTokens);
 
     await prisma.userUsage.update({
-      where: { userId },
+      where: { userId: payerId },
       data: { aiCreditsUsed: { increment: creditsToDeduct } },
     });
 
     logger.info("AI credits deducted", {
-      userId,
+      payerId,
+      actorId: userId,
+      teamId: opts?.teamId ?? null,
       creditsDeducted: creditsToDeduct,
       totalUsed: usage.aiCreditsUsed + creditsToDeduct,
       limit: limits.aiCredits,
@@ -255,7 +304,8 @@ export async function checkAndDeductCredits(
     if (err instanceof AppError) throw err; // re-throw 402s
     // DB/unexpected error — fail open so user still gets their response
     logger.error("Failed to check/deduct AI credits (non-fatal)", {
-      userId,
+      actorId: userId,
+      teamId: opts?.teamId ?? null,
       error: err instanceof Error ? err.message : String(err),
     });
   }

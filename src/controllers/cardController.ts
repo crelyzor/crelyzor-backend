@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { cardService } from "../services/cardService";
 import { apiResponse } from "../utils/globalResponseHandler";
+import { getTeamContext } from "../middleware/teamContext";
 import {
   BaseError,
   ErrorFactory,
@@ -79,7 +80,11 @@ export const cardController = {
       const parsed = createCardSchema.safeParse(req.body);
       if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
-      const card = await cardService.createCard(userId, parsed.data);
+      const card = await cardService.createCard(
+        userId,
+        parsed.data,
+        getTeamContext(req),
+      );
 
       apiResponse(res, {
         statusCode: 201,
@@ -96,7 +101,7 @@ export const cardController = {
       const userId = req.user?.userId;
       if (!userId) throw ErrorFactory.unauthorized();
 
-      const cards = await cardService.getUserCards(userId);
+      const cards = await cardService.getUserCards(userId, getTeamContext(req));
 
       apiResponse(res, {
         statusCode: 200,
@@ -115,7 +120,11 @@ export const cardController = {
 
       const cardId = parseUuidParam(req.params.cardId as string, "cardId");
 
-      const card = await cardService.getCardById(userId, cardId);
+      const card = await cardService.getCardById(
+        userId,
+        cardId,
+        getTeamContext(req),
+      );
 
       apiResponse(res, {
         statusCode: 200,
@@ -137,7 +146,12 @@ export const cardController = {
       const parsed = updateCardSchema.safeParse(req.body);
       if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
-      const card = await cardService.updateCard(userId, cardId, parsed.data);
+      const card = await cardService.updateCard(
+        userId,
+        cardId,
+        parsed.data,
+        getTeamContext(req),
+      );
 
       apiResponse(res, {
         statusCode: 200,
@@ -156,7 +170,7 @@ export const cardController = {
 
       const cardId = parseUuidParam(req.params.cardId as string, "cardId");
 
-      await cardService.deleteCard(userId, cardId);
+      await cardService.deleteCard(userId, cardId, getTeamContext(req));
 
       apiResponse(res, {
         statusCode: 200,
@@ -181,6 +195,7 @@ export const cardController = {
         userId,
         cardId,
         parsed.data.slug,
+        getTeamContext(req),
       );
 
       apiResponse(res, {

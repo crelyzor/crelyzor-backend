@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { AppError } from "../utils/errors/AppError";
 import { apiResponse } from "../utils/globalResponseHandler";
 import { logger } from "../utils/logging/logger";
+import { getTeamContext } from "../middleware/teamContext";
 import {
   createTagSchema,
   updateTagSchema,
@@ -129,7 +130,11 @@ export const getMeetingTags = async (req: Request, res: Response) => {
   const params = meetingIdParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid meeting ID", 400);
 
-  const tags = await tagService.getMeetingTags(userId, params.data.meetingId);
+  const tags = await tagService.getMeetingTags(
+    userId,
+    params.data.meetingId,
+    getTeamContext(req),
+  );
 
   return apiResponse(res, {
     statusCode: 200,
@@ -151,6 +156,7 @@ export const attachTagToMeeting = async (req: Request, res: Response) => {
     userId,
     params.data.meetingId,
     params.data.tagId,
+    getTeamContext(req),
   );
 
   return apiResponse(res, {
@@ -172,6 +178,7 @@ export const detachTagFromMeeting = async (req: Request, res: Response) => {
     userId,
     params.data.meetingId,
     params.data.tagId,
+    getTeamContext(req),
   );
 
   return apiResponse(res, {

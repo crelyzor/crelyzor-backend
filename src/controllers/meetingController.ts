@@ -6,6 +6,8 @@ import { apiResponse } from "../utils/globalResponseHandler";
 import { globalErrorHandler } from "../utils/globalErrorHandler";
 import { meetingService } from "../services/meetings/meetingService";
 import prisma from "../db/prismaClient";
+import { AppError } from "../utils/errors/AppError";
+import { getTeamContext } from "../middleware/teamContext";
 import {
   createMeetingSchema,
   meetingActionSchema,
@@ -32,10 +34,10 @@ export class MeetingController {
       if (!parsed.success) throw ErrorFactory.validation("Validation failed");
       const validatedData = parsed.data;
 
-      const { meeting, gcalSynced } = await meetingService.createMeeting({
-        createdById: user.userId,
-        ...validatedData,
-      });
+      const { meeting, gcalSynced } = await meetingService.createMeeting(
+        { createdById: user.userId, ...validatedData },
+        getTeamContext(req),
+      );
 
       apiResponse(res, {
         statusCode: 201,
@@ -64,6 +66,7 @@ export class MeetingController {
         meetingId,
         user.userId,
         validatedData,
+        getTeamContext(req),
       );
 
       apiResponse(res, {
@@ -89,12 +92,15 @@ export class MeetingController {
         throw ErrorFactory.validation("Validation failed");
       const validatedData = parsedAction.data;
 
-      const meeting = await meetingService.cancelMeeting({
-        meetingId,
-        newStatus: MeetingStatus.CANCELLED,
-        requesterUserId: user.userId,
-        reason: validatedData.reason,
-      });
+      const meeting = await meetingService.cancelMeeting(
+        {
+          meetingId,
+          newStatus: MeetingStatus.CANCELLED,
+          requesterUserId: user.userId,
+          reason: validatedData.reason,
+        },
+        getTeamContext(req),
+      );
 
       apiResponse(res, {
         statusCode: 200,
@@ -115,11 +121,14 @@ export class MeetingController {
       const user = req.user as TokenPayload;
       const meetingId = parseMeetingId(req.params.meetingId);
 
-      const meeting = await meetingService.completeMeeting({
-        meetingId,
-        newStatus: MeetingStatus.COMPLETED,
-        requesterUserId: user.userId,
-      });
+      const meeting = await meetingService.completeMeeting(
+        {
+          meetingId,
+          newStatus: MeetingStatus.COMPLETED,
+          requesterUserId: user.userId,
+        },
+        getTeamContext(req),
+      );
 
       apiResponse(res, {
         statusCode: 200,
@@ -151,6 +160,7 @@ export class MeetingController {
         endDate: validatedData.endDate,
         limit: validatedData.limit,
         offset: validatedData.offset,
+        teamContext: getTeamContext(req),
       });
 
       apiResponse(res, {
@@ -195,6 +205,7 @@ export class MeetingController {
           type: validatedData.type as MeetingType | undefined,
           startDate: validatedData.startDate,
           endDate: validatedData.endDate,
+          teamContext: getTeamContext(req),
         });
 
       apiResponse(res, {
@@ -217,17 +228,54 @@ export class MeetingController {
     try {
       const user = req.user as TokenPayload;
       const meetingId = parseMeetingId(req.params.meetingId);
+      const teamContext = getTeamContext(req);
 
-      const meeting = await prisma.meeting.findFirst({
-        where: {
-          id: meetingId,
-          isDeleted: false,
-          OR: [
-            { createdById: user.userId },
-            { participants: { some: { userId: user.userId } } },
-          ],
+      // Phase 6 P5.1.a — fetch by id with a minimal projection first so
+      // verifyMeetingAccess (in meetingService) can run on the slim row;
+      // refetch with the full include only when the caller is allowed.
+      // The two-step pattern avoids any chance of leaking a full payload
+      // on a cross-team probe.
+      const slim = await prisma.meeting.findUnique({
+        where: { id: meetingId },
+        select: {
+          id: true,
+          createdById: true,
+          teamId: true,
+          isDeleted: true,
+          participants: { select: { userId: true } },
         },
+      });
+
+      if (!slim) {
+        throw new AppError("Meeting not found", 404);
+      }
+
+      // Inline access check — same rules as verifyMeetingAccess.
+      // Pulled inline (instead of calling the service helper) only because
+      // the service helper is not yet exported; P5.1.b will lift this into
+      // a single shared getMeetingById service method.
+      const isCreator = slim.createdById === user.userId;
+      const isParticipant = slim.participants.some(
+        (p) => p.userId === user.userId,
+      );
+      const allowedRead = (() => {
+        if (slim.isDeleted) return false;
+        if (!teamContext) {
+          return slim.teamId === null && (isCreator || isParticipant);
+        }
+        if (slim.teamId !== teamContext.teamId) return false;
+        if (teamContext.role === "MEMBER") return isCreator || isParticipant;
+        return true; // ADMIN / OWNER
+      })();
+
+      if (!allowedRead) {
+        throw new AppError("Meeting not found", 404);
+      }
+
+      const meeting = await prisma.meeting.findUnique({
+        where: { id: meetingId },
         include: {
+          team: { select: { id: true, name: true, slug: true } },
           participants: {
             include: {
               user: {
@@ -263,10 +311,6 @@ export class MeetingController {
         },
       });
 
-      if (!meeting) {
-        throw ErrorFactory.notFound("Meeting");
-      }
-
       apiResponse(res, {
         statusCode: 200,
         message: "Meeting details retrieved successfully",
@@ -286,7 +330,11 @@ export class MeetingController {
       const user = req.user as TokenPayload;
       const meetingId = parseMeetingId(req.params.meetingId);
 
-      await meetingService.deleteMeeting(meetingId, user.userId);
+      await meetingService.deleteMeeting(
+        meetingId,
+        user.userId,
+        getTeamContext(req),
+      );
 
       apiResponse(res, {
         statusCode: 200,
@@ -312,6 +360,7 @@ export class MeetingController {
       const result = await meetingService.importMeetingsFromIcs(
         user.userId,
         req.file.buffer,
+        getTeamContext(req),
       );
 
       apiResponse(res, {

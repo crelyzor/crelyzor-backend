@@ -1,13 +1,21 @@
 import { Router } from "express";
 import { verifyJWT } from "../middleware/authMiddleware";
+import { resolveTeamContext } from "../middleware/resolveTeamContext";
 import { cardController } from "../controllers/cardController";
 import * as tagController from "../controllers/tagController";
 import { singleImportUpload } from "../middleware/importUploadMiddleware";
 
 const cardRouter = Router();
 
-// All card management routes require authentication
+// All card management routes require authentication.
 cardRouter.use(verifyJWT);
+// Phase 6 P5.2.a — populates req.teamContext from X-Team-Id header. All
+// handlers below honour team scope via cardScope() + assertCardAccess()
+// helpers in cardService.
+cardRouter.use(resolveTeamContext);
+// TODO(P5.2.b): card-tag and contact-tag handlers (tagController.*) need
+// their own team-context retrofit. Currently they trust the inline
+// verifyMeetingOwnership/verifyCardOwnership probes in tagService.
 
 // ========================================
 // CARD CRUD

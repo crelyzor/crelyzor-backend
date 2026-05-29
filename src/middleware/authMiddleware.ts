@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import type { TeamRole } from "@prisma/client";
 import { tokenService } from "../services/auth/tokenService";
 import { sessionService } from "../services/auth/sessionService";
 import { authService } from "../services/auth/authService";
@@ -8,13 +9,19 @@ import { ZodError } from "zod";
 import { logger } from "../utils/logging/logger";
 import { getRedisClient } from "../config/redisClient";
 
-// Extend Express Request to include authenticated user
+// Active team context for a request — populated by resolveTeamContext when
+// the caller sends an X-Team-Id header (Phase 6 P4). null means "personal
+// workspace" (no team scope). All Request type augmentations live here so
+// no other file re-declares `Request` (would cause module-merge conflicts).
+export type TeamContext = { teamId: string; role: TeamRole };
+
 declare module "express" {
   export interface Request {
     user?: TokenPayload;
     sessionId?: string;
     service?: Record<string, unknown>; // For internal service tokens
     rawBody?: Buffer; // Captured by webhook routes for HMAC signature verification
+    teamContext?: TeamContext | null; // Phase 6 P4 — populated by resolveTeamContext
   }
 }
 

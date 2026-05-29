@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { verifyJWT } from "../middleware/authMiddleware";
+import { resolveTeamContext } from "../middleware/resolveTeamContext";
 import { meetingController } from "../controllers/meetingController";
 import * as tagController from "../controllers/tagController";
 import { attachmentController } from "../controllers/attachmentController";
@@ -9,6 +10,10 @@ import { singleImportUpload } from "../middleware/importUploadMiddleware";
 const router = Router();
 
 router.use(verifyJWT);
+// Phase 6 P5.1.a — populates req.teamContext from X-Team-Id header. All
+// handlers below honour team scope via meetingScope() + verifyMeetingAccess()
+// helpers in meetingService.
+router.use(resolveTeamContext);
 
 /** GET /api/v1/meetings/without-pagination — calendar view */
 router.get("/without-pagination", (req, res) =>

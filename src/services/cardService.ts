@@ -1,13 +1,16 @@
 import prisma from "../db/prismaClient";
+import { AppError } from "../utils/errors/AppError";
 import { ErrorFactory } from "../utils/globalErrorHandler";
 import { logger } from "../utils/logging/logger";
-import type { Prisma } from "@prisma/client";
+import { Prisma, TeamRole } from "@prisma/client";
 import {
   encrypt,
   decrypt,
   blindIndex,
   prismaBytes,
+  type Principal,
 } from "../utils/security/crypto";
+import type { TeamContext } from "../middleware/authMiddleware";
 import { parse as parseCsv } from "csv-parse/sync";
 import type {
   CreateCardDTO,
@@ -28,6 +31,153 @@ import {
 } from "../templates/cardTemplates";
 
 const CARDS_PUBLIC_URL = process.env.PUBLIC_URL ?? "";
+
+// ── Phase 6 P5.2.a team-scoping helpers ──────────────────────────────────────
+
+const NOT_FOUND_MESSAGE = "Card not found";
+
+const ROLE_RANK: Record<TeamRole, number> = {
+  OWNER: 3,
+  ADMIN: 2,
+  MEMBER: 1,
+};
+
+/**
+ * Returns the Prisma where-clause fragment that scopes a card query to the
+ * caller's current context. All `cardService` read paths must spread this
+ * into their `where` so a raw `where: { id }` never leaks cross-team data.
+ *
+ * - Personal context (teamContext null): `{ teamId: null, userId: actorId }`.
+ *   Personal queries explicitly exclude team cards — those are visible only
+ *   under the matching team context. This closes the pre-Phase-6 leak
+ *   where a user's `GET /cards` returned every card they owned regardless
+ *   of teamId (team-default cards leaked into personal lists).
+ * - Team context + ADMIN/OWNER: `{ teamId = ctx.teamId }` (all team cards).
+ * - Team context + MEMBER: `{ teamId = ctx.teamId, userId = actorId }`
+ *   (member sees only their own team cards).
+ *
+ * Soft-delete is NOT part of the scope — caller must add `isDeleted: false`
+ * explicitly so writes that need to inspect deleted rows still compose.
+ */
+function cardScope(
+  actorId: string,
+  teamContext: TeamContext | null,
+): Prisma.CardWhereInput {
+  if (!teamContext) {
+    return { teamId: null, userId: actorId };
+  }
+  if (teamContext.role === TeamRole.MEMBER) {
+    return { teamId: teamContext.teamId, userId: actorId };
+  }
+  return { teamId: teamContext.teamId };
+}
+
+type CardForAccess = {
+  userId: string;
+  teamId: string | null;
+  isDeleted: boolean;
+};
+
+/**
+ * Derives the encrypt/decrypt principal for content scoped to a card
+ * (currently only `CardContact.{email,phone,note}`). **Always read from the
+ * card row, never from the actor.** A team admin replying to a contact
+ * exchange on a team card must encrypt under the team DEK so other admins
+ * can read it.
+ *
+ * `Card.teamId` is immutable post-creation — `transferOwnership` only
+ * updates `Card.userId`. Schema strict-mode + service-layer strip in
+ * `updateCard` prevents any future PATCH from flipping `teamId`. So the
+ * principal stays stable for the card's lifetime.
+ */
+export function principalForCard(card: {
+  userId: string;
+  teamId: string | null;
+}): Principal {
+  return card.teamId
+    ? { type: "team", id: card.teamId }
+    : { type: "user", id: card.userId };
+}
+
+/**
+ * Centralized access gate for card CRUD. Throws 404 with a uniform body for
+ * every "not accessible" branch — same enumeration-collapse pattern as P1/P2/P5.1.
+ */
+export function verifyCardAccess(
+  actorId: string,
+  card: CardForAccess,
+  teamContext: TeamContext | null,
+  action: "read" | "mutate",
+): void {
+  if (card.isDeleted) {
+    throw new AppError(NOT_FOUND_MESSAGE, 404);
+  }
+
+  const isOwner = card.userId === actorId;
+
+  if (!teamContext) {
+    // Personal context: card must be personal AND owned by the actor.
+    if (card.teamId !== null || !isOwner) {
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
+    }
+    return;
+  }
+
+  // Team context: card must belong to the same team.
+  if (card.teamId !== teamContext.teamId) {
+    throw new AppError(NOT_FOUND_MESSAGE, 404);
+  }
+
+  if (teamContext.role === TeamRole.MEMBER) {
+    // MEMBER: own team cards only. Same rule for read + mutate — no
+    // participant-style visibility (cards have no participant concept).
+    if (!isOwner) throw new AppError(NOT_FOUND_MESSAGE, 404);
+  }
+  // ADMIN / OWNER: any card in the team is accessible (read or mutate).
+  void ROLE_RANK; // keep referenced for symmetry; comparisons happen elsewhere
+  void action;
+}
+
+/**
+ * One-shot card access gate. Slim-fetches the card, runs verifyCardAccess,
+ * returns the row. Mirrors `assertMeetingAccess`.
+ */
+export async function assertCardAccess(
+  actorId: string,
+  cardId: string,
+  teamContext: TeamContext | null,
+  action: "read" | "mutate",
+): Promise<CardForAccess & { id: string }> {
+  const card = await prisma.card.findUnique({
+    where: { id: cardId },
+    select: {
+      id: true,
+      userId: true,
+      teamId: true,
+      isDeleted: true,
+    },
+  });
+  if (!card) {
+    throw new AppError(NOT_FOUND_MESSAGE, 404);
+  }
+  verifyCardAccess(actorId, card, teamContext, action);
+  return card;
+}
+
+/**
+ * Reject MEMBER role on team-context card creation/duplication. Team cards
+ * are created either by `teamService.createTeam` (the auto-default card) or
+ * by ADMIN+. A MEMBER spamming team cards via this endpoint is not in the
+ * design.
+ */
+function assertCanCreateTeamCard(teamContext: TeamContext | null): void {
+  if (teamContext && teamContext.role === TeamRole.MEMBER) {
+    throw new AppError(
+      "Only team admins or the owner can create team cards",
+      403,
+    );
+  }
+}
 
 // Helper: build public URL for a card
 function buildPublicUrl(
@@ -109,12 +259,31 @@ export const cardService = {
   },
 
   /**
-   * Create a new card for a user
+   * Create a new card for a user.
+   *
+   * Phase 6 P5.2.a — accepts an optional teamContext. Under team context,
+   * MEMBER role is rejected (team-card creation is ADMIN/OWNER only;
+   * auto-default team cards come from `teamService.createTeam`). The new
+   * card inherits `teamId = ctx.teamId` so encryption + reads scope to the
+   * team going forward.
    */
-  async createCard(userId: string, data: CreateCardDTO) {
+  async createCard(
+    userId: string,
+    data: CreateCardDTO,
+    teamContext: TeamContext | null = null,
+  ) {
+    // Role check is the first line of the function so it runs before any
+    // DB probe (the slug-conflict lookup below would otherwise leak which
+    // team slugs are taken to a member who is forbidden to create cards).
+    assertCanCreateTeamCard(teamContext);
+
+    const teamId = teamContext?.teamId ?? null;
     const slug = data.slug || "default";
 
-    // Parallelize slug conflict check, card count, and username lookup
+    // Parallelize slug conflict check, card count, and username lookup.
+    // Slug uniqueness is per `(userId, slug)` (see Card.@@unique), so the
+    // conflict probe and the card-count both scope to userId. Team cards
+    // owned by the same user still go through this same uniqueness model.
     const [existing, cardCount, user] = await Promise.all([
       prisma.card.findFirst({
         where: { userId, slug, isDeleted: false },
@@ -190,6 +359,9 @@ export const cardService = {
             templateId,
             showQr,
             isDefault,
+            // Phase 6 P5.2.a — write teamId from caller's context so the
+            // card is bound to the team for all subsequent reads.
+            teamId,
           },
         });
 
@@ -205,12 +377,20 @@ export const cardService = {
   },
 
   /**
-   * Get all cards for a user
+   * Get all cards for a user, scoped by team context.
+   *
+   * Phase 6 P5.2.a — personal context returns only personal cards (`teamId: null`);
+   * team context returns team cards (all for ADMIN/OWNER, own-only for MEMBER).
+   * This closes the pre-Phase-6 leak where team-default cards showed up in
+   * personal `GET /cards` responses.
    */
-  async getUserCards(userId: string) {
+  async getUserCards(userId: string, teamContext: TeamContext | null = null) {
     const MAX_USER_CARDS = 50;
     return prisma.card.findMany({
-      where: { userId, isDeleted: false },
+      where: {
+        isDeleted: false,
+        ...cardScope(userId, teamContext),
+      },
       include: {
         _count: { select: { contacts: true, views: true } },
       },
@@ -220,38 +400,61 @@ export const cardService = {
   },
 
   /**
-   * Get a single card by ID (must belong to the user)
+   * Get a single card by ID — single-fetch + in-memory verifyCardAccess.
+   * Card include is leaner than meetings; no need for the two-step
+   * (slim probe → access → full include) pattern.
    */
-  async getCardById(userId: string, cardId: string) {
-    const card = await prisma.card.findFirst({
-      where: { id: cardId, userId, isDeleted: false },
+  async getCardById(
+    userId: string,
+    cardId: string,
+    teamContext: TeamContext | null = null,
+  ) {
+    const card = await prisma.card.findUnique({
+      where: { id: cardId },
       include: {
         _count: { select: { contacts: true, views: true } },
       },
     });
 
     if (!card) {
-      throw ErrorFactory.notFound("Card not found");
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
     }
+    verifyCardAccess(userId, card, teamContext, "read");
 
     return card;
   },
 
   /**
-   * Update a card
+   * Update a card. Team scope honoured via assertCardAccess.
+   *
+   * Phase 6 P5.2.a — the validator (`updateCardSchema`) is `.strict()` so a
+   * forged body can't carry `teamId` or `userId`. Even if a future schema
+   * change loosens that, the spread below explicitly ignores both fields.
    */
-  async updateCard(userId: string, cardId: string, data: UpdateCardDTO) {
+  async updateCard(
+    userId: string,
+    cardId: string,
+    data: UpdateCardDTO,
+    teamContext: TeamContext | null = null,
+  ) {
+    await assertCardAccess(userId, cardId, teamContext, "mutate");
+    // Re-fetch with the full row shape needed downstream. The access check
+    // above is the security gate; this read is only for data the update
+    // path needs (templateId, slug, etc).
     const card = await prisma.card.findFirst({
-      where: { id: cardId, userId, isDeleted: false },
+      where: { id: cardId, isDeleted: false },
     });
     if (!card) {
-      throw ErrorFactory.notFound("Card not found");
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
     }
 
-    // If changing slug, check for conflicts (excluding deleted cards)
+    // If changing slug, check for conflicts (excluding deleted cards).
+    // Slug uniqueness is per `(Card.userId, Card.slug)` — scope to the
+    // CARD's owner, not the actor. An admin updating someone else's team
+    // card must still respect that user's own-slug uniqueness.
     if (data.slug && data.slug !== card.slug) {
       const existing = await prisma.card.findFirst({
-        where: { userId, slug: data.slug, isDeleted: false },
+        where: { userId: card.userId, slug: data.slug, isDeleted: false },
       });
       if (existing) {
         throw ErrorFactory.conflict(
@@ -281,8 +484,11 @@ export const cardService = {
     let htmlBackContent: string | undefined;
 
     if (needsRegen) {
+      // Username for the public URL belongs to the card owner, not the
+      // actor (an admin editing another member's team card still publishes
+      // under the member's namespace).
       const user = await prisma.user.findUnique({
-        where: { id: userId },
+        where: { id: card.userId },
         select: { username: true },
       });
       const username = user?.username ?? "user";
@@ -317,10 +523,11 @@ export const cardService = {
 
     return prisma.$transaction(
       async (tx) => {
-        // If setting as default, unset others
+        // If setting as default, unset others — scope to the card OWNER,
+        // not the actor. Default-card is per-owner state.
         if (data.isDefault && !card.isDefault) {
           await tx.card.updateMany({
-            where: { userId, isDefault: true },
+            where: { userId: card.userId, isDefault: true },
             data: { isDefault: false },
           });
         }
@@ -364,14 +571,21 @@ export const cardService = {
   },
 
   /**
-   * Delete a card
+   * Delete a card. Team scope honoured via assertCardAccess.
+   * Default-card promotion scopes to the OWNER's card pool, not the actor's.
    */
-  async deleteCard(userId: string, cardId: string) {
+  async deleteCard(
+    userId: string,
+    cardId: string,
+    teamContext: TeamContext | null = null,
+  ) {
+    await assertCardAccess(userId, cardId, teamContext, "mutate");
     const card = await prisma.card.findFirst({
-      where: { id: cardId, userId, isDeleted: false },
+      where: { id: cardId, isDeleted: false },
+      select: { id: true, isDefault: true, userId: true },
     });
     if (!card) {
-      throw ErrorFactory.notFound("Card not found");
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
     }
 
     await prisma.$transaction(
@@ -381,10 +595,11 @@ export const cardService = {
           data: { isDeleted: true, deletedAt: new Date() },
         });
 
-        // If deleted card was default, promote the next one
+        // If deleted card was default, promote the next one — scope to the
+        // card OWNER's pool (default-card is per-owner state).
         if (card.isDefault) {
           const nextCard = await tx.card.findFirst({
-            where: { userId, isDeleted: false },
+            where: { userId: card.userId, isDeleted: false },
             orderBy: { createdAt: "asc" },
           });
           if (nextCard) {
@@ -400,16 +615,34 @@ export const cardService = {
   },
 
   /**
-   * Duplicate a card with a new slug
+   * Duplicate a card with a new slug.
+   *
+   * Phase 6 P5.2.a — source access via assertCardAccess(read); team context
+   * propagates to the dup (personal → personal, team → team with same
+   * teamId). MEMBER role rejected on team-context creation just like
+   * createCard. The duplicate is owned by the actor (`userId = actor`),
+   * inherits the source's teamId, and the slug-conflict probe scopes to
+   * the actor's own slug pool.
    */
-  async duplicateCard(userId: string, cardId: string, newSlug: string) {
+  async duplicateCard(
+    userId: string,
+    cardId: string,
+    newSlug: string,
+    teamContext: TeamContext | null = null,
+  ) {
+    // Duplication is effectively a create — apply the same role gate.
+    assertCanCreateTeamCard(teamContext);
+
+    await assertCardAccess(userId, cardId, teamContext, "read");
     const card = await prisma.card.findFirst({
-      where: { id: cardId, userId, isDeleted: false },
+      where: { id: cardId, isDeleted: false },
     });
     if (!card) {
-      throw ErrorFactory.notFound("Card not found");
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
     }
 
+    // Slug uniqueness on the destination is per (actor, newSlug). The dup
+    // is owned by the actor, so the probe scopes to userId (not card.userId).
     const existing = await prisma.card.findFirst({
       where: { userId, slug: newSlug, isDeleted: false },
     });
@@ -443,6 +676,11 @@ export const cardService = {
             templateId: card.templateId,
             showQr: card.showQr,
             isDefault: false,
+            // Phase 6 P5.2.a — dup inherits the source card's team scope.
+            // Under personal context this stays null; under team context
+            // the source was already team-scoped (verified by access gate),
+            // so this matches ctx.teamId.
+            teamId: card.teamId,
           },
         });
       },
@@ -523,22 +761,32 @@ export const cardService = {
   },
 
   /**
-   * Submit contact info (scanner shares their details)
+   * Submit contact info (scanner shares their details).
+   *
+   * Phase 6 P5.2.a — encryption principal is derived from the **card row**
+   * via `principalForCard(card)`. Team cards encrypt under the team DEK so
+   * any team admin can read the contact later (via P5.2.b's getContacts).
+   * Personal cards continue under the owner's user DEK.
+   *
+   * No `verifyJWT` / `resolveTeamContext` on the public submit-contact flow:
+   * the public form is the access control, and the principal is derived
+   * server-side from the card row — never from the (anonymous) submitter.
    */
   async submitContact(cardId: string, data: SubmitContactDTO) {
     const card = await prisma.card.findFirst({
       where: { id: cardId, isDeleted: false },
-      select: { id: true, userId: true, isActive: true },
+      select: { id: true, userId: true, teamId: true, isActive: true },
     });
 
     if (!card || !card.isActive) {
       throw ErrorFactory.notFound("Card not found");
     }
 
+    const cardPrincipal = principalForCard(card);
     const [encEmail, encPhone, encNote] = await Promise.all([
-      data.email ? encrypt(data.email, card.userId) : Promise.resolve(null),
-      data.phone ? encrypt(data.phone, card.userId) : Promise.resolve(null),
-      data.note ? encrypt(data.note, card.userId) : Promise.resolve(null),
+      data.email ? encrypt(data.email, cardPrincipal) : Promise.resolve(null),
+      data.phone ? encrypt(data.phone, cardPrincipal) : Promise.resolve(null),
+      data.note ? encrypt(data.note, cardPrincipal) : Promise.resolve(null),
     ]);
 
     const contact = await prisma.cardContact.create({

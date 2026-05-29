@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-05-29 (Phase 6 P3 shipped ✅ — Per-team DEK plumbing)
+Last updated: 2026-05-29 (Phase 6 P5.2.a shipped ✅ — Card CRUD team-scoping + public submitContact encryption rotation)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -1037,20 +1037,18 @@ Dev notes: `docs/dev-notes/phase-6-p3-per-team-dek.md`. Files: `src/utils/securi
 
 ---
 
-### P4 — Context Middleware + Quota Resolver
+### P4 — Context Middleware + Quota Resolver ✅ Plumbing complete (2026-05-29)
 
-New files: `src/middleware/resolveTeamContext.ts`, `src/middleware/verifyTeamRole.ts`, `src/services/quotaService.ts`.
+Dev notes: `docs/dev-notes/phase-6-p4-team-context-middleware.md`. Files: `src/middleware/{authMiddleware,teamContext,resolveTeamContext,verifyTeamRole}.ts`, `src/services/billing/quotaService.ts`, `src/services/billing/__tests__/quotaService.test.ts`, `src/config/queue.ts`.
 
-- [ ] **`resolveTeamContext`** — reads `X-Team-Id` header. If absent → `req.teamContext = null`. If present → fetch active `TeamMember` (with team not soft-deleted, member not soft-deleted), 403 if not a member. Populates `req.teamContext = { teamId, role }`.
-- [ ] **`verifyTeamRole(minRole)`** — factory: `'ADMIN'` allows ADMIN + OWNER, `'OWNER'` allows OWNER only. Runs after `resolveTeamContext` (or `verifyTeamMember` for route-param style). Throws 403.
-- [ ] **`verifyTeamMember`** — variant that reads `teamId` from route param (for `/teams/:teamId/*` routes). Same semantics.
-- [ ] **`getQuotaOwner({ userId, teamId })`** → `Promise<string>` — returns userId of the principal whose pool gets debited. Cached at request scope (per request, not LRU).
-- [ ] Wire `getQuotaOwner` into:
-  - Deepgram transcription start (records minutes against owner)
-  - OpenAI calls (Ask AI, summary, content generation)
-  - GCS upload (storage attribution)
-  - Recall.ai webhook minute attribution
-- [ ] `UserUsage` writes carry `teamId` for breakdown attribution. Aggregate queries support `groupBy: ['userId', 'teamId']`.
+- [x] **`resolveTeamContext`** — reads `X-Team-Id`; null on absent; 400 on bad UUID; 403 (identical body) on non-member / soft-deleted / missing team; populates `req.teamContext`.
+- [x] **`verifyTeamRole(minRole)`** — factory: `'ADMIN'` allows ADMIN + OWNER, `'OWNER'` allows OWNER only. Uses `getTeamContext` typed accessor (throws if `resolveTeamContext` is not mounted upstream).
+- [ ] **`verifyTeamMember`** — **dropped.** `/teams/:teamId/*` controllers keep their inline `getRole` pattern from P1/P2 — one source of truth instead of two parallel patterns.
+- [x] **`getQuotaOwner({ userId, teamId?, req? })`** → `Promise<string>` — returns ownerId or userId; fail-loud on missing/soft-deleted team (no silent fallback to per-user actor). Request-scoped memoization via `req[Symbol.for("crelyzor.teamQuotaCache")]`.
+- [ ] **Wire `getQuotaOwner` into transcription/AI/storage/Recall metering** — **deferred to per-service P5 sub-tasks** (P5.1 wires meetings/transcription/AI; P5.7 wires Recall webhooks). Follows P3 precedent of deferring caller cutover to P5.
+- [ ] **`UserUsage` `groupBy(['userId','teamId'])`** — **deferred to P5.8** (Usage endpoint). The multi-row-per-user restructure needs `userId @unique` dropped + compound `@@unique([userId, teamId])`; that schema debate belongs with the breakdown endpoint, not the middleware.
+- [x] Bull job interfaces (`TranscriptionJobData`, `AIProcessingJobData`, `RecallBotJobData`, `RecallRecordingJobData`, `BookingReminderJobData`) gain optional `teamId?: string`. Header comment documents worker contract: must call `getQuotaOwner` at job start; never trust a `teamId` without re-resolving.
+- [x] 7 vitest cases (`getQuotaOwner` 4 branches + per-request cache + Request-isolation); full security suite 47/47 green.
 
 ---
 
@@ -1058,8 +1056,15 @@ New files: `src/middleware/resolveTeamContext.ts`, `src/middleware/verifyTeamRol
 
 Each sub-task is a single PR scope.
 
-- [ ] **P5.1 Meetings** — `meetingService` reads `req.teamContext`. List/get/update/delete + nested (attachments, participants, recordings, transcript, segments, AI summary, ask AI, content generation, share) honor team context. Member visibility: when `role === 'MEMBER'`, add `participants: { some: { userId } }` to where clause.
-- [ ] **P5.2 Cards** — `cardService` + `cardContactService` honor team context. Public team card endpoint (`GET /public/teams/:slug`) separate.
+- [x] **P5.1 Meetings ✅ Complete (2026-05-29)** — split into 5.1.a / 5.1.b / 5.1.c, all shipped:
+  - [x] **5.1.a — Core CRUD + creation** (2026-05-29) — `resolveTeamContext` mounted on `/meetings`; `meetingScope` + `principalForMeeting` + `verifyMeetingAccess` helpers; create/list/get/update/delete/cancel/complete + ICS gate. MEMBER participant-allowlist on createMeeting/updateMeeting. Bull RecallBotJobData carries teamId. Dev notes: `docs/dev-notes/phase-6-p5-1a-meetings-core.md`.
+  - [x] **5.1.b — Simple nested** (2026-05-29) — `assertMeetingAccess` exported; `resolveTeamContext` mounted on smaRoutes; attachmentService + shareService + tagService meeting-bits + aiController notes use the shared gate. Notes encryption stays under author DEK (per-author privacy, even on team meetings). Dev notes: `docs/dev-notes/phase-6-p5-1b-meetings-nested.md`.
+  - [x] **5.1.c — AI/transcript content + metering** (2026-05-29) — both halves shipped:
+    - [x] **5.1.c.i** — usageService accepts `{teamId}` opts (all 5 functions), getQuotaOwner resolves payer inside; transcriptionService + smaEditService encrypt under principalForMeeting; jobProcessor (Recall handlers + TRANSCRIBE) carries teamId. Dev notes: `docs/dev-notes/phase-6-p5-1c-i-metering-transcript-encryption.md`.
+    - [x] **5.1.c.ii** — aiService 18 encrypt/decrypt sites (generateSummary, extractKeyPoints, generateSummaryAndKeyPoints, extractTasks, processTranscriptWithAI orchestrator, askAI, generateContent, getGeneratedContents) + askAIConversationService (2 sites: getMessages + appendMessage signature change) all use principalForMeeting; `checkAndDeductCredits` at the 2 aiService call sites threads `{ teamId: meeting.teamId }`. Dev notes: `docs/dev-notes/phase-6-p5-1c-ii-ai-encryption.md`.
+- [~] **P5.2 Cards** — split into 5.2.a / 5.2.b:
+  - [x] **5.2.a — Card CRUD + public submitContact encryption** (2026-05-29) — `resolveTeamContext` mounted on `/cards`; `cardScope` + `principalForCard` + `verifyCardAccess` + `assertCardAccess` helpers; createCard MEMBER-reject + writes teamId; getUserCards uses cardScope (closes personal-list leak); single-fetch getCardById; updateCard/deleteCard/duplicateCard via assertCardAccess; submitContact encrypts under principalForCard(card). Strict Zod on create/update schemas. Dev notes: `docs/dev-notes/phase-6-p5-2a-cards-core.md`.
+  - [ ] **5.2.b — Contacts list / analytics / multi-card paths** — getContacts / exportContacts / updateContactTags / deleteContact / importContactsFromCsv (multi-card scope + decrypt principal switch); getCardAnalytics / getCardMeetings (read-only access check); trackView (anonymous public-write, confirm or update). Also tag-controller card-tag + contact-tag handlers (bundled here OR in P5.5 — TBD).
 - [ ] **P5.3 Tasks** — `taskService` honors team context. Reassign endpoint blocks `role === 'MEMBER'`.
 - [ ] **P5.4 Scheduling** — `eventTypeService`, `availabilityService`, `bookingService` (private endpoints) honor team context. Team-scoped EventTypes have `teamId` set; slot engine works unchanged.
 - [ ] **P5.5 Tags** — `tagService` polymorphic tags (meeting/card/task/contact) scope to team context. The `Tag` model itself gets `teamId UUID?`.

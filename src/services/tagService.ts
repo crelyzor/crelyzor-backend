@@ -4,6 +4,8 @@ import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
 import type { CreateTagInput, UpdateTagInput } from "../validators/tagSchema";
 import { DEFAULT_TAG_COLOR } from "../validators/tagSchema";
+import { assertMeetingAccess } from "./meetings/meetingService";
+import type { TeamContext } from "../middleware/authMiddleware";
 
 const TAG_SELECT = {
   id: true,
@@ -264,14 +266,6 @@ export async function getTagItems(userId: string, tagId: string) {
 // Meeting tags
 // ────────────────────────────────────────────────────────────
 
-async function verifyMeetingOwnership(meetingId: string, userId: string) {
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
-  if (!meeting) throw new AppError("Meeting not found", 404);
-}
-
 async function verifyTagOwnership(tagId: string, userId: string) {
   const tag = await prisma.tag.findFirst({
     where: { id: tagId, userId, isDeleted: false },
@@ -280,8 +274,12 @@ async function verifyTagOwnership(tagId: string, userId: string) {
   if (!tag) throw new AppError("Tag not found", 404);
 }
 
-export async function getMeetingTags(userId: string, meetingId: string) {
-  await verifyMeetingOwnership(meetingId, userId);
+export async function getMeetingTags(
+  userId: string,
+  meetingId: string,
+  teamContext: TeamContext | null = null,
+) {
+  await assertMeetingAccess(userId, meetingId, teamContext, "read");
 
   const rows = await prisma.meetingTag.findMany({
     where: { meetingId, tag: { isDeleted: false } },
@@ -299,9 +297,10 @@ export async function attachTagToMeeting(
   userId: string,
   meetingId: string,
   tagId: string,
+  teamContext: TeamContext | null = null,
 ) {
   await Promise.all([
-    verifyMeetingOwnership(meetingId, userId),
+    assertMeetingAccess(userId, meetingId, teamContext, "mutate"),
     verifyTagOwnership(tagId, userId),
   ]);
 
@@ -318,9 +317,10 @@ export async function detachTagFromMeeting(
   userId: string,
   meetingId: string,
   tagId: string,
+  teamContext: TeamContext | null = null,
 ) {
   await Promise.all([
-    verifyMeetingOwnership(meetingId, userId),
+    assertMeetingAccess(userId, meetingId, teamContext, "mutate"),
     verifyTagOwnership(tagId, userId),
   ]);
 

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { verifyJWT, userRateLimit } from "../middleware/authMiddleware";
+import { resolveTeamContext } from "../middleware/resolveTeamContext";
 import { singleFileUpload } from "../middleware/uploadMiddleware";
 import * as recordingController from "../controllers/recordingController";
 import * as transcriptController from "../controllers/transcriptController";
@@ -12,8 +13,11 @@ import * as tagController from "../controllers/tagController";
 
 const router = Router();
 
-// All SMA routes require authentication
+// All SMA routes require authentication.
 router.use(verifyJWT);
+// Phase 6 P5.1.b — every meeting-scoped SMA route honours X-Team-Id via
+// assertMeetingAccess() in the underlying services.
+router.use(resolveTeamContext);
 
 // ========================================
 // 📹 RECORDING ROUTES

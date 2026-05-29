@@ -3,6 +3,7 @@ import { attachmentService } from "../services/attachmentService";
 import { apiResponse } from "../utils/globalResponseHandler";
 import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
+import { getTeamContext } from "../middleware/teamContext";
 import {
   attachmentMeetingParamSchema,
   attachmentIdParamSchema,
@@ -17,6 +18,7 @@ export const attachmentController = {
     const attachments = await attachmentService.getAttachments(
       params.data.meetingId,
       req.user!.userId,
+      getTeamContext(req),
     );
 
     return apiResponse(res, {
@@ -42,6 +44,7 @@ export const attachmentController = {
       params.data.meetingId,
       req.user!.userId,
       body.data,
+      getTeamContext(req),
     );
 
     logger.info("Link attachment added via controller", {
@@ -69,6 +72,7 @@ export const attachmentController = {
       req.user!.userId,
       req.file,
       name,
+      getTeamContext(req),
     );
 
     return apiResponse(res, {
@@ -86,6 +90,7 @@ export const attachmentController = {
       params.data.meetingId,
       params.data.attachmentId,
       req.user!.userId,
+      getTeamContext(req),
     );
 
     return apiResponse(res, { statusCode: 200, message: "Attachment deleted" });

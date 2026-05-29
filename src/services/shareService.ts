@@ -4,20 +4,19 @@ import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
 import type { UpdateShareInput } from "../validators/shareSchema";
 import { decrypt } from "../utils/security/crypto";
+import { assertMeetingAccess } from "./meetings/meetingService";
+import type { TeamContext } from "../middleware/authMiddleware";
 
 /**
  * Create or return an existing share record for a meeting (idempotent).
- * Verifies the meeting belongs to the requesting user.
+ * Verifies team-aware meeting access via assertMeetingAccess (Phase 6 P5.1.b).
  */
-export async function createOrGetShare(meetingId: string, userId: string) {
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
-
-  if (!meeting) {
-    throw new AppError("Meeting not found", 404);
-  }
+export async function createOrGetShare(
+  meetingId: string,
+  userId: string,
+  teamContext: TeamContext | null = null,
+) {
+  await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
 
   // Return existing share if it exists (exclude soft-deleted shares)
   const existing = await prisma.meetingShare.findFirst({
@@ -61,21 +60,15 @@ export async function createOrGetShare(meetingId: string, userId: string) {
 
 /**
  * Update share visibility and field flags.
- * Verifies the meeting belongs to the requesting user.
+ * Verifies team-aware meeting access via assertMeetingAccess (Phase 6 P5.1.b).
  */
 export async function updateShare(
   meetingId: string,
   userId: string,
   data: UpdateShareInput,
+  teamContext: TeamContext | null = null,
 ) {
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
-
-  if (!meeting) {
-    throw new AppError("Meeting not found", 404);
-  }
+  await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
 
   const existing = await prisma.meetingShare.findFirst({
     where: { meetingId, isDeleted: false },

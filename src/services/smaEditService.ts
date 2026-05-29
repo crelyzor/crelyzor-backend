@@ -3,6 +3,7 @@ import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
 import type { PatchSummaryInput } from "../validators/transcriptEditSchema";
 import { encrypt, decrypt } from "../utils/security/crypto";
+import { principalForMeeting } from "./meetings/meetingService";
 
 /**
  * Edit a single transcript segment's text.
@@ -14,6 +15,12 @@ export async function updateSegment(
   text: string,
   userId: string,
 ) {
+  // Phase 6 P5.1.c — fetch the meeting alongside the segment so we can
+  // derive the correct encryption principal. Ownership remains
+  // createdById-scoped here; team-aware access via assertMeetingAccess is
+  // the controller's job (P5.1.b mounted resolveTeamContext upstream;
+  // controller cutover for this endpoint lands with the rest of the
+  // transcript surface).
   const segment = await prisma.transcriptSegment.findFirst({
     where: {
       id: segmentId,
@@ -27,14 +34,30 @@ export async function updateSegment(
         },
       },
     },
-    select: { id: true },
+    select: {
+      id: true,
+      transcript: {
+        select: {
+          recording: {
+            select: {
+              meeting: {
+                select: { teamId: true, createdById: true },
+              },
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!segment) {
     throw new AppError("Transcript segment not found", 404);
   }
 
-  const encryptedText = await encrypt(text, userId);
+  const meetingPrincipal = principalForMeeting(
+    segment.transcript.recording.meeting,
+  );
+  const encryptedText = await encrypt(text, meetingPrincipal);
   await prisma.transcriptSegment.update({
     where: { id: segmentId },
     data: { text: encryptedText },
@@ -56,23 +79,25 @@ export async function updateSummary(
 ) {
   const meeting = await prisma.meeting.findFirst({
     where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
+    select: { id: true, teamId: true, createdById: true },
   });
 
   if (!meeting) {
     throw new AppError("Meeting not found", 404);
   }
 
+  const meetingPrincipal = principalForMeeting(meeting);
+
   const summaryUpdateData: {
     summary?: Uint8Array<ArrayBuffer>;
     keyPoints?: Uint8Array<ArrayBuffer>;
   } = {};
   if (data.summary !== undefined)
-    summaryUpdateData.summary = await encrypt(data.summary, userId);
+    summaryUpdateData.summary = await encrypt(data.summary, meetingPrincipal);
   if (data.keyPoints !== undefined)
     summaryUpdateData.keyPoints = await encrypt(
       JSON.stringify(data.keyPoints),
-      userId,
+      meetingPrincipal,
     );
 
   const hasSummaryUpdate = Object.keys(summaryUpdateData).length > 0;
@@ -143,6 +168,8 @@ export async function mergeConsecutiveSpeakerSegments(
     where: { id: meetingId, createdById: userId, isDeleted: false },
     select: {
       id: true,
+      teamId: true,
+      createdById: true,
       recording: {
         select: {
           transcript: {
@@ -170,6 +197,7 @@ export async function mergeConsecutiveSpeakerSegments(
     throw new AppError("Meeting not found", 404);
   }
 
+  const meetingPrincipal = principalForMeeting(meeting);
   const transcript = meeting.recording?.transcript;
   if (!transcript) {
     throw new AppError("No transcript found for this meeting", 404);
@@ -184,11 +212,11 @@ export async function mergeConsecutiveSpeakerSegments(
     };
   }
 
-  // Decrypt all segment texts before merging
+  // Decrypt all segment texts before merging (under the meeting principal).
   const decryptedSegments = await Promise.all(
     segments.map(async (seg) => ({
       ...seg,
-      text: seg.text ? await decrypt(seg.text, userId) : "",
+      text: seg.text ? await decrypt(seg.text, meetingPrincipal) : "",
     })),
   );
 
@@ -226,12 +254,12 @@ export async function mergeConsecutiveSpeakerSegments(
     };
   }
 
-  // Encrypt merged texts before persisting
+  // Encrypt merged texts before persisting (under the meeting principal).
   const merged = await Promise.all(
     mergedPlaintext.map(async (seg) => ({
       transcriptId: transcript.id,
       speaker: seg.speaker,
-      text: await encrypt(seg.text, userId),
+      text: await encrypt(seg.text, meetingPrincipal),
       startTime: seg.startTime,
       endTime: seg.endTime,
     })),

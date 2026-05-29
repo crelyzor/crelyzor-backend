@@ -10,6 +10,8 @@ import { noteSchema, notesQuerySchema } from "../validators/noteSchema";
 import { apiResponse } from "../utils/globalResponseHandler";
 import * as conversationService from "../services/ai/askAIConversationService";
 import { encrypt, decrypt } from "../utils/security/crypto";
+import { assertMeetingAccess } from "../services/meetings/meetingService";
+import { getTeamContext } from "../middleware/teamContext";
 
 const uuidSchema = z.string().uuid();
 
@@ -167,11 +169,11 @@ export const getNotes = async (req: Request, res: Response) => {
 
   if (!userId) throw new AppError("Unauthorized", 401);
 
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
-  if (!meeting) throw new AppError("Meeting not found", 404);
+  // Phase 6 P5.1.b — team-aware meeting access. Note privacy stays
+  // per-author: even under team context, each user only sees their own
+  // notes on the meeting (filter `author: userId` below). Notes are
+  // personal scratch space attached to a meeting, not shared workspace.
+  await assertMeetingAccess(userId, meetingId, getTeamContext(req), "read");
 
   const parsedQuery = notesQuerySchema.safeParse(req.query);
   const { limit, offset } = parsedQuery.success
@@ -230,11 +232,9 @@ export const createNote = async (req: Request, res: Response) => {
   if (!parsed.success)
     throw new AppError("content is required (max 10000 chars)", 400);
 
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
-  if (!meeting) throw new AppError("Meeting not found", 404);
+  // Phase 6 P5.1.b — team-aware meeting access. Encryption stays under the
+  // author's user DEK because notes are author-private (see getNotes).
+  await assertMeetingAccess(userId, meetingId, getTeamContext(req), "mutate");
 
   const encryptedContent = await encrypt(parsed.data.content, userId);
   const note = await prisma.meetingNote.create({
@@ -347,26 +347,31 @@ export const deleteNote = async (req: Request, res: Response) => {
 
   if (!userId) throw new AppError("Unauthorized", 401);
 
-  // Verify the note belongs to a meeting owned by the caller
+  // Phase 6 P5.1.b — load note + parent meetingId, then run team-aware
+  // meeting access. Author-only deletion is preserved: a teammate cannot
+  // delete another member's note even when the meeting is team-scoped.
   const note = await prisma.meetingNote.findFirst({
-    where: {
-      id: noteId,
-      isDeleted: false,
-      meeting: { createdById: userId, isDeleted: false },
-    },
-    select: { id: true },
+    where: { id: noteId, isDeleted: false },
+    select: { id: true, author: true, meetingId: true },
   });
   if (!note) throw new AppError("Note not found", 404);
+  if (note.author !== userId) {
+    // Uniform 404 — don't reveal that the note exists but belongs to
+    // someone else.
+    throw new AppError("Note not found", 404);
+  }
 
-  const deleted = await prisma.meetingNote.updateMany({
-    where: {
-      id: noteId,
-      isDeleted: false,
-      meeting: { createdById: userId, isDeleted: false },
-    },
+  await assertMeetingAccess(
+    userId,
+    note.meetingId,
+    getTeamContext(req),
+    "mutate",
+  );
+
+  await prisma.meetingNote.update({
+    where: { id: noteId },
     data: { isDeleted: true, deletedAt: new Date() },
   });
-  if (deleted.count === 0) throw new AppError("Note not found", 404);
 
   return apiResponse(res, {
     statusCode: 200,
