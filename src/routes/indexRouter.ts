@@ -19,6 +19,8 @@ import searchRouter from "./searchRoutes";
 import googleWebhookRouter from "./googleWebhookRoutes";
 import adminRouter from "./adminRoutes";
 import notificationRouter from "./notificationRoutes";
+import teamRouter from "./teamRoutes";
+import publicInviteRouter from "./publicInviteRoutes";
 
 const indexRouter = Router();
 
@@ -96,6 +98,16 @@ indexRouter.use("/storage", storageRouter);
 // 🔔 NOTIFICATION ROUTES
 // ========================================
 indexRouter.use("/notifications", notificationRouter);
+
+// ========================================
+// 👥 TEAM ROUTES (Phase 6)
+// ========================================
+indexRouter.use("/teams", teamRouter);
+
+// ========================================
+// ✉️ PUBLIC INVITE ROUTES (Phase 6 — token-based)
+// ========================================
+indexRouter.use("/invites", publicInviteRouter);
 
 // ========================================
 // 🔐 ADMIN ROUTES (founder/ops only)

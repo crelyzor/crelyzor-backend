@@ -90,6 +90,12 @@ model User {
   dekVersion Int              @default(1)
   dekHistory UserDekHistory[]
 
+  // Teams (Phase 6)
+  ownedTeams           Team[]       @relation("TeamOwner")
+  teamMemberships      TeamMember[]
+  teamInvitesSent      TeamInvite[] @relation("TeamInviteSender")
+  teamInvitesReceived  TeamInvite[] @relation("TeamInviteRecipient")
+
   @@index([activeSessionId])
   @@index([createdAt])
   @@index([plan])
@@ -195,6 +201,9 @@ model Meeting {
   deletedAt   DateTime?
   deletedBy   String?   @db.Uuid
 
+  // Teams (Phase 6) — null = personal meeting
+  teamId String? @db.Uuid
+
   // Transcription processing status
   transcriptionStatus TranscriptionStatus @default(NONE)
 
@@ -212,6 +221,7 @@ model Meeting {
 
   // Relations
   createdBy    User                  @relation("MeetingCreatedBy", fields: [createdById], references: [id])
+  team         Team?                 @relation(fields: [teamId], references: [id], onDelete: SetNull)
   participants MeetingParticipant[]
   stateHistory MeetingStateHistory[]
 
@@ -236,6 +246,7 @@ model Meeting {
   @@index([type, isDeleted])
   @@index([recallBotId])
   @@index([googleEventId])
+  @@index([teamId, isDeleted, createdAt(sort: Desc)]) // dashboard "list my team's meetings" hot path
 }
 
 model MeetingParticipant {
@@ -392,12 +403,16 @@ model Task {
   recurringRule     String? // RRULE string e.g. "FREQ=DAILY", "FREQ=WEEKLY", "FREQ=MONTHLY"
   recurringParentId String? @db.Uuid // Points to the root recurring task (never the previous sibling)
 
+  // Teams (Phase 6) — null = personal task
+  teamId String? @db.Uuid
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
 
   user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team              Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
   meeting           Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
   taskTags          TaskTag[]
   parent            Task?     @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
@@ -421,6 +436,7 @@ model Task {
   @@index([userId, cardId, isDeleted])
   @@index([googleEventId])
   @@index([recurringParentId])
+  @@index([teamId, isDeleted, createdAt(sort: Desc)]) // team dashboard hot path
 }
 
 model TaskTag {
@@ -613,6 +629,9 @@ model Card {
   isDefault Boolean @default(false) // shown at /username
   isActive  Boolean @default(true) // can be paused
 
+  // Teams (Phase 6) — null = personal card
+  teamId String? @db.Uuid
+
   // Soft delete
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
@@ -623,6 +642,7 @@ model Card {
 
   // Relations
   user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team                Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
   contacts            CardContact[]
   views               CardView[]
   tags                CardTag[]
@@ -634,6 +654,7 @@ model Card {
   @@index([userId])
   @@index([userId, isActive])
   @@index([userId, isDefault])
+  @@index([teamId, isDeleted])
 }
 
 model CardContact {
@@ -863,18 +884,23 @@ model EventType {
   // Linked availability schedule — null = use user's default schedule
   availabilityScheduleId String? @db.Uuid
 
+  // Teams (Phase 6) — null = personal event type
+  teamId String? @db.Uuid
+
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
   user                 User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  team                 Team?                 @relation(fields: [teamId], references: [id], onDelete: SetNull)
   availabilitySchedule AvailabilitySchedule? @relation(fields: [availabilityScheduleId], references: [id])
   bookings             Booking[]
 
   @@unique([userId, slug])
   @@index([userId, isActive, isDeleted])
   @@index([availabilityScheduleId])
+  @@index([teamId, isDeleted])
 }
 
 model AvailabilitySchedule {
@@ -963,6 +989,9 @@ model Booking {
   cancelReason String?
   canceledAt   DateTime?
 
+  // Teams (Phase 6) — null = personal booking
+  teamId String? @db.Uuid
+
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
   createdAt DateTime  @default(now())
@@ -973,6 +1002,7 @@ model Booking {
   // User must not be hard-deletable while bookings exist (guest record kept for audit)
   user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
   meeting   Meeting?  @relation(fields: [meetingId], references: [id])
+  team      Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([eventTypeId])
@@ -981,6 +1011,7 @@ model Booking {
   @@index([status, isDeleted])
   @@index([userId, isDeleted]) // dashboard booking list query
   @@index([startTime, isDeleted]) // slot engine conflict check
+  @@index([teamId, isDeleted])
 }
 
 // ================================
@@ -1001,12 +1032,18 @@ model UserUsage {
   periodStart DateTime @default(now())
   resetAt     DateTime // set to first day of next month on creation + after each reset
 
+  // Teams (Phase 6) — attribution column for per-team breakdown.
+  // null = consumption against personal (no team context active when metered).
+  teamId String? @db.Uuid
+
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team? @relation(fields: [teamId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([resetAt]) // cron job queries by resetAt to find users to reset
+  @@index([teamId])
 }
 
 model Subscription {
@@ -1030,6 +1067,121 @@ model Subscription {
   @@index([userId])
   @@index([razorpayCustomerId])
   @@index([plan])
+}
+
+// ================================
+// TEAMS (Phase 6)
+// ================================
+
+// Key/value store for admin-tunable platform limits.
+// Seeded with: max_teams_per_pro_user=3, max_teams_per_business_user=10,
+// max_members_per_team=50, team_invite_expiry_days=7.
+model SystemConfig {
+  key       String   @id
+  value     String
+  updatedBy String?  @db.Uuid // AdminUser.id — audit field, no FK for loose coupling
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Team {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String    @unique
+  description String?
+  ownerId     String    @db.Uuid
+  logoUrl     String?
+
+  // Per-team DEK (Phase 6 P3 — additive to Phase 5's per-user DEK).
+  // Always populated inside the createTeam() transaction; never null in practice.
+  wrappedDek Bytes
+  dekVersion Int    @default(1)
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  owner      User             @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members    TeamMember[]
+  invites    TeamInvite[]
+  dekHistory TeamDekHistory[]
+  meetings   Meeting[]
+  cards      Card[]
+  tasks      Task[]
+  eventTypes EventType[]
+  bookings   Booking[]
+  usage      UserUsage[]
+
+  @@index([ownerId, isDeleted])
+}
+
+model TeamMember {
+  id        String    @id @default(uuid()) @db.Uuid
+  teamId    String    @db.Uuid
+  userId    String    @db.Uuid
+  role      TeamRole  @default(MEMBER)
+  joinedAt  DateTime  @default(now())
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  updatedAt DateTime  @updatedAt
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId]) // re-join flips isDeleted instead of inserting a new row
+  @@index([userId, isDeleted])
+  @@index([teamId, isDeleted])
+  @@index([teamId, role, isDeleted])
+}
+
+// Active-invite uniqueness is enforced by a partial unique index added in
+// the migration SQL (Prisma cannot model partial unique indexes natively):
+//   CREATE UNIQUE INDEX team_invite_active_uniq
+//     ON "TeamInvite" ("teamId", "email")
+//     WHERE "isDeleted" = false
+//       AND "acceptedAt" IS NULL
+//       AND "declinedAt" IS NULL
+//       AND "cancelledAt" IS NULL;
+model TeamInvite {
+  id          String    @id @default(uuid()) @db.Uuid
+  teamId      String    @db.Uuid
+  email       String // plaintext: looked up server-side without per-user DEK; logger redacts
+  userId      String?   @db.Uuid // set if invitee already has an account
+  role        TeamRole
+  token       String    @unique
+  invitedById String    @db.Uuid
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  declinedAt  DateTime?
+  cancelledAt DateTime?
+  isDeleted   Boolean   @default(false)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  team      Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy User  @relation("TeamInviteSender", fields: [invitedById], references: [id], onDelete: Restrict)
+  user      User? @relation("TeamInviteRecipient", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([token])
+  @@index([email, isDeleted])
+  @@index([teamId, isDeleted])
+  @@index([userId])
+}
+
+// Append-only on rotation. Hard cascade on Team delete = crypto-shred for the team's data.
+model TeamDekHistory {
+  id         String   @id @default(uuid()) @db.Uuid
+  teamId     String   @db.Uuid
+  version    Int
+  wrappedDek Bytes
+  createdAt  DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, version])
+  @@index([teamId])
 }
 
 // ================================
@@ -1118,6 +1270,12 @@ enum Plan {
   FREE
   PRO
   BUSINESS
+}
+
+enum TeamRole {
+  OWNER
+  ADMIN
+  MEMBER
 }
 
 enum NotificationType {

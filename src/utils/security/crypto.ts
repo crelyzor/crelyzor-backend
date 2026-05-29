@@ -12,6 +12,25 @@ import { getCachedDek, setCachedDek } from "./dekCache";
 // without re-encrypting existing data.
 const CURRENT_VERSION = 1;
 
+// ── Principal ─────────────────────────────────────────────────────────────────
+
+// A Principal identifies whose DEK to use. Phase 6 introduces team principals
+// alongside the per-user principals shipped in Phase 5. Team-scoped content
+// (rows where `teamId` is non-null) encrypts under the team DEK; everything
+// else continues to encrypt under the row owner's user DEK.
+export type Principal = { type: "user" | "team"; id: string };
+
+// Normalise a string-or-Principal argument into a Principal. A bare string is
+// always interpreted as a user principal — Phase 5's API surface assumed user
+// scoping, and 200+ call sites pass userIds today. New code added during Phase
+// 6 P5 and later SHOULD pass an explicit Principal to avoid silently defaulting
+// team-scoped writes back to the user DEK.
+export function toPrincipal(principal: Principal | string): Principal {
+  return typeof principal === "string"
+    ? { type: "user", id: principal }
+    : principal;
+}
+
 // ── Pure crypto functions (testable without DB) ──────────────────────────────
 
 export function encryptWithKey(
@@ -74,15 +93,63 @@ function fromPrismaBytes(val: Uint8Array): Buffer {
     : Buffer.from(val.buffer, val.byteOffset, val.byteLength);
 }
 
+// ── DEK generation ────────────────────────────────────────────────────────────
+
+/**
+ * Generates a fresh 32-byte DEK and KMS-wraps it. Always do this OUTSIDE a
+ * Prisma transaction — KMS is network I/O and we don't want to hold the tx
+ * for the round-trip.
+ *
+ * **Buffer ownership contract:**
+ * - On success the caller receives both `rawDek` and `wrappedDek`. The caller
+ *   is responsible for zeroing `rawDek` after it has been used (e.g. populating
+ *   the in-memory cache or returning from `initDekForNewUser`).
+ * - On KMS failure this function zeros `rawDek` before rethrowing so the raw
+ *   key material does not leak via stack frames or unhandled error paths.
+ */
+export async function generateAndWrapDek(): Promise<{
+  rawDek: Buffer;
+  wrappedDek: Buffer;
+}> {
+  const rawDek = crypto.randomBytes(32);
+  try {
+    const wrappedDek = await getKmsProvider().wrapKey(rawDek);
+    return { rawDek, wrappedDek };
+  } catch (err) {
+    rawDek.fill(0);
+    throw err;
+  }
+}
+
 // ── DEK resolution ────────────────────────────────────────────────────────────
 
-// Fetches (and caches) the DEK for a given userId + version.
+// Fetches (and caches) the DEK for a given principal + version.
 // On cache miss: reads wrappedDek from DB, unwraps via KMS.
-// Versions > current version fall through to UserDekHistory for rotation support.
-export async function getDek(userId: string, version: number): Promise<Buffer> {
-  const cached = getCachedDek(userId, version);
+// Versions != current version fall through to the principal's *DekHistory
+// table for rotation support.
+export async function getDek(
+  principal: Principal | string,
+  version: number,
+): Promise<Buffer> {
+  const p = toPrincipal(principal);
+
+  const cached = getCachedDek(p, version);
   if (cached) return cached;
 
+  const wrappedDek =
+    p.type === "user"
+      ? await loadUserWrappedDek(p.id, version)
+      : await loadTeamWrappedDek(p.id, version);
+
+  const dek = await getKmsProvider().unwrapKey(wrappedDek);
+  setCachedDek(p, version, dek);
+  return dek;
+}
+
+async function loadUserWrappedDek(
+  userId: string,
+  version: number,
+): Promise<Buffer> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { wrappedDek: true, dekVersion: true },
@@ -90,64 +157,131 @@ export async function getDek(userId: string, version: number): Promise<Buffer> {
 
   if (!user) throw new AppError("User not found for DEK resolution", 500);
 
-  let wrappedDek: Buffer;
-
   if (user.dekVersion === version && user.wrappedDek) {
-    wrappedDek = fromPrismaBytes(user.wrappedDek);
-  } else {
-    // Historical DEK version — look up UserDekHistory
-    const history = await prisma.userDekHistory.findUnique({
-      where: { userId_version: { userId, version } },
-      select: { wrappedDek: true },
-    });
-    if (!history) {
-      throw new AppError(
-        `DEK version ${version} not found for user ${userId}`,
-        500,
-      );
-    }
-    wrappedDek = fromPrismaBytes(history.wrappedDek);
+    return fromPrismaBytes(user.wrappedDek);
   }
 
-  const dek = await getKmsProvider().unwrapKey(wrappedDek);
-  setCachedDek(userId, version, dek);
-  return dek;
+  const history = await prisma.userDekHistory.findUnique({
+    where: { userId_version: { userId, version } },
+    select: { wrappedDek: true },
+  });
+  if (!history) {
+    throw new AppError(
+      `DEK version ${version} not found for user ${userId}`,
+      500,
+    );
+  }
+  return fromPrismaBytes(history.wrappedDek);
+}
+
+async function loadTeamWrappedDek(
+  teamId: string,
+  version: number,
+): Promise<Buffer> {
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    select: { wrappedDek: true, dekVersion: true, isDeleted: true },
+  });
+
+  // Team.wrappedDek is NOT NULL on the schema; a null read indicates a
+  // serious data invariant violation. Fail closed and log loudly — never
+  // fall back to a user DEK lookup.
+  if (!team || !team.wrappedDek) {
+    logger.error("team.dek.missing", {
+      teamId,
+      teamFound: Boolean(team),
+      isDeleted: team?.isDeleted ?? null,
+    });
+    throw new AppError("Team DEK not provisioned", 500);
+  }
+
+  if (team.dekVersion === version) {
+    return fromPrismaBytes(team.wrappedDek);
+  }
+
+  const history = await prisma.teamDekHistory.findUnique({
+    where: { teamId_version: { teamId, version } },
+    select: { wrappedDek: true },
+  });
+  if (!history) {
+    throw new AppError(
+      `DEK version ${version} not found for team ${teamId}`,
+      500,
+    );
+  }
+  return fromPrismaBytes(history.wrappedDek);
 }
 
 // ── Public encryption API ─────────────────────────────────────────────────────
 
-// Encrypts plaintext for a user. Always uses the current DEK version.
-// Returns Uint8Array<ArrayBuffer> (Prisma 6 Bytes type) — safe cast; alloc uses ArrayBuffer.
-export async function encrypt(
-  plaintext: string,
-  userId: string,
-): Promise<Uint8Array<ArrayBuffer>> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+// Helper that resolves the current DEK + version for an arbitrary principal
+// before encryption. Caches the result via the standard cache path.
+async function resolveCurrentDek(
+  principal: Principal,
+): Promise<{ dek: Buffer; version: number }> {
+  if (principal.type === "user") {
+    const user = await prisma.user.findUnique({
+      where: { id: principal.id },
+      select: { wrappedDek: true, dekVersion: true },
+    });
+    if (!user?.wrappedDek) {
+      throw new AppError(
+        `Encryption not initialized for user ${principal.id} — initDekForNewUser must run first`,
+        500,
+      );
+    }
+    let dek = getCachedDek(principal, user.dekVersion);
+    if (!dek) {
+      dek = await getKmsProvider().unwrapKey(fromPrismaBytes(user.wrappedDek));
+      setCachedDek(principal, user.dekVersion, dek);
+    }
+    return { dek, version: user.dekVersion };
+  }
+
+  const team = await prisma.team.findUnique({
+    where: { id: principal.id },
     select: { wrappedDek: true, dekVersion: true },
   });
-
-  if (!user?.wrappedDek) {
-    throw new AppError(
-      `Encryption not initialized for user ${userId} — initDekForNewUser must run first`,
-      500,
-    );
+  if (!team?.wrappedDek) {
+    logger.error("team.dek.missing", { teamId: principal.id });
+    throw new AppError("Team DEK not provisioned", 500);
   }
-
-  let dek = getCachedDek(userId, user.dekVersion);
+  let dek = getCachedDek(principal, team.dekVersion);
   if (!dek) {
-    dek = await getKmsProvider().unwrapKey(fromPrismaBytes(user.wrappedDek));
-    setCachedDek(userId, user.dekVersion, dek);
+    dek = await getKmsProvider().unwrapKey(fromPrismaBytes(team.wrappedDek));
+    setCachedDek(principal, team.dekVersion, dek);
   }
-
-  return prismaBytes(encryptWithKey(plaintext, dek, user.dekVersion));
+  return { dek, version: team.dekVersion };
 }
 
-// Decrypts a ciphertext. Reads the DEK version from byte 0 of the ciphertext.
-// Accepts both Buffer (from tests/internal code) and Uint8Array<ArrayBuffer> (from Prisma 6).
+/**
+ * Encrypts plaintext under the given principal's current DEK.
+ *
+ * **Prefer the explicit `Principal` form in new code.** The bare-string overload
+ * is preserved for Phase 5 back-compat (~200 existing call sites pass userIds)
+ * but always routes to `{type:"user",id}`. Passing a string in a team-scoped
+ * write would silently write under the wrong DEK and the row would later fail
+ * to decrypt — that's the failure mode the explicit form eliminates.
+ */
+export async function encrypt(
+  plaintext: string,
+  principal: Principal | string,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const p = toPrincipal(principal);
+  const { dek, version } = await resolveCurrentDek(p);
+  return prismaBytes(encryptWithKey(plaintext, dek, version));
+}
+
+/**
+ * Decrypts a ciphertext under the given principal. The DEK version is read
+ * from byte 0 of the ciphertext, so historical rows encrypted under a rotated
+ * key are still decryptable.
+ *
+ * **Prefer the explicit `Principal` form in new code** — see `encrypt`.
+ */
 export async function decrypt(
   ciphertext: Uint8Array,
-  userId: string,
+  principal: Principal | string,
 ): Promise<string> {
   const buf = fromPrismaBytes(ciphertext);
   const version = buf[0];
@@ -157,7 +291,7 @@ export async function decrypt(
       500,
     );
   }
-  const dek = await getDek(userId, version);
+  const dek = await getDek(toPrincipal(principal), version);
   return decryptWithKey(buf, dek);
 }
 
@@ -171,9 +305,10 @@ export async function initDekForNewUser(
   userId: string,
   tx?: Prisma.TransactionClient,
 ): Promise<Buffer> {
-  const rawDek = crypto.randomBytes(32);
-  // KMS call happens BEFORE any DB write to minimise transaction hold time
-  const wrappedDek = await getKmsProvider().wrapKey(rawDek);
+  // KMS call happens BEFORE any DB write to minimise transaction hold time.
+  // generateAndWrapDek zeroes rawDek on KMS failure; on success the caller
+  // owns the buffer (signup populates the cache then drops the reference).
+  const { rawDek, wrappedDek } = await generateAndWrapDek();
   const db = tx ?? prisma;
 
   await db.user.update({

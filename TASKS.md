@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-05-22 (Phase 4.9 complete ✅ — In-App Notifications + WebSocket foundation shipped)
+Last updated: 2026-05-29 (Phase 6 P3 shipped ✅ — Per-team DEK plumbing)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -871,9 +871,11 @@ Call `createNotification()` alongside each existing email send. Never replace em
 
 ---
 
-### P0 — Schema (do first — everything depends on this)
+### P0 — Schema ✅ Complete (2026-05-29)
 
-- [ ] **`SystemConfig` model** — key/value store editable from admin portal:
+Migration: `20260529033811_phase6_teams_schema`. Partial unique index on `TeamInvite` and `SystemConfig` seed are in raw SQL appended to the Prisma-generated migration. Dev notes: `docs/dev-notes/phase-6-p0-teams-schema.md`.
+
+- [x] **`SystemConfig` model** — key/value store editable from admin portal:
   ```prisma
   model SystemConfig {
     key       String   @id
@@ -882,10 +884,10 @@ Call `createNotification()` alongside each existing email send. Never replace em
     updatedBy String?
   }
   ```
-- [ ] **Seed SystemConfig defaults** (via migration seed):
+- [x] **Seed SystemConfig defaults** (via migration seed):
   `max_teams_per_pro_user=3`, `max_teams_per_business_user=10`, `max_members_per_team=50`, `team_invite_expiry_days=7`.
 
-- [ ] **`Team` model** (note: `isDeleted + deletedAt` per project convention; `wrappedDek` + `dekVersion` for per-team encryption):
+- [x] **`Team` model** (note: `isDeleted + deletedAt` per project convention; `wrappedDek` + `dekVersion` for per-team encryption):
   ```prisma
   model Team {
     id          String    @id @default(uuid()) @db.Uuid
@@ -914,7 +916,7 @@ Call `createNotification()` alongside each existing email send. Never replace em
   }
   ```
 
-- [ ] **`TeamMember` model** — no `leftAt`; soft-delete handles "left/removed":
+- [x] **`TeamMember` model** — no `leftAt`; soft-delete handles "left/removed":
   ```prisma
   model TeamMember {
     id        String    @id @default(uuid()) @db.Uuid
@@ -940,7 +942,7 @@ Call `createNotification()` alongside each existing email send. Never replace em
   }
   ```
 
-- [ ] **`TeamInvite` model**:
+- [x] **`TeamInvite` model**:
   ```prisma
   model TeamInvite {
     id          String    @id @default(uuid()) @db.Uuid
@@ -966,7 +968,7 @@ Call `createNotification()` alongside each existing email send. Never replace em
   }
   ```
 
-- [ ] **`TeamDekHistory` model** — mirrors `UserDekHistory`; append-only on rotation; hard cascade on team delete for crypto-shred guarantee. No `isDeleted`/`deletedAt` (same reasoning as `UserDekHistory`).
+- [x] **`TeamDekHistory` model** — mirrors `UserDekHistory`; append-only on rotation; hard cascade on team delete for crypto-shred guarantee. No `isDeleted`/`deletedAt` (same reasoning as `UserDekHistory`).
   ```prisma
   model TeamDekHistory {
     id         String   @id @default(uuid()) @db.Uuid
@@ -981,26 +983,21 @@ Call `createNotification()` alongside each existing email send. Never replace em
   }
   ```
 
-- [ ] **Add `teamId UUID?` + index** to: `Meeting`, `Card`, `Task`, `EventType`, `Booking`, `UserUsage`.
+- [x] **Add `teamId UUID?` + index** to: `Meeting`, `Card`, `Task`, `EventType`, `Booking`, `UserUsage`.
   Each gets `@@index([teamId, isDeleted])` (or `@@index([teamId])` for models without `isDeleted`).
-- [ ] **Migration:** `pnpm db:migrate && pnpm db:generate`.
+- [x] **Migration:** `pnpm db:migrate && pnpm db:generate`.
 
 ---
 
-### P1 — Team CRUD Endpoints
+### P1 — Team CRUD Endpoints ✅ Complete (2026-05-29)
 
-New: `src/routes/teamRoutes.ts`, `src/controllers/teamController.ts`, `src/services/teamService.ts`. All under `verifyJWT`.
+New: `src/routes/teamRoutes.ts`, `src/controllers/teamController.ts`, `src/services/teamService.ts`, `src/validators/teamSchema.ts`. All under `verifyJWT`. Dev notes: `docs/dev-notes/phase-6-p1-team-crud.md`.
 
-- [ ] `POST /teams` — create team. Plan gate (`user.plan IN ('PRO','BUSINESS')`). Team count check by plan key. Transaction:
-  1. Generate team DEK via KMS, get `wrappedDek`.
-  2. Insert `Team` with `wrappedDek`, `dekVersion=1`.
-  3. Insert `TeamDekHistory` row for version 1.
-  4. Insert OWNER `TeamMember`.
-  5. Auto-create team `Card` with `userId = ownerId`, `teamId = team.id`.
-- [ ] `GET /teams` — list teams the authenticated user is active in (`TeamMember.isDeleted = false`). Include role.
-- [ ] `PATCH /teams/:teamId` — update name (Admin), slug (Owner only), logo (Admin), description (Admin). `verifyTeamRole('ADMIN')` baseline; controller checks Owner for slug.
-- [ ] `DELETE /teams/:teamId` — soft delete (Owner only). Transaction: set `Team.isDeleted=true, deletedAt=now()`, set all `TeamMember.isDeleted=true, deletedAt=now()`, soft-delete team Cards.
-- [ ] `POST /teams/:teamId/transfer-ownership` — Owner only. Body `{ newOwnerId, teamNameConfirm }`. Transaction: flip `Team.ownerId`, swap roles (old → ADMIN, new → OWNER), reassign team Cards' `userId = newOwnerId`.
+- [x] `POST /teams` — create team. Plan gate (FREE rejected) + SystemConfig team-count limit + Postgres advisory lock (closes TOCTOU). KMS-wrap-before-tx; raw DEK zeroed in finally. Transaction: insert Team + TeamDekHistory v1 + OWNER TeamMember (nested create). Post-commit fail-open auto Card with `slug = team-<team-slug>` (avoids `Card @@unique([userId, slug])` collision with owner's personal card); HTML rendering deferred to first PATCH on the card.
+- [x] `GET /teams` — list active memberships, include role + `teamPublicSelect` (never exposes `wrappedDek`/`dekVersion`).
+- [x] `PATCH /teams/:teamId` — Admin+; slug change Owner-only at the service layer (not in Zod, so internal callers can't bypass). Non-members get 404 (no enumeration oracle).
+- [x] `DELETE /teams/:teamId` — Owner-only soft delete. Cascades soft-delete to TeamMember + team Cards. Hard delete + crypto-shred deferred to retention job.
+- [x] `POST /teams/:teamId/transfer-ownership` — Owner-only. Self-target rejected (400). Loads team inside tx and compares `teamNameConfirm` against live name. Target must be an active member with an active user. Roles swapped (old → ADMIN, new → OWNER), team Cards reassigned.
 
 > Hard delete + crypto-shred for soft-deleted teams happens via the existing retention job (extend it to also handle `Team` after `HARD_DELETE_ENABLED` retention window). Hard delete cascades `TeamDekHistory` automatically.
 
@@ -1009,30 +1006,34 @@ New: `src/routes/teamRoutes.ts`, `src/controllers/teamController.ts`, `src/servi
 ### P2 — Team Member + Invite Management
 
 - [ ] `GET /teams/:teamId/members` — active members + role + last-active (from WS presence) + per-member usage summary. `verifyTeamMember`.
-- [ ] `POST /teams/:teamId/members/invite` — `verifyTeamRole('ADMIN')`. Body: `{ mode: 'user'|'email', userId?, emails?: string[], role: 'ADMIN'|'MEMBER', message?: string }`. Member count check vs. `max_members_per_team`. For `mode=user`: insert `TeamInvite` + WS event `TEAM_INVITE_RECEIVED`. For `mode=email`: insert one `TeamInvite` per email, queue Bull email job per invite. Returns invites created.
-- [ ] `GET /teams/:teamId/invites` — list pending invites. Admin/Owner.
-- [ ] `POST /teams/:teamId/invites/:inviteId/resend` — bump `expiresAt`, re-queue email job. Admin/Owner.
-- [ ] `DELETE /teams/:teamId/invites/:inviteId` — set `cancelledAt`, `isDeleted=true`. Admin/Owner.
-- [ ] `GET /invites/:token` — public (no auth). Validate token + return team info `{ team: { name, slug, logoUrl }, role, inviter: { name }, expiresAt }`. 404 on invalid/cancelled/declined, 410 on expired.
-- [ ] `POST /invites/:token/accept` — requires JWT. Transaction: mark `TeamInvite.acceptedAt`, create `TeamMember`, auto-create team Card for the new member, emit `TEAM_MEMBER_JOINED`.
-- [ ] `POST /invites/:token/decline` — requires JWT (or unauthenticated for email link variant?). Set `declinedAt`.
-- [ ] `POST /teams/:teamId/invites/accept` — accept in-app invite for existing user (uses authed user's email to match invite). Same transaction as above.
-- [ ] `POST /teams/:teamId/invites/decline` — in-app decline.
-- [ ] `PATCH /teams/:teamId/members/:userId` — `verifyTeamRole('OWNER')`. Change role. Cannot change own role. Emit `TEAM_MEMBER_ROLE_CHANGED`.
-- [ ] `DELETE /teams/:teamId/members/:userId` — `verifyTeamRole('ADMIN')`. Set `TeamMember.isDeleted=true, deletedAt=now()`, soft-delete their team Card. Cannot remove Owner. Emit `TEAM_MEMBER_LEFT`.
-- [ ] `DELETE /teams/:teamId/leave` — blocked if caller is Owner. Same as above for self.
+- [x] `POST /teams/:teamId/members/invite` — Admin+; discriminated union (mode=user|email); team advisory lock + member-cap pre-check; 200 with `{created, skipped}` payload + per-row `emailSent` flag; sync Resend (fail-open, matches existing pattern). ✅ (2026-05-29) — Dev notes: `docs/dev-notes/phase-6-p2b-team-invites.md`
+- [x] `GET /teams/:teamId/invites` — Admin+; pending only.
+- [x] `POST /teams/:teamId/invites/:inviteId/resend` — Admin+; bumps expiresAt from live SystemConfig; resends email.
+- [x] `DELETE /teams/:teamId/invites/:inviteId` — Admin+; rejects already-accepted (400 with remove-member hint).
+- [x] `GET /invites/:token` — public, no auth. Returns `{team: {name, logoUrl}, role, inviter: {name FIRST-NAME-ONLY}, expiresAt}` only — drops slug and email. 410 on expired.
+- [x] `POST /invites/:token/accept` — JWT; NFKC-normalised email-match guard; atomic accept (mark invite + upsert TeamMember preserving original `joinedAt` on re-join); post-commit fail-open team-card creation.
+- [x] `POST /invites/:token/decline` — JWT; same email-match guard; sets declinedAt + isDeleted.
+- [x] `POST /teams/:teamId/invites/accept` — JWT; lookup by `OR: [email = actor.email, userId = actor.id]` to support both invite modes.
+- [x] `POST /teams/:teamId/invites/decline` — JWT; same lookup.
+- [x] `PATCH /teams/:teamId/members/:userId` — Owner-only role change with `FOR UPDATE` row lock; OWNER excluded from Zod enum (transfer-ownership is the only path); self-block + belt-and-suspenders target.role check. ✅ (2026-05-29) — Dev notes: `docs/dev-notes/phase-6-p2a-team-members.md`
+- [x] `DELETE /teams/:teamId/members/:userId` — Admin+; Owner protected; self-target rejected with /leave hint; soft-deletes member + their team Cards (scoped to `userId = target`). ✅ (2026-05-29)
+- [x] `DELETE /teams/:teamId/leave` — Owner blocked with transfer-ownership hint; re-verifies team existence inside tx (TOCTOU vs concurrent deleteTeam). ✅ (2026-05-29)
 
 ---
 
-### P3 — Encryption: per-team DEK
+### P3 — Encryption: per-team DEK ✅ Complete (2026-05-29)
 
-- [ ] Extend `cryptoService.getDek()` to accept `Principal = { type: 'user' | 'team', id: string }`. Add a backward-compatible string overload that resolves to `{ type: 'user', id }`.
-- [ ] DEK cache key becomes `${principal.type}:${principal.id}`. Existing LRU keeps capacity; entries shared across user + team principals.
-- [ ] Encrypt/decrypt helpers (`encryptField`, `decryptField` etc.) accept a `row` or explicit principal — pick `{ type: 'team', id: row.teamId }` when `row.teamId` is set, else `{ type: 'user', id: row.userId }`.
-- [ ] Bull job payload schemas updated to carry `{ userId, teamId? }`. Workers call `getDek` with the right principal.
-- [ ] Crypto unit tests for: team principal encrypt/decrypt roundtrip, cache eviction across principals, rotation (team DEK rotation inserts `TeamDekHistory` row).
-- [ ] `keyRotationService` extended to rotate team DEKs on demand (admin endpoint deferred — not in scope for P3).
-- [ ] Backfill: not required — existing rows have `teamId = null` and stay on user DEK.
+Dev notes: `docs/dev-notes/phase-6-p3-per-team-dek.md`. Files: `src/utils/security/crypto.ts`, `src/utils/security/dekCache.ts`, `src/services/teamService.ts`, `src/utils/security/__tests__/cryptoPrincipal.test.ts`.
+
+- [x] Extend `cryptoService.getDek()` to accept `Principal = { type: 'user' | 'team', id: string }`. Backward-compatible string overload routes to `{ type: 'user', id }` via `toPrincipal()`.
+- [x] DEK cache key is `${type}:${id}:${version}` with trailing-colon eviction prefix (prefix-boundary test asserts `team:abc1` does not evict `team:abc123:*`).
+- [x] Encrypt/decrypt helpers accept Principal-or-string. JSDoc nudges new code to the explicit Principal form so P5 team-scoped writes don't silently default to user DEK.
+- [ ] Bull job payload schemas updated to carry `{ userId, teamId? }`. → **Moved to P4** (bundled with `getQuotaOwner` resolver).
+- [x] Crypto unit tests added: principal isolation, prefix-boundary eviction, multi-version eviction, KMS-failure rawDek zeroing, plus string-overload safety. All 35 security tests green (25 existing + 10 new).
+- [ ] `keyRotationService` extended to rotate team DEKs on demand. → **Deferred to P9** (admin endpoint not in P3 scope per spec).
+- [x] Backfill: not required — existing rows have `teamId = null` and stay on user DEK.
+- [x] `generateAndWrapDek()` extracted helper — zeroes rawDek on KMS failure, caller owns success-path zeroing. Used by `initDekForNewUser` + `teamService.createTeam`.
+- [x] Team-DEK-null path throws `AppError 500` + `logger.error("team.dek.missing", { teamId })` (fail closed; never falls back to user DEK).
 
 ---
 
