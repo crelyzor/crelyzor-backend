@@ -1,4 +1,8 @@
 import crypto from "crypto";
+import {
+  publishTeamInviteReceived,
+  publishTeamMemberJoined,
+} from "./teamEventService";
 import { Prisma, TeamRole } from "@prisma/client";
 import prisma from "../db/prismaClient";
 import { env } from "../config/environment";
@@ -280,6 +284,10 @@ export async function createInvites(
         select: {
           id: true,
           token: true,
+          // Phase 6 P7 — userId needed to publish TEAM_INVITE_RECEIVED on
+          // user-mode invites; null for email-only invites (skipped below).
+          userId: true,
+          expiresAt: true,
           team: { select: { name: true } },
           invitedBy: { select: { name: true } },
           email: true,
@@ -318,6 +326,29 @@ export async function createInvites(
       }
     }
     createdWithStatus.push({ invite: c.invite, emailSent });
+
+    // Phase 6 P7 — fire TEAM_INVITE_RECEIVED to the invitee's open tabs
+    // when the invite is bound to an existing user account. Email-only
+    // invites (no userId) have no recipient to push to.
+    if (row?.userId) {
+      try {
+        publishTeamInviteReceived(row.userId, {
+          invite: {
+            id: c.invite.id,
+            teamId: c.invite.teamId,
+            teamName: row.team.name,
+            role: row.role === "OWNER" ? "ADMIN" : row.role,
+            invitedByName: row.invitedBy.name,
+            expiresAt: row.expiresAt,
+          },
+        });
+      } catch (err) {
+        logger.warn("teamInviteService: WS publish failed (non-fatal)", {
+          inviteId: c.invite.id,
+          err,
+        });
+      }
+    }
   }
 
   logger.info("Team invites created", {
@@ -623,6 +654,55 @@ async function acceptInviteCore(
   return { teamId: invite.teamId, teamSlug: team.slug, teamName: team.name };
 }
 
+/**
+ * Phase 6 P7 — fire TEAM_MEMBER_JOINED to all active members of the team
+ * after a successful invite acceptance. Excludes the new joiner from the
+ * fan-out via opts.excludeUserId so they don't get a "you joined yourself"
+ * toast — their UI already knows from the HTTP response.
+ *
+ * Fail-open: errors logged, never thrown.
+ */
+async function publishMemberJoinedAfterAccept(
+  actorId: string,
+  teamId: string,
+): Promise<void> {
+  try {
+    const member = await prisma.teamMember.findFirst({
+      where: { teamId, userId: actorId, isDeleted: false },
+      select: {
+        id: true,
+        role: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+    if (!member) return;
+    await publishTeamMemberJoined(
+      {
+        teamId,
+        member: {
+          id: member.id,
+          role: member.role,
+          user: member.user,
+        },
+      },
+      { excludeUserId: actorId },
+    );
+  } catch (err) {
+    logger.warn("teamInviteService: TEAM_MEMBER_JOINED publish failed", {
+      teamId,
+      actorId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 async function tryCreateMemberTeamCard(
   actorId: string,
   teamId: string,
@@ -679,6 +759,8 @@ export async function acceptInviteByToken(actorId: string, token: string) {
     ctx.teamSlug,
     ctx.teamName,
   );
+  // Phase 6 P7 — fan-out membership change to other active team members.
+  await publishMemberJoinedAfterAccept(actorId, ctx.teamId);
   return { teamId: ctx.teamId };
 }
 
@@ -726,6 +808,8 @@ export async function acceptInviteByTeam(actorId: string, teamId: string) {
     ctx.teamSlug,
     ctx.teamName,
   );
+  // Phase 6 P7 — fan-out membership change to other active team members.
+  await publishMemberJoinedAfterAccept(actorId, ctx.teamId);
   return { teamId: ctx.teamId };
 }
 

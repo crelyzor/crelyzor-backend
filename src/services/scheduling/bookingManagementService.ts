@@ -13,6 +13,7 @@ import {
 import { getRecallBotQueue, getEmailQueue, JobNames } from "../../config/queue";
 import { sendEmail } from "../email/emailService";
 import { createNotification } from "../notificationService";
+import { publishTeamMeetingBooked } from "../teamEventService";
 import {
   bookingReceivedEmail,
   bookingReceivedSubject,
@@ -521,6 +522,29 @@ export async function confirmBooking(
     "booking",
     bookingId,
   );
+
+  // Phase 6 P7 — fan out TEAM_MEETING_BOOKED to all active team members
+  // when this is a team booking. Personal bookings (teamId === null) skip
+  // this path. Fail-open.
+  if (teamId && booking.meetingId) {
+    await publishTeamMeetingBooked({
+      teamId,
+      meetingId: booking.meetingId,
+      bookingId,
+      eventTypeTitle: booking.eventType.title,
+      guestName,
+      startTime: booking.startTime,
+    }).catch((err) => {
+      logger.warn(
+        "bookingManagementService: TEAM_MEETING_BOOKED publish failed",
+        {
+          bookingId,
+          teamId,
+          err: err instanceof Error ? err.message : String(err),
+        },
+      );
+    });
+  }
 
   return prisma.booking.findFirst({
     where: { id: bookingId, isDeleted: false },

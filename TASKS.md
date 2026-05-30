@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-05-30 (Phase 6 P0–P6 backend shipped ✅ — full team-scoped content + per-team usage + 3 public team endpoints for team-branded surface)
+Last updated: 2026-05-30 (Phase 6 backend fully shipped 🎉 P0–P8 — schema → public team + WS events → admin overrides + SystemConfig editor. Phase 6 frontend (P9–P15 in workspace TASKS.md) is next.)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working
@@ -1090,30 +1090,38 @@ Dev notes: `docs/dev-notes/phase-6-p6-public-team-endpoints.md`.
 
 ---
 
-### P7 — WebSocket Events
+### P7 — WebSocket Events ✅ Complete (2026-05-30)
 
-Extend `WsServerMessage` (in `src/types/ws.ts`):
+Dev notes: `docs/dev-notes/phase-6-p7-team-websocket-events.md`.
 
-- [ ] `TEAM_INVITE_RECEIVED` — emitted to invitee on user-mode invite.
-- [ ] `TEAM_MEMBER_JOINED` — emitted to all current team members on acceptance.
-- [ ] `TEAM_MEMBER_LEFT` — emitted to remaining team members on removal/leave.
-- [ ] `TEAM_MEMBER_ROLE_CHANGED` — emitted to team.
-- [ ] `TEAM_MEETING_BOOKED` — emitted to participant on internal booking confirmation.
+- [x] `TEAM_INVITE_RECEIVED` — emitted to invitee on user-mode invite. Email-only invites skipped (the email is the notification).
+- [x] `TEAM_MEMBER_JOINED` — emitted to all active team members on acceptance; joiner excluded via `opts.excludeUserId`.
+- [x] `TEAM_MEMBER_LEFT` — emitted to remaining members on removal (`leftBy: "removed"`) and self-leave (`leftBy: "self"`).
+- [x] `TEAM_MEMBER_ROLE_CHANGED` — emitted to team; actor excluded.
+- [x] `TEAM_MEETING_BOOKED` — emitted to all team members on confirmBooking when `booking.teamId !== null`.
 
-Publish from `teamService` / `meetingService` after the relevant DB commit, never inside the transaction.
+Implementation:
+- `notify:${userId}` Redis channel now carries the full `WsServerMessage` envelope (notifications + team events).
+- `publishToUser(userId, msg)` is the canonical publish primitive; `publishNotification` wraps with `{type: "NOTIFICATION", data}` for back-compat.
+- NEW `teamEventService.ts` with 5 publishers + a `broadcastToTeam` helper with optional `excludeUserId`.
+- All publishes happen post-commit and fail-open (logged, never thrown).
 
 ---
 
-### P8 — Admin API
+### P8 — Admin API ✅ Complete (2026-05-30)
+
+Dev notes: `docs/dev-notes/phase-6-p8-admin-api.md`.
 
 Routes under `verifyAdmin` in `src/routes/adminRoutes.ts`:
 
-- [ ] `GET /admin/config` — list all `SystemConfig` entries grouped by category (derived from key prefix).
-- [ ] `PATCH /admin/config/:key` — Zod `{ value: z.string().min(1) }`. Records `updatedBy = adminUserId`. Writes audit row.
-- [ ] `GET /admin/teams?include_deleted=false&search=&page=&pageSize=` — list with `owner { email }`, `_count { members }`, `createdAt`, `isDeleted`. Pagination.
-- [ ] `GET /admin/teams/:teamId` — full detail incl. active + departed members + recent activity (created, member joined, member left, role changed events from audit log).
-- [ ] `DELETE /admin/teams/:teamId` — admin override soft-delete (same effect as Owner-initiated delete; records admin override in audit log).
-- [ ] `PATCH /admin/users/:userId/plan` — Zod `{ plan: z.enum(['FREE','PRO','BUSINESS']) }`. Records `previousPlan` in audit log. Returns updated user.
+- [x] `GET /admin/config` — returns all SystemConfig entries grouped by category (key prefix before `_`).
+- [x] `PATCH /admin/config/:key` — upserts with `{value: string}`. `updatedBy = req.adminId`. Audit log: `admin.config.update` with `{adminId, key, previousValue, value}`.
+- [x] `GET /admin/teams?include_deleted=false&search=&page=&pageSize=` — paginated list with owner email + memberCount + isDeleted. ILIKE search on name/slug.
+- [x] `GET /admin/teams/:teamId` — full detail: owner, active + departed members (role/joinedAt/deletedAt), pending invites.
+- [x] `DELETE /admin/teams/:teamId` — admin override soft-delete; cascades to members + cards in a transaction. Audit log: `admin.team.delete`.
+- [x] `PATCH /admin/users/:userId/plan` — already existed; improved to capture `previousPlan` + adminId. Audit log: `admin.user.plan.update`.
+
+Audit strategy: structured `logger.info` lines (matches existing `booking.confirm` / `tag.attach` patterns) + SystemConfig.updatedBy column. No separate AuditLog model.
 
 ---
 

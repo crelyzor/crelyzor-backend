@@ -15,6 +15,12 @@ import {
   updatePlan,
   resetUsage,
   getStats,
+  // Phase 6 P8
+  getConfig,
+  patchConfig,
+  getTeamsAdmin,
+  getTeamDetailAdmin,
+  deleteTeamAdmin,
 } from "../controllers/adminController";
 
 const adminRouter = Router();
@@ -39,5 +45,13 @@ adminRouter.get("/users", getUsers);
 adminRouter.get("/users/:id", getUser);
 adminRouter.patch("/users/:id/plan", updatePlan);
 adminRouter.patch("/users/:id/usage/reset", resetUsage);
+
+// ── Phase 6 P8 — SystemConfig + team admin overrides ──────────────────────
+adminRouter.get("/config", getConfig);
+adminRouter.patch("/config/:key", patchConfig);
+
+adminRouter.get("/teams", getTeamsAdmin);
+adminRouter.get("/teams/:teamId", getTeamDetailAdmin);
+adminRouter.delete("/teams/:teamId", deleteTeamAdmin);
 
 export default adminRouter;

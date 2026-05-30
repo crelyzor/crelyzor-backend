@@ -24,6 +24,20 @@ import {
   validateInviteToken,
   acceptInvite,
 } from "../services/adminService";
+import { listConfig, updateConfig } from "../services/admin/adminConfigService";
+import {
+  listTeams as listAdminTeams,
+  getTeamDetail as getAdminTeamDetail,
+  adminDeleteTeam,
+} from "../services/admin/adminTeamService";
+import {
+  configKeyParamSchema,
+  updateConfigSchema,
+} from "../validators/adminConfigSchema";
+import {
+  teamIdParamSchema as adminTeamIdParamSchema,
+  listTeamsQuerySchema,
+} from "../validators/adminTeamSchema";
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -172,11 +186,77 @@ export const updatePlan = async (req: Request, res: Response) => {
   const parsed = adminUpdatePlanSchema.safeParse(req.body);
   if (!parsed.success) throw new AppError("Invalid plan value", 400);
 
-  const updated = await updateUserPlan(id, parsed.data.plan);
+  const updated = await updateUserPlan(id, parsed.data.plan, req.adminId);
   return apiResponse(res, {
     statusCode: 200,
     message: "User plan updated",
     data: updated,
+  });
+};
+
+// ── SystemConfig (Phase 6 P8) ───────────────────────────────────────────────
+
+export const getConfig = async (_req: Request, res: Response) => {
+  const result = await listConfig();
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "System config fetched",
+    data: result,
+  });
+};
+
+export const patchConfig = async (req: Request, res: Response) => {
+  const params = configKeyParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid config key", 400);
+  const body = updateConfigSchema.safeParse(req.body);
+  if (!body.success) throw new AppError("Invalid config value", 400);
+
+  const entry = await updateConfig(
+    params.data.key,
+    body.data.value,
+    req.adminId!,
+  );
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "System config updated",
+    data: entry,
+  });
+};
+
+// ── Admin team overrides (Phase 6 P8) ───────────────────────────────────────
+
+export const getTeamsAdmin = async (req: Request, res: Response) => {
+  const query = listTeamsQuerySchema.safeParse(req.query);
+  if (!query.success) throw new AppError("Invalid query parameters", 400);
+
+  const result = await listAdminTeams(query.data);
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Teams fetched",
+    data: result,
+  });
+};
+
+export const getTeamDetailAdmin = async (req: Request, res: Response) => {
+  const params = adminTeamIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid team id", 400);
+
+  const result = await getAdminTeamDetail(params.data.teamId);
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Team detail fetched",
+    data: result,
+  });
+};
+
+export const deleteTeamAdmin = async (req: Request, res: Response) => {
+  const params = adminTeamIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid team id", 400);
+
+  await adminDeleteTeam(params.data.teamId, req.adminId!);
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Team deleted (admin override)",
   });
 };
 

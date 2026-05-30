@@ -3,6 +3,10 @@ import prisma from "../db/prismaClient";
 import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
 import { getRole } from "./teamService";
+import {
+  publishTeamMemberLeft,
+  publishTeamMemberRoleChanged,
+} from "./teamEventService";
 import type { UpdateMemberRoleInput } from "../validators/teamSchema";
 
 // Public projection for member rows. Never includes isDeleted/deletedAt.
@@ -79,7 +83,7 @@ export async function changeMemberRole(
     );
   }
 
-  return prisma.$transaction(
+  const result = await prisma.$transaction(
     async (tx) => {
       // Row-lock the target member to serialise concurrent PATCHes. Without
       // this, two parallel PATCH calls would both pass the OWNER precheck and
@@ -119,6 +123,21 @@ export async function changeMemberRole(
     },
     { timeout: 15000 },
   );
+
+  // Phase 6 P7 — fan-out role change to all active team members. Actor
+  // is excluded (they have the result in the HTTP response).
+  await publishTeamMemberRoleChanged(
+    { teamId, userId: targetUserId, role: input.role },
+    { excludeUserId: actorId },
+  ).catch((err) => {
+    logger.warn("teamMemberService: TEAM_MEMBER_ROLE_CHANGED publish failed", {
+      teamId,
+      targetUserId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  return result;
 }
 
 // ── removeMember ──────────────────────────────────────────────────────────────
@@ -173,6 +192,24 @@ export async function removeMember(
   );
 
   logger.info("Team member removed", { teamId, actorId, targetUserId });
+
+  // Phase 6 P7 — notify remaining active team members that the row is gone.
+  // The departed user is no longer in the active list, so this naturally
+  // excludes them. Fail-open.
+  await publishTeamMemberLeft({
+    teamId,
+    userId: targetUserId,
+    leftBy: "removed",
+  }).catch((err) => {
+    logger.warn(
+      "teamMemberService: TEAM_MEMBER_LEFT publish failed (removed)",
+      {
+        teamId,
+        targetUserId,
+        err: err instanceof Error ? err.message : String(err),
+      },
+    );
+  });
 }
 
 // ── leaveTeam ─────────────────────────────────────────────────────────────────
@@ -213,4 +250,17 @@ export async function leaveTeam(actorId: string, teamId: string) {
   );
 
   logger.info("Team member left", { teamId, actorId });
+
+  // Phase 6 P7 — notify remaining members. Fail-open.
+  await publishTeamMemberLeft({
+    teamId,
+    userId: actorId,
+    leftBy: "self",
+  }).catch((err) => {
+    logger.warn("teamMemberService: TEAM_MEMBER_LEFT publish failed (self)", {
+      teamId,
+      actorId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  });
 }

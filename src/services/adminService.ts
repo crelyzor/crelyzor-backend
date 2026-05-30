@@ -258,10 +258,14 @@ export async function getUserDetail(userId: string) {
   return { user, limits };
 }
 
-export async function updateUserPlan(userId: string, plan: Plan) {
+export async function updateUserPlan(
+  userId: string,
+  plan: Plan,
+  adminId?: string,
+) {
   const user = await prisma.user.findUnique({
     where: { id: userId, isDeleted: false },
-    select: { id: true },
+    select: { id: true, plan: true },
   });
 
   if (!user) throw new AppError("User not found", 404);
@@ -272,7 +276,14 @@ export async function updateUserPlan(userId: string, plan: Plan) {
     select: { id: true, email: true, plan: true },
   });
 
-  logger.info("Admin updated user plan", { userId, plan });
+  // Phase 6 P8 — structured audit log entry. `previousPlan` lets a log
+  // analytics query reconstruct the plan-change history for any user.
+  logger.info("admin.user.plan.update", {
+    adminId: adminId ?? null,
+    userId,
+    previousPlan: user.plan,
+    plan,
+  });
   return updated;
 }
 
