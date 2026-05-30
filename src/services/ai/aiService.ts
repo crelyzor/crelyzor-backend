@@ -458,12 +458,18 @@ Return ONLY a JSON array, no other text.`;
   if (tasks.length > 0) {
     // Phase 6 P5.1.c.ii — task descriptions encrypt under the meeting
     // principal so every team admin can read them, not just the actor.
+    // Phase 6 P5.3 — also write `teamId: meetingMeta.teamId` so the row's
+    // teamId matches the encryption principal. Without it, principalForTask
+    // would route decrypt to user DEK and the description would be
+    // permanently unreadable. The P5.3 backfill migration heals existing
+    // broken rows shipped between P5.1.c.ii and this fix.
     const meetingMeta = await loadMeetingMeta(meetingId, userId);
     const meetingPrincipal = principalForMeeting(meetingMeta);
     const encryptedTasks = await Promise.all(
       tasks.map(async (task) => ({
         meetingId,
         userId,
+        teamId: meetingMeta.teamId,
         title: task.title,
         description: task.description
           ? await encrypt(task.description, meetingPrincipal)

@@ -72,6 +72,28 @@ function cardScope(
   return { teamId: teamContext.teamId };
 }
 
+/**
+ * Scope a CardContact query by routing through the `card` relation. Mirrors
+ * cardScope semantics: contacts on personal cards (actor-owned) under
+ * personal context; contacts on team cards (all for ADMIN/OWNER, own-only
+ * for MEMBER) under team context.
+ *
+ * Adds `card.isDeleted: false` explicitly because `cardScope` deliberately
+ * omits soft-delete (its docstring documents this) — contact reads must not
+ * surface contacts attached to soft-deleted cards.
+ */
+function contactScope(
+  actorId: string,
+  teamContext: TeamContext | null,
+): Prisma.CardContactWhereInput {
+  return { card: { ...cardScope(actorId, teamContext), isDeleted: false } };
+}
+
+// CSV import hard cap. Prevents an ADMIN from exhausting KMS encrypt() calls
+// or DB write capacity via a multi-million-row CSV. 5,000 is generous for
+// legitimate bulk imports; anything larger should chunk client-side.
+const MAX_IMPORT_ROWS = 5000;
+
 type CardForAccess = {
   userId: string;
   teamId: string | null;
@@ -875,7 +897,13 @@ export const cardService = {
   // ========================================
 
   /**
-   * Get contacts for a user's cards with pagination
+   * Get contacts for a user's cards with pagination.
+   *
+   * Phase 6 P5.2.b — scoped via `contactScope(actor, teamContext)` rather
+   * than the old `cardContact.userId = actor` filter. Under team context
+   * ADMIN/OWNER see contacts across all team cards; MEMBER sees own only.
+   * Per-row decrypt uses `principalForCard(c.card)` so contacts encrypted
+   * under the team DEK (post-P5.2.a) decrypt cleanly.
    */
   async getContacts(
     userId: string,
@@ -886,17 +914,23 @@ export const cardService = {
       page?: number;
       limit?: number;
     },
+    teamContext: TeamContext | null = null,
   ) {
     const page = options.page || 1;
     const limit = options.limit || 20;
     const skip = (page - 1) * limit;
 
-    const where: Record<string, unknown> = { userId, isDeleted: false };
+    const where: Prisma.CardContactWhereInput = {
+      isDeleted: false,
+      ...contactScope(userId, teamContext),
+    };
 
     if (options.cardId) where.cardId = options.cardId;
 
     if (options.search) {
-      // name and company are plaintext (ILIKE); email is encrypted — exact blind-index match only
+      // name and company are plaintext (ILIKE); email is encrypted — exact
+      // blind-index match only. blindIndex uses HMAC_BLIND_INDEX_KEY which
+      // doesn't change with principal, so search works across both scopes.
       where.OR = [
         { name: { contains: options.search, mode: "insensitive" } },
         { company: { contains: options.search, mode: "insensitive" } },
@@ -919,7 +953,19 @@ export const cardService = {
     const [rawContacts, total] = await Promise.all([
       prisma.cardContact.findMany({
         where,
-        include: { card: { select: { slug: true, displayName: true } } },
+        include: {
+          // Extended select: userId + teamId needed for principalForCard
+          // per-row derivation. Stripped from the response shape below.
+          card: {
+            select: {
+              id: true,
+              slug: true,
+              displayName: true,
+              userId: true,
+              teamId: true,
+            },
+          },
+        },
         orderBy: { scannedAt: "desc" },
         skip,
         take: limit,
@@ -928,18 +974,30 @@ export const cardService = {
     ]);
 
     const contacts = await Promise.all(
-      rawContacts.map(async (c) => ({
-        ...c,
-        email: c.email
-          ? await decrypt(c.email, userId).catch(() => null)
-          : null,
-        phone: c.phone
-          ? await decrypt(c.phone, userId).catch(() => null)
-          : null,
-        note: c.note ? await decrypt(c.note, userId).catch(() => null) : null,
-        emailBidx: undefined,
-        phoneBidx: undefined,
-      })),
+      rawContacts.map(async (c) => {
+        const cardPrincipal = principalForCard(c.card);
+        return {
+          ...c,
+          email: c.email
+            ? await decrypt(c.email, cardPrincipal).catch(() => null)
+            : null,
+          phone: c.phone
+            ? await decrypt(c.phone, cardPrincipal).catch(() => null)
+            : null,
+          note: c.note
+            ? await decrypt(c.note, cardPrincipal).catch(() => null)
+            : null,
+          emailBidx: undefined,
+          phoneBidx: undefined,
+          // Strip the internal-only fields used for principal derivation
+          // before returning to the caller.
+          card: {
+            id: c.card.id,
+            slug: c.card.slug,
+            displayName: c.card.displayName,
+          },
+        };
+      }),
     );
 
     return {
@@ -954,32 +1012,106 @@ export const cardService = {
   },
 
   /**
-   * Update contact tags
+   * Update contact tags.
+   *
+   * Phase 6 P5.2.b — loads the contact with parent card info, runs
+   * verifyCardAccess(mutate). Under team context ADMIN/OWNER can retag any
+   * team-card contact; MEMBER can retag own-card contacts only.
+   *
+   * Returns the **decrypted** contact (matching getContacts shape) so the
+   * frontend can render the row without re-fetching. Per security review:
+   * never return encrypted Bytes in the PATCH response.
    */
-  async updateContactTags(userId: string, contactId: string, tags: string[]) {
+  async updateContactTags(
+    userId: string,
+    contactId: string,
+    tags: string[],
+    teamContext: TeamContext | null = null,
+  ) {
     const contact = await prisma.cardContact.findFirst({
-      where: { id: contactId, userId, isDeleted: false },
+      where: { id: contactId, isDeleted: false },
+      include: {
+        card: {
+          select: {
+            id: true,
+            userId: true,
+            teamId: true,
+            isDeleted: true,
+            slug: true,
+            displayName: true,
+          },
+        },
+      },
     });
     if (!contact) {
-      throw ErrorFactory.notFound("Contact not found");
+      throw new AppError("Contact not found", 404);
     }
+    verifyCardAccess(userId, contact.card, teamContext, "mutate");
 
-    return prisma.cardContact.update({
+    const updated = await prisma.cardContact.update({
       where: { id: contactId },
       data: { tags },
+      include: {
+        card: {
+          select: {
+            id: true,
+            slug: true,
+            displayName: true,
+            userId: true,
+            teamId: true,
+          },
+        },
+      },
     });
+
+    // Decrypt before returning — frontend gets the same shape as getContacts.
+    const cardPrincipal = principalForCard(updated.card);
+    return {
+      ...updated,
+      email: updated.email
+        ? await decrypt(updated.email, cardPrincipal).catch(() => null)
+        : null,
+      phone: updated.phone
+        ? await decrypt(updated.phone, cardPrincipal).catch(() => null)
+        : null,
+      note: updated.note
+        ? await decrypt(updated.note, cardPrincipal).catch(() => null)
+        : null,
+      emailBidx: undefined,
+      phoneBidx: undefined,
+      card: {
+        id: updated.card.id,
+        slug: updated.card.slug,
+        displayName: updated.card.displayName,
+      },
+    };
   },
 
   /**
-   * Delete a contact
+   * Delete a contact (soft delete).
+   *
+   * Phase 6 P5.2.b — same access model as updateContactTags. Soft-delete
+   * preserves the row for audit; ContactTag join rows stay live (filter
+   * them out in tag-lookup paths instead of cascading) so a restore path
+   * keeps the original tagging.
    */
-  async deleteContact(userId: string, contactId: string) {
+  async deleteContact(
+    userId: string,
+    contactId: string,
+    teamContext: TeamContext | null = null,
+  ) {
     const contact = await prisma.cardContact.findFirst({
-      where: { id: contactId, userId, isDeleted: false },
+      where: { id: contactId, isDeleted: false },
+      include: {
+        card: {
+          select: { id: true, userId: true, teamId: true, isDeleted: true },
+        },
+      },
     });
     if (!contact) {
-      throw ErrorFactory.notFound("Contact not found");
+      throw new AppError("Contact not found", 404);
     }
+    verifyCardAccess(userId, contact.card, teamContext, "mutate");
 
     // Phase 4.4: soft delete — preserve data for audit trail
     await prisma.cardContact.update({
@@ -989,11 +1121,17 @@ export const cardService = {
   },
 
   /**
-   * Export contacts as CSV
+   * Export contacts as CSV.
+   *
+   * Phase 6 P5.2.b — same scope/decrypt-principal retrofit as getContacts.
+   * TODO(P5.2.c-or-follow-up): add a hard row cap (admin exporting full
+   * team-contact set could be thousands of rows; current implementation
+   * accumulates the full CSV in memory).
    */
   async exportContacts(
     userId: string,
     filters: { cardId?: string; search?: string; tags?: string } = {},
+    teamContext: TeamContext | null = null,
   ) {
     const { cardId, search, tags } = filters;
     const tagList = tags
@@ -1003,9 +1141,9 @@ export const cardService = {
           .filter(Boolean)
       : [];
 
-    const where = {
-      userId,
+    const where: Prisma.CardContactWhereInput = {
       isDeleted: false,
+      ...contactScope(userId, teamContext),
       ...(cardId ? { cardId } : {}),
       ...(search
         ? {
@@ -1035,7 +1173,14 @@ export const cardService = {
     while (true) {
       const batch = await prisma.cardContact.findMany({
         where,
-        include: { card: { select: { slug: true } } },
+        // Include userId + teamId on the card so we can derive
+        // principalForCard per row (a single batch may span multiple cards
+        // owned by different team members under team context).
+        include: {
+          card: {
+            select: { slug: true, userId: true, teamId: true },
+          },
+        },
         orderBy: { id: "asc" },
         take: BATCH_SIZE,
         ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
@@ -1044,15 +1189,16 @@ export const cardService = {
       if (batch.length === 0) break;
 
       for (const c of batch) {
+        const cardPrincipal = principalForCard(c.card);
         const [email, phone, note] = await Promise.all([
           c.email
-            ? decrypt(c.email, userId).catch(() => "")
+            ? decrypt(c.email, cardPrincipal).catch(() => "")
             : Promise.resolve(""),
           c.phone
-            ? decrypt(c.phone, userId).catch(() => "")
+            ? decrypt(c.phone, cardPrincipal).catch(() => "")
             : Promise.resolve(""),
           c.note
-            ? decrypt(c.note, userId).catch(() => "")
+            ? decrypt(c.note, cardPrincipal).catch(() => "")
             : Promise.resolve(""),
         ]);
         csvRows.push(
@@ -1080,21 +1226,35 @@ export const cardService = {
   /**
    * Import contacts from CSV file into a card.
    * Validation: name required and at least one of email/phone required.
+   *
+   * Phase 6 P5.2.b — `assertCardAccess(mutate)` replaces the inline
+   * ownership probe. Under team context, ADMIN/OWNER can import to any
+   * team card; MEMBER can import to own team cards. Encryption principal
+   * derived from the card row (team DEK on team cards).
+   *
+   * Row cap (`MAX_IMPORT_ROWS`) guards against DoS via large CSVs that
+   * would otherwise exhaust KMS encrypt() throughput and DB write budget.
+   * Audit trail TODO: capture `actorId` (currently lost — rows are inserted
+   * with `userId: card.userId`, so an admin's import is indistinguishable
+   * from the card owner's). Follow-up.
    */
   async importContactsFromCsv(
     userId: string,
     cardId: string,
     csvBuffer: Buffer,
+    teamContext: TeamContext | null = null,
   ) {
+    await assertCardAccess(userId, cardId, teamContext, "mutate");
     const card = await prisma.card.findFirst({
-      where: { id: cardId, userId, isDeleted: false },
-      select: { id: true },
+      where: { id: cardId, isDeleted: false },
+      select: { id: true, userId: true, teamId: true },
     });
 
     if (!card) {
-      throw ErrorFactory.notFound("Card not found");
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
     }
 
+    const cardPrincipal = principalForCard(card);
     const csvText = csvBuffer.toString("utf-8");
 
     let rows: Array<Record<string, string>>;
@@ -1112,6 +1272,13 @@ export const cardService = {
 
     if (rows.length === 0) {
       return { created: 0, skipped: 0, errors: [] as string[] };
+    }
+
+    if (rows.length > MAX_IMPORT_ROWS) {
+      throw new AppError(
+        `CSV exceeds ${MAX_IMPORT_ROWS}-row import limit (received ${rows.length}). Split the file and import in batches.`,
+        400,
+      );
     }
 
     const pick = (row: Record<string, string>, keys: string[]): string => {
@@ -1170,13 +1337,15 @@ export const cardService = {
       }
 
       const [encEmail, encPhone, encNote] = await Promise.all([
-        email ? encrypt(email, userId) : Promise.resolve(undefined),
-        phone ? encrypt(phone, userId) : Promise.resolve(undefined),
-        note ? encrypt(note, userId) : Promise.resolve(undefined),
+        email ? encrypt(email, cardPrincipal) : Promise.resolve(undefined),
+        phone ? encrypt(phone, cardPrincipal) : Promise.resolve(undefined),
+        note ? encrypt(note, cardPrincipal) : Promise.resolve(undefined),
       ]);
       toCreate.push({
         cardId,
-        userId,
+        // Inserted with the CARD owner's userId (not the actor's). Stays
+        // consistent with how submitContact writes ownership post-P5.2.a.
+        userId: card.userId,
         name,
         ...(encEmail
           ? { email: encEmail, emailBidx: prismaBytes(blindIndex(email)) }
@@ -1210,18 +1379,24 @@ export const cardService = {
   // ========================================
 
   /**
-   * Get analytics for a card
+   * Get analytics for a card.
+   *
+   * Phase 6 P5.2.b — assertCardAccess(read) replaces the inline ownership
+   * probe. CardView rows are anonymous (no userId), so aggregates don't
+   * leak PII regardless of who reads them.
    */
   async getCardAnalytics(
     userId: string,
     cardId: string,
     days: number = 30,
+    teamContext: TeamContext | null = null,
   ): Promise<CardAnalytics> {
+    await assertCardAccess(userId, cardId, teamContext, "read");
     const card = await prisma.card.findFirst({
-      where: { id: cardId, userId, isDeleted: false },
+      where: { id: cardId, isDeleted: false },
     });
     if (!card) {
-      throw ErrorFactory.notFound("Card not found");
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
     }
 
     const since = new Date();
@@ -1316,24 +1491,41 @@ export const cardService = {
   // ========================================
 
   /**
-   * Get meetings linked to a card via participants
+   * Get meetings linked to a card via participants.
+   *
+   * Phase 6 P5.2.b — assertCardAccess(read) gates card visibility, then the
+   * meeting where clause adds a **meeting-level scope** so an admin viewing
+   * a team card doesn't see teammates' personal meetings that happened to
+   * include the team card as a participant (security review must-fix).
+   *
+   * Personal context: only the actor's own personal meetings.
+   * Team context: meetings that are either team-scoped OR created by the
+   * actor (covers the case where an actor created a personal meeting
+   * involving their own team card).
    */
   async getCardMeetings(
     userId: string,
     cardId: string,
     { take = 20, skip = 0 }: { take?: number; skip?: number } = {},
+    teamContext: TeamContext | null = null,
   ) {
+    await assertCardAccess(userId, cardId, teamContext, "read");
     const card = await prisma.card.findFirst({
-      where: { id: cardId, userId, isDeleted: false },
+      where: { id: cardId, isDeleted: false },
       select: { id: true },
     });
     if (!card) {
-      throw ErrorFactory.notFound("Card not found");
+      throw new AppError(NOT_FOUND_MESSAGE, 404);
     }
 
-    const where = {
+    const meetingVisibility: Prisma.MeetingWhereInput = teamContext
+      ? { OR: [{ teamId: teamContext.teamId }, { createdById: userId }] }
+      : { teamId: null, createdById: userId };
+
+    const where: Prisma.MeetingWhereInput = {
       isDeleted: false,
       participants: { some: { cardId } },
+      ...meetingVisibility,
     };
 
     const [meetings, total] = await Promise.all([

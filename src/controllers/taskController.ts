@@ -12,7 +12,7 @@ import {
   listTasksQuerySchema,
   reorderTasksSchema,
 } from "../validators/taskSchema";
-import type { Prisma } from "@prisma/client";
+import { Prisma, TeamRole } from "@prisma/client";
 import {
   createTaskBlock,
   deleteCalendarEvent,
@@ -21,19 +21,155 @@ import {
   deleteGoogleTask,
   isGoogleTaskRef,
 } from "../services/googleCalendarService";
-import { encrypt, decrypt } from "../utils/security/crypto";
+import { encrypt, decrypt, type Principal } from "../utils/security/crypto";
+import type { TeamContext } from "../middleware/authMiddleware";
+import { getTeamContext } from "../middleware/teamContext";
+import { assertMeetingAccess } from "../services/meetings/meetingService";
+import { assertCardAccess } from "../services/cardService";
 
-// Decrypt description field in a batch of tasks
+// ── Phase 6 P5.3 team-scoping helpers ────────────────────────────────────────
+
+const TASK_NOT_FOUND_MESSAGE = "Task not found";
+
+const ROLE_RANK: Record<TeamRole, number> = {
+  OWNER: 3,
+  ADMIN: 2,
+  MEMBER: 1,
+};
+
+/**
+ * Returns the Prisma where-clause fragment that scopes a task query to the
+ * caller's current context.
+ *
+ * - Personal context (teamContext null): `{ teamId: null, userId: actorId }`.
+ *   Personal queries explicitly exclude team tasks — closes the pre-Phase-6
+ *   leak where `GET /sma/tasks` returned every task the user owned including
+ *   team-scoped ones.
+ * - Team context + ADMIN/OWNER: `{ teamId = ctx.teamId }` (all team tasks).
+ * - Team context + MEMBER: `{ teamId = ctx.teamId, userId = actorId }` —
+ *   member sees only own team tasks.
+ *
+ * Soft-delete is NOT part of the scope — caller must add `isDeleted: false`.
+ */
+function taskScope(
+  actorId: string,
+  teamContext: TeamContext | null,
+): Prisma.TaskWhereInput {
+  if (!teamContext) {
+    return { teamId: null, userId: actorId };
+  }
+  if (teamContext.role === TeamRole.MEMBER) {
+    return { teamId: teamContext.teamId, userId: actorId };
+  }
+  return { teamId: teamContext.teamId };
+}
+
+type TaskForAccess = {
+  userId: string;
+  teamId: string | null;
+  isDeleted: boolean;
+};
+
+/**
+ * Derives the encrypt/decrypt principal for content scoped to a task
+ * (currently `Task.description`). **Always read from the row, never from
+ * the actor.** A team admin editing another member's team-task description
+ * must re-encrypt under the team DEK so other admins can read it.
+ *
+ * `Task.teamId` is immutable post-creation — there's no API path that
+ * mutates it. Schema strict-mode + service-layer omission in updateTask
+ * keep this invariant.
+ */
+function principalForTask(task: {
+  userId: string;
+  teamId: string | null;
+}): Principal {
+  return task.teamId
+    ? { type: "team", id: task.teamId }
+    : { type: "user", id: task.userId };
+}
+
+/**
+ * Centralized access gate for task CRUD. Throws 404 with a uniform body for
+ * every "not accessible" branch.
+ */
+function verifyTaskAccess(
+  actorId: string,
+  task: TaskForAccess,
+  teamContext: TeamContext | null,
+  _action: "read" | "mutate",
+): void {
+  if (task.isDeleted) {
+    throw new AppError(TASK_NOT_FOUND_MESSAGE, 404);
+  }
+
+  const isOwner = task.userId === actorId;
+
+  if (!teamContext) {
+    if (task.teamId !== null || !isOwner) {
+      throw new AppError(TASK_NOT_FOUND_MESSAGE, 404);
+    }
+    return;
+  }
+
+  // Team context: task must belong to the same team.
+  if (task.teamId !== teamContext.teamId) {
+    throw new AppError(TASK_NOT_FOUND_MESSAGE, 404);
+  }
+
+  if (teamContext.role === TeamRole.MEMBER && !isOwner) {
+    // MEMBER: own team tasks only. Same rule for read + mutate; tasks
+    // have no participant concept (unlike meetings).
+    throw new AppError(TASK_NOT_FOUND_MESSAGE, 404);
+  }
+  // ADMIN / OWNER: any task in the team is accessible.
+  void ROLE_RANK; // referenced for symmetry; comparisons happen elsewhere
+}
+
+/**
+ * One-shot task access gate. Slim-fetches the task, runs verifyTaskAccess,
+ * returns the row. Mirrors assertCardAccess / assertMeetingAccess.
+ */
+async function assertTaskAccess(
+  actorId: string,
+  taskId: string,
+  teamContext: TeamContext | null,
+  action: "read" | "mutate",
+): Promise<TaskForAccess & { id: string }> {
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: {
+      id: true,
+      userId: true,
+      teamId: true,
+      isDeleted: true,
+    },
+  });
+  if (!task) {
+    throw new AppError(TASK_NOT_FOUND_MESSAGE, 404);
+  }
+  verifyTaskAccess(actorId, task, teamContext, action);
+  return task;
+}
+
+// Decrypt description field in a batch of tasks. Phase 6 P5.3 — per-row
+// principal derived from each task's own teamId/userId (rows in the same
+// batch may come from different cards/teams under ADMIN scope).
 async function decryptTaskDescriptions<
-  T extends { description: Uint8Array | null },
+  T extends {
+    description: Uint8Array | null;
+    userId: string;
+    teamId: string | null;
+  },
 >(
   tasks: T[],
-  userId: string,
 ): Promise<(Omit<T, "description"> & { description: string | null })[]> {
   return Promise.all(
     tasks.map(async (t) => ({
       ...t,
-      description: t.description ? await decrypt(t.description, userId) : null,
+      description: t.description
+        ? await decrypt(t.description, principalForTask(t)).catch(() => null)
+        : null,
     })),
   );
 }
@@ -76,6 +212,7 @@ function flattenTags<
  */
 export const getAllTasks = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const validated = listTasksQuerySchema.safeParse(req.query);
   if (!validated.success) throw new AppError("Validation failed", 400);
@@ -107,7 +244,14 @@ export const getAllTasks = async (req: Request, res: Response) => {
   const startOfTomorrow = new Date(startOfToday);
   startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
 
-  const where: Prisma.TaskWhereInput = { userId, isDeleted: false };
+  // Phase 6 P5.3 — taskScope replaces raw userId filter. Personal: only
+  // personal tasks (teamId null + own); team + ADMIN/OWNER: all team tasks;
+  // team + MEMBER: own team tasks only. Closes the team-task-in-personal-
+  // list leak (same flavour as P5.2.a getUserCards).
+  const where: Prisma.TaskWhereInput = {
+    ...taskScope(userId, teamContext),
+    isDeleted: false,
+  };
 
   // View param takes priority over status filter
   if (view) {
@@ -183,7 +327,7 @@ export const getAllTasks = async (req: Request, res: Response) => {
     prisma.task.count({ where }),
   ]);
 
-  const decrypted = await decryptTaskDescriptions(tasks, userId);
+  const decrypted = await decryptTaskDescriptions(tasks);
   // For upcoming view, group by date
   const tasksWithTags = decrypted.map(flattenTags);
 
@@ -221,25 +365,30 @@ export const getTasks = async (req: Request, res: Response) => {
   if (!uuidSchema.safeParse(meetingId).success)
     throw new AppError("Invalid meetingId", 400);
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
+  // Phase 6 P5.3 — replaces inline `meeting.findFirst({ createdById })` with
+  // the team-aware gate. Then list tasks scoped by meetingId combined with
+  // taskScope (MEMBER sees own; ADMIN sees all under team context).
+  await assertMeetingAccess(userId, meetingId, teamContext, "read");
 
-  if (!meeting) throw new AppError("Meeting not found", 404);
+  const where: Prisma.TaskWhereInput = {
+    meetingId,
+    isDeleted: false,
+    ...taskScope(userId, teamContext),
+  };
 
   const TASK_LIMIT = 200;
   const [rawTasks, total] = await Promise.all([
     prisma.task.findMany({
-      where: { meetingId, userId, isDeleted: false },
+      where,
       orderBy: { createdAt: "asc" },
       take: TASK_LIMIT,
     }),
-    prisma.task.count({ where: { meetingId, userId, isDeleted: false } }),
+    prisma.task.count({ where }),
   ]);
 
-  const tasks = await decryptTaskDescriptions(rawTasks, userId);
+  const tasks = await decryptTaskDescriptions(rawTasks);
 
   return apiResponse(res, {
     statusCode: 200,
@@ -256,16 +405,24 @@ export const createTask = async (req: Request, res: Response) => {
   if (!uuidSchema.safeParse(meetingId).success)
     throw new AppError("Invalid meetingId", 400);
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const validated = createTaskSchema.safeParse(req.body);
   if (!validated.success) throw new AppError("Validation failed", 400);
 
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
-
-  if (!meeting) throw new AppError("Meeting not found", 404);
+  // Phase 6 P5.3 — team-aware meeting access. Returns the slim meeting row
+  // so we can inherit teamId from it (security must-fix: the new task's
+  // teamId comes from the linked meeting first, falls back to context;
+  // prevents a personal-context caller from anchoring a personal task to
+  // a team meeting). Note: MEMBER role IS allowed to create own team
+  // tasks (asymmetric vs P5.2.a's MEMBER createCard rejection — tasks
+  // are personal todos surfaced in a team, cards are public team identity).
+  const meeting = await assertMeetingAccess(
+    userId,
+    meetingId,
+    teamContext,
+    "read",
+  );
 
   const {
     title,
@@ -276,14 +433,17 @@ export const createTask = async (req: Request, res: Response) => {
     durationMinutes,
   } = validated.data;
 
+  const taskTeamId = meeting.teamId ?? teamContext?.teamId ?? null;
+  const taskPrincipal = principalForTask({ userId, teamId: taskTeamId });
   const encryptedDescription = description
-    ? await encrypt(description, userId)
+    ? await encrypt(description, taskPrincipal)
     : undefined;
 
   const task = await prisma.task.create({
     data: {
       meetingId,
       userId,
+      teamId: taskTeamId,
       title,
       description: encryptedDescription,
       dueDate,
@@ -337,6 +497,8 @@ export const createTask = async (req: Request, res: Response) => {
  */
 export const createStandaloneTask = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
+  const contextTeamId = teamContext?.teamId ?? null;
 
   const validated = createStandaloneTaskSchema.safeParse(req.body);
   if (!validated.success) throw new AppError("Validation failed", 400);
@@ -355,40 +517,66 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
     durationMinutes,
   } = validated.data;
 
-  // Verify meeting ownership if meetingId provided
+  // Phase 6 P5.3 — team-aware verification on every linked entity. Each
+  // assert returns the slim row so we can derive the task's teamId from
+  // the linked entity (inherit rule from security review).
+  let linkedMeetingTeamId: string | null = null;
   if (meetingId) {
-    const meeting = await prisma.meeting.findFirst({
-      where: { id: meetingId, createdById: userId, isDeleted: false },
-      select: { id: true },
-    });
-    if (!meeting) throw new AppError("Meeting not found", 404);
+    const meeting = await assertMeetingAccess(
+      userId,
+      meetingId,
+      teamContext,
+      "read",
+    );
+    linkedMeetingTeamId = meeting.teamId;
   }
 
-  // Verify parent task ownership if parentTaskId provided
+  let linkedParentTeamId: string | null = null;
   if (parentTaskId) {
-    const parent = await prisma.task.findFirst({
-      where: { id: parentTaskId, userId, isDeleted: false },
-      select: { id: true },
-    });
-    if (!parent) throw new AppError("Parent task not found", 404);
+    const parent = await assertTaskAccess(
+      userId,
+      parentTaskId,
+      teamContext,
+      "mutate",
+    );
+    // Belt-and-suspenders cross-scope check: even though assertTaskAccess
+    // gates by teamContext, an explicit equality assertion prevents a
+    // future bug from letting cross-team or cross-personal-vs-team links
+    // slip through.
+    if (parent.teamId !== contextTeamId) {
+      throw new AppError("Parent task is in a different scope", 404);
+    }
+    linkedParentTeamId = parent.teamId;
   }
 
-  // Verify card ownership if cardId provided
+  let linkedCardTeamId: string | null = null;
   if (cardId) {
-    const card = await prisma.card.findFirst({
-      where: { id: cardId, userId, isDeleted: false },
-      select: { id: true },
-    });
-    if (!card) throw new AppError("Card not found", 404);
+    const card = await assertCardAccess(userId, cardId, teamContext, "read");
+    if (card.teamId !== contextTeamId) {
+      throw new AppError("Card is in a different scope", 404);
+    }
+    linkedCardTeamId = card.teamId;
   }
+
+  // Inherit teamId from the first available linked entity, falling back to
+  // context. assertMeetingAccess/assertCardAccess/assertTaskAccess gate so
+  // linkedXTeamId is either contextTeamId or null in all reachable code
+  // paths — the explicit inherit chain is defence in depth.
+  const taskTeamId =
+    linkedMeetingTeamId ??
+    linkedParentTeamId ??
+    linkedCardTeamId ??
+    contextTeamId;
+  const taskPrincipal = principalForTask({ userId, teamId: taskTeamId });
 
   const encryptedDescriptionStandalone = description
-    ? await encrypt(description, userId)
+    ? await encrypt(description, taskPrincipal)
     : undefined;
 
   const task = await prisma.task.create({
     data: {
       userId,
+      teamId: taskTeamId,
       title,
       description: encryptedDescriptionStandalone,
       dueDate,
@@ -450,14 +638,22 @@ export const updateTask = async (req: Request, res: Response) => {
   if (!uuidSchema.safeParse(taskId).success)
     throw new AppError("Invalid taskId", 400);
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const validated = updateTaskSchema.safeParse(req.body);
   if (!validated.success) throw new AppError("Validation failed", 400);
 
+  // Phase 6 P5.3 — assertTaskAccess gates by team scope. Then fetch the
+  // full row needed by the update logic; the access check above is the
+  // security gate, the full fetch is just for data the update flow needs.
+  await assertTaskAccess(userId, taskId, teamContext, "mutate");
+
   const existing = await prisma.task.findFirst({
-    where: { id: taskId, userId, isDeleted: false },
+    where: { id: taskId, isDeleted: false },
     select: {
       id: true,
+      userId: true,
+      teamId: true,
       isCompleted: true,
       status: true,
       googleEventId: true,
@@ -475,11 +671,13 @@ export const updateTask = async (req: Request, res: Response) => {
     },
   });
 
-  if (!existing) throw new AppError("Task not found", 404);
+  if (!existing) throw new AppError(TASK_NOT_FOUND_MESSAGE, 404);
+
+  const taskPrincipal = principalForTask(existing);
 
   // Decrypt existing description upfront — needed for Google API fallback paths
   const existingDescriptionText = existing.description
-    ? await decrypt(existing.description, userId)
+    ? await decrypt(existing.description, taskPrincipal)
     : null;
 
   const existingGoogleTaskRef = isGoogleTaskRef(existing.googleEventId)
@@ -504,13 +702,14 @@ export const updateTask = async (req: Request, res: Response) => {
     recurringRule,
   } = validated.data;
 
-  // Verify card ownership if cardId is being set (not cleared)
+  // Verify card access if cardId is being set (not cleared). Phase 6 P5.3 —
+  // team-aware card access + cross-scope check (card must be in the same
+  // scope as the task being updated).
   if (cardId !== null && cardId !== undefined) {
-    const card = await prisma.card.findFirst({
-      where: { id: cardId, userId, isDeleted: false },
-      select: { id: true },
-    });
-    if (!card) throw new AppError("Card not found", 404);
+    const card = await assertCardAccess(userId, cardId, teamContext, "read");
+    if (card.teamId !== existing.teamId) {
+      throw new AppError("Card is in a different scope", 404);
+    }
   }
 
   // Derive completion state — keep isCompleted and status in sync
@@ -538,11 +737,11 @@ export const updateTask = async (req: Request, res: Response) => {
 
   const encryptedDescriptionUpdate =
     description !== undefined && description !== null
-      ? await encrypt(description, userId)
+      ? await encrypt(description, taskPrincipal)
       : description; // null means clear, undefined means no-op
 
   let task = await prisma.task.update({
-    where: { id: taskId, userId },
+    where: { id: taskId },
     data: {
       ...(title !== undefined && { title }),
       ...(description !== undefined && {
@@ -606,7 +805,7 @@ export const updateTask = async (req: Request, res: Response) => {
 
     if (eventId) {
       task = await prisma.task.update({
-        where: { id: taskId, userId },
+        where: { id: taskId },
         data: { googleEventId: eventId },
       });
       logger.info("Task GCal block created", { taskId, userId, eventId });
@@ -615,7 +814,7 @@ export const updateTask = async (req: Request, res: Response) => {
     // Request to remove the GCal block without clearing scheduledTime
     await deleteCalendarEvent(userId, existingCalendarEventId);
     task = await prisma.task.update({
-      where: { id: taskId, userId },
+      where: { id: taskId },
       data: { googleEventId: null },
     });
     logger.info("Task GCal block removed", { taskId, userId });
@@ -636,7 +835,7 @@ export const updateTask = async (req: Request, res: Response) => {
 
         if (taskRef) {
           task = await prisma.task.update({
-            where: { id: taskId, userId },
+            where: { id: taskId },
             data: { googleEventId: taskRef },
           });
         }
@@ -644,7 +843,7 @@ export const updateTask = async (req: Request, res: Response) => {
     } else if (dueDate === null && existingGoogleTaskRef) {
       await deleteGoogleTask(userId, existingGoogleTaskRef);
       task = await prisma.task.update({
-        where: { id: taskId, userId },
+        where: { id: taskId },
         data: { googleEventId: null },
       });
     }
@@ -674,6 +873,10 @@ export const updateTask = async (req: Request, res: Response) => {
         await prisma.task.create({
           data: {
             userId,
+            // Phase 6 P5.3 — recurring chain stays team-scoped. Explicit
+            // teamId carries the original task's teamId so the spawned
+            // occurrence decrypts under the same principal as the source.
+            teamId: existing.teamId ?? null,
             title: existing.title,
             // Copy encrypted bytes directly — same DEK decrypts the copy
             ...(existing.description && { description: existing.description }),
@@ -723,26 +926,36 @@ export const deleteTask = async (req: Request, res: Response) => {
   if (!uuidSchema.safeParse(taskId).success)
     throw new AppError("Invalid taskId", 400);
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
+
+  // Phase 6 P5.3 — assertTaskAccess gates the delete. Then re-fetch googleEventId
+  // for the calendar cleanup below.
+  await assertTaskAccess(userId, taskId, teamContext, "mutate");
 
   const existing = await prisma.task.findFirst({
-    where: { id: taskId, userId, isDeleted: false },
+    where: { id: taskId, isDeleted: false },
     select: { id: true, googleEventId: true },
   });
 
-  if (!existing) throw new AppError("Task not found", 404);
+  if (!existing) throw new AppError(TASK_NOT_FOUND_MESSAGE, 404);
 
   const now = new Date();
 
   await prisma.$transaction(
     async (tx) => {
-      // Soft-delete parent
+      // Soft-delete parent (access gate already passed).
       await tx.task.updateMany({
-        where: { id: taskId, userId, isDeleted: false },
+        where: { id: taskId, isDeleted: false },
         data: { isDeleted: true, deletedAt: now },
       });
-      // Cascade soft-delete to direct subtasks
+      // Phase 6 P5.3 — cascade soft-delete drops the `userId` constraint.
+      // Under team context, ADMIN/OWNER deleting a member's team task wipes
+      // all subtasks regardless of subtask author. Under personal context,
+      // all subtasks are still actor-owned by construction so behaviour is
+      // identical to pre-Phase-6. Orphan subtasks pointing to a deleted
+      // parent would be worse than over-cascading.
       await tx.task.updateMany({
-        where: { parentTaskId: taskId, userId, isDeleted: false },
+        where: { parentTaskId: taskId, isDeleted: false },
         data: { isDeleted: true, deletedAt: now },
       });
     },
@@ -765,38 +978,64 @@ export const deleteTask = async (req: Request, res: Response) => {
  */
 export const reorderTasks = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const validated = reorderTasksSchema.safeParse(req.body);
   if (!validated.success) throw new AppError("Validation failed", 400);
 
   const { taskIds } = validated.data;
 
+  // Phase 6 P5.3 — verify all IDs are accessible under taskScope. Under
+  // team context, ADMIN/OWNER can reorder any team task; MEMBER can only
+  // reorder own. Per-row audit log captures actorId + ownerId + teamId so
+  // an admin's reorder of a member's task is attributable (security must-fix).
   await prisma.$transaction(
     async (tx) => {
-      // Verify all IDs belong to this user in one query
       const owned = await tx.task.findMany({
-        where: { id: { in: taskIds }, userId, isDeleted: false },
-        select: { id: true },
+        where: {
+          id: { in: taskIds },
+          isDeleted: false,
+          ...taskScope(userId, teamContext),
+        },
+        select: { id: true, userId: true, teamId: true },
       });
 
       if (owned.length !== taskIds.length) {
         throw new AppError("One or more tasks not found", 404);
       }
 
-      // Apply sort order — userId in where as a second ownership guard
+      const ownedById = new Map(owned.map((t) => [t.id, t]));
+
       await Promise.all(
         taskIds.map((id, index) =>
           tx.task.update({
-            where: { id, userId },
+            where: { id },
             data: { sortOrder: index },
           }),
         ),
       );
+
+      // Per-row audit log — enables tracing an admin's reorder back to
+      // the original owner of each task.
+      for (const id of taskIds) {
+        const row = ownedById.get(id);
+        if (!row) continue;
+        logger.info("task.reorder", {
+          actorId: userId,
+          taskId: id,
+          ownerId: row.userId,
+          teamId: row.teamId,
+        });
+      }
     },
     { timeout: 15000 },
   );
 
-  logger.info("Tasks reordered", { userId, count: taskIds.length });
+  logger.info("Tasks reordered", {
+    actorId: userId,
+    count: taskIds.length,
+    teamId: teamContext?.teamId ?? null,
+  });
 
   return apiResponse(res, { statusCode: 200, message: "Tasks reordered" });
 };
@@ -809,23 +1048,25 @@ export const getSubtasks = async (req: Request, res: Response) => {
   if (!uuidSchema.safeParse(taskId).success)
     throw new AppError("Invalid taskId", 400);
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
-  // Verify parent task belongs to this user
-  const parent = await prisma.task.findFirst({
-    where: { id: taskId, userId, isDeleted: false },
-    select: { id: true },
-  });
-
-  if (!parent) throw new AppError("Task not found", 404);
+  // Phase 6 P5.3 — team-aware parent access. Subtasks listed via
+  // parentTaskId; taskScope applies so MEMBER under team context only
+  // sees own subtasks of the parent (consistent with task list scoping).
+  await assertTaskAccess(userId, taskId, teamContext, "read");
 
   const rawSubtasks = await prisma.task.findMany({
-    where: { parentTaskId: taskId, userId, isDeleted: false },
+    where: {
+      parentTaskId: taskId,
+      isDeleted: false,
+      ...taskScope(userId, teamContext),
+    },
     orderBy: { sortOrder: "asc" },
     include: taskInclude,
     take: 100,
   });
 
-  const decryptedSubtasks = await decryptTaskDescriptions(rawSubtasks, userId);
+  const decryptedSubtasks = await decryptTaskDescriptions(rawSubtasks);
 
   return apiResponse(res, {
     statusCode: 200,
@@ -842,14 +1083,13 @@ export const createSubtask = async (req: Request, res: Response) => {
   if (!uuidSchema.safeParse(taskId).success)
     throw new AppError("Invalid taskId", 400);
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
-  // Verify parent task ownership before attaching a child
-  const parent = await prisma.task.findFirst({
-    where: { id: taskId, userId, isDeleted: false },
-    select: { id: true },
-  });
-
-  if (!parent) throw new AppError("Task not found", 404);
+  // Phase 6 P5.3 — team-aware parent access. Returns the slim parent row
+  // so the subtask inherits parent.teamId — team parents always have team
+  // children, personal parents always have personal children. No mixed
+  // states possible.
+  const parent = await assertTaskAccess(userId, taskId, teamContext, "mutate");
 
   const validated = createTaskSchema.safeParse(req.body);
   if (!validated.success) throw new AppError("Validation failed", 400);
@@ -863,13 +1103,19 @@ export const createSubtask = async (req: Request, res: Response) => {
     durationMinutes,
   } = validated.data;
 
+  // Subtask inherits parent.teamId — encrypt under the matching principal.
+  const subtaskPrincipal = principalForTask({
+    userId,
+    teamId: parent.teamId,
+  });
   const encryptedSubtaskDescription = description
-    ? await encrypt(description, userId)
+    ? await encrypt(description, subtaskPrincipal)
     : undefined;
 
   const subtask = await prisma.task.create({
     data: {
       userId, // always from req.user — never from body
+      teamId: parent.teamId,
       parentTaskId: taskId,
       title,
       description: encryptedSubtaskDescription,

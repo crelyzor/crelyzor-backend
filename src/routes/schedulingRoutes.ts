@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { verifyJWT, userRateLimit } from "../middleware/authMiddleware";
+import { resolveTeamContext } from "../middleware/resolveTeamContext";
 import * as eventTypeController from "../controllers/eventTypeController";
 import * as scheduleController from "../controllers/scheduleController";
 import * as bookingManagementController from "../controllers/bookingManagementController";
@@ -7,6 +8,11 @@ import * as bookingManagementController from "../controllers/bookingManagementCo
 const schedulingRouter = Router();
 
 schedulingRouter.use(verifyJWT);
+// Phase 6 P5.4.a — populate req.teamContext from X-Team-Id for all
+// authenticated scheduling routes. EventType + booking-management handlers
+// thread it through; scheduleController (per-user availability) ignores it
+// but mounting here covers the entire surface uniformly.
+schedulingRouter.use(resolveTeamContext);
 
 // Shared write rate limit: 60 requests/hour for availability mutations
 const availabilityWriteLimit = userRateLimit(

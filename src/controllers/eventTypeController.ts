@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { AppError } from "../utils/errors/AppError";
 import { apiResponse } from "../utils/globalResponseHandler";
 import { logger } from "../utils/logging/logger";
+import { getTeamContext } from "../middleware/teamContext";
 import {
   createEventTypeSchema,
   updateEventTypeSchema,
@@ -14,7 +15,8 @@ import * as eventTypeService from "../services/scheduling/eventTypeService";
  */
 export const listEventTypes = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
-  const eventTypes = await eventTypeService.listEventTypes(userId);
+  const teamContext = getTeamContext(req);
+  const eventTypes = await eventTypeService.listEventTypes(userId, teamContext);
 
   return apiResponse(res, {
     statusCode: 200,
@@ -28,6 +30,7 @@ export const listEventTypes = async (req: Request, res: Response) => {
  */
 export const createEventType = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const validated = createEventTypeSchema.safeParse(req.body);
   if (!validated.success) throw new AppError("Validation failed", 400);
@@ -35,11 +38,13 @@ export const createEventType = async (req: Request, res: Response) => {
   const eventType = await eventTypeService.createEventType(
     userId,
     validated.data,
+    teamContext,
   );
 
   logger.info("Event type created via API", {
     eventTypeId: eventType.id,
     userId,
+    teamId: teamContext?.teamId ?? null,
   });
 
   return apiResponse(res, {
@@ -54,6 +59,7 @@ export const createEventType = async (req: Request, res: Response) => {
  */
 export const updateEventType = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const params = eventTypeIdParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid event type ID", 400);
@@ -65,6 +71,7 @@ export const updateEventType = async (req: Request, res: Response) => {
     userId,
     params.data.id,
     validated.data,
+    teamContext,
   );
 
   return apiResponse(res, {
@@ -79,11 +86,12 @@ export const updateEventType = async (req: Request, res: Response) => {
  */
 export const deleteEventType = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const params = eventTypeIdParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid event type ID", 400);
 
-  await eventTypeService.deleteEventType(userId, params.data.id);
+  await eventTypeService.deleteEventType(userId, params.data.id, teamContext);
 
   return apiResponse(res, {
     statusCode: 200,

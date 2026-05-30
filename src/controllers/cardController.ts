@@ -220,13 +220,17 @@ export const cardController = {
       const parsed = getContactsSchema.safeParse(req.query);
       if (!parsed.success) throw ErrorFactory.validation(parsed.error);
 
-      const result = await cardService.getContacts(userId, {
-        cardId: parsed.data.cardId,
-        search: parsed.data.search,
-        tags: parsed.data.tags ? parsed.data.tags.split(",") : undefined,
-        page: parsed.data.page,
-        limit: parsed.data.limit,
-      });
+      const result = await cardService.getContacts(
+        userId,
+        {
+          cardId: parsed.data.cardId,
+          search: parsed.data.search,
+          tags: parsed.data.tags ? parsed.data.tags.split(",") : undefined,
+          page: parsed.data.page,
+          limit: parsed.data.limit,
+        },
+        getTeamContext(req),
+      );
 
       apiResponse(res, {
         statusCode: 200,
@@ -255,6 +259,7 @@ export const cardController = {
         userId,
         contactId,
         parsed.data.tags,
+        getTeamContext(req),
       );
 
       apiResponse(res, {
@@ -277,7 +282,7 @@ export const cardController = {
         "contactId",
       );
 
-      await cardService.deleteContact(userId, contactId);
+      await cardService.deleteContact(userId, contactId, getTeamContext(req));
 
       apiResponse(res, {
         statusCode: 200,
@@ -300,11 +305,15 @@ export const cardController = {
       ) {
         throw ErrorFactory.validation("Invalid cardId");
       }
-      const csv = await cardService.exportContacts(userId, {
-        cardId: cardId as string | undefined,
-        search: search as string | undefined,
-        tags: tags as string | undefined,
-      });
+      const csv = await cardService.exportContacts(
+        userId,
+        {
+          cardId: cardId as string | undefined,
+          search: search as string | undefined,
+          tags: tags as string | undefined,
+        },
+        getTeamContext(req),
+      );
 
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", "attachment; filename=contacts.csv");
@@ -332,6 +341,7 @@ export const cardController = {
         userId,
         cardId,
         req.file.buffer,
+        getTeamContext(req),
       );
 
       apiResponse(res, {
@@ -362,6 +372,7 @@ export const cardController = {
         userId,
         cardId,
         parsed.data.days,
+        getTeamContext(req),
       );
 
       apiResponse(res, {
@@ -393,6 +404,7 @@ export const cardController = {
         userId,
         cardId,
         parsed.data,
+        getTeamContext(req),
       );
 
       apiResponse(res, {
