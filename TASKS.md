@@ -1,6 +1,6 @@
 # calendar-backend — Task List
 
-Last updated: 2026-05-30 (Phase 6 backend fully shipped 🎉 P0–P8 — schema → public team + WS events → admin overrides + SystemConfig editor. Phase 6 frontend (P9–P15 in workspace TASKS.md) is next.)
+Last updated: 2026-05-30 (Phase 6 backend P0–P8 shipped 🎉 + small P13 addition: GET /teams/me/invites — invitee-side discovery so invites that arrived while offline still surface. Route registered ABOVE /:teamId/* to avoid Express path collision. Frontend P13 + crelyzor-public P14.a now also live.)
 
 > **Rule:** When you complete a task, change `- [ ]` to `- [x]` and move it to the Done section.
 > **Legend:** `[ ]` Not started · `[~]` Has code but broken/incomplete · `[x]` Done and working

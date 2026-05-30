@@ -383,6 +383,35 @@ export async function listInvites(actorId: string, teamId: string) {
   });
 }
 
+// ── listMyPendingInvites ─────────────────────────────────────────────────────
+// Phase 6 P13 — invitee-side discovery. The actor is the invitee; we list only
+// invites that are bound to their account (userId match), still pending, and
+// not expired. Never exposes `token` (URL-delivery) or `email` (it's their own
+// address, but irrelevant for the panel).
+export async function listMyPendingInvites(userId: string) {
+  return prisma.teamInvite.findMany({
+    where: {
+      userId,
+      isDeleted: false,
+      acceptedAt: null,
+      declinedAt: null,
+      cancelledAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    select: {
+      id: true,
+      role: true,
+      expiresAt: true,
+      createdAt: true,
+      team: {
+        select: { id: true, name: true, slug: true, logoUrl: true },
+      },
+      invitedBy: { select: { id: true, name: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
 // ── resendInvite ─────────────────────────────────────────────────────────────
 
 export async function resendInvite(

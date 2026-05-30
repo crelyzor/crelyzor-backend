@@ -45,6 +45,21 @@ export const list = async (req: Request, res: Response) => {
   });
 };
 
+// Phase 6 P13 — invitee-side discovery of their own pending invites. Used by
+// the workspace switcher dropdown + notifications panel to surface invites
+// that arrived while the user was offline (the WS event only delivers to
+// open tabs).
+export const listMine = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+  const invites = await teamInviteService.listMyPendingInvites(userId);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Pending invites fetched",
+    data: { invites },
+  });
+};
+
 export const resend = async (req: Request, res: Response) => {
   const actorId = req.user!.userId;
   const params = inviteIdParamSchema.safeParse(req.params);

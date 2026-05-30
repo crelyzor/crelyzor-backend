@@ -45,6 +45,9 @@ const inviteRespondLimiter = userRateLimit(
 // ── Team CRUD ────────────────────────────────────────────────────────────────
 router.get("/", readLimiter, teamController.listMine);
 router.post("/", createLimiter, teamController.create);
+// Phase 6 P13 — invitee-side pending invites. Must be registered BEFORE the
+// `/:teamId/*` family below, otherwise Express matches `me` as a `:teamId`.
+router.get("/me/invites", readLimiter, teamInviteController.listMine);
 router.patch("/:teamId", readLimiter, teamController.update);
 router.delete("/:teamId", readLimiter, teamController.remove);
 router.post(
