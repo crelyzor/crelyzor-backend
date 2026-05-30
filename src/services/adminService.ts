@@ -289,17 +289,13 @@ export async function resetUserUsage(userId: string) {
   nextMonthStart.setDate(1);
   nextMonthStart.setHours(0, 0, 0, 0);
 
-  const usage = await prisma.userUsage.upsert({
+  // Phase 6 P5.8 — UserUsage is now multi-row per user (one per scope).
+  // Reset ALL rows for this user across personal + every team they own.
+  // If the user has no rows yet, create the personal row in a zeroed state
+  // so the admin response always includes a row to inspect.
+  const updated = await prisma.userUsage.updateMany({
     where: { userId },
-    update: {
-      transcriptionMinutesUsed: 0,
-      recallHoursUsed: 0,
-      aiCreditsUsed: 0,
-      periodStart: new Date(),
-      resetAt: nextMonthStart,
-    },
-    create: {
-      userId,
+    data: {
       transcriptionMinutesUsed: 0,
       recallHoursUsed: 0,
       aiCreditsUsed: 0,
@@ -307,9 +303,26 @@ export async function resetUserUsage(userId: string) {
       resetAt: nextMonthStart,
     },
   });
+  if (updated.count === 0) {
+    await prisma.userUsage.create({
+      data: {
+        userId,
+        teamId: null,
+        transcriptionMinutesUsed: 0,
+        recallHoursUsed: 0,
+        aiCreditsUsed: 0,
+        periodStart: new Date(),
+        resetAt: nextMonthStart,
+      },
+    });
+  }
 
-  logger.info("Admin reset user usage", { userId });
-  return usage;
+  const personal = await prisma.userUsage.findFirst({
+    where: { userId, teamId: null },
+  });
+
+  logger.info("Admin reset user usage", { userId, rowsReset: updated.count });
+  return personal;
 }
 
 // ─── Stats ───────────────────────────────────────────────────────────────────

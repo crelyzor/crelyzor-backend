@@ -12,7 +12,7 @@ import {
   listTasksQuerySchema,
   reorderTasksSchema,
 } from "../validators/taskSchema";
-import { Prisma, TeamRole } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   createTaskBlock,
   deleteCalendarEvent,
@@ -21,136 +21,19 @@ import {
   deleteGoogleTask,
   isGoogleTaskRef,
 } from "../services/googleCalendarService";
-import { encrypt, decrypt, type Principal } from "../utils/security/crypto";
-import type { TeamContext } from "../middleware/authMiddleware";
+import { encrypt, decrypt } from "../utils/security/crypto";
 import { getTeamContext } from "../middleware/teamContext";
 import { assertMeetingAccess } from "../services/meetings/meetingService";
 import { assertCardAccess } from "../services/cardService";
-
-// ── Phase 6 P5.3 team-scoping helpers ────────────────────────────────────────
-
-const TASK_NOT_FOUND_MESSAGE = "Task not found";
-
-const ROLE_RANK: Record<TeamRole, number> = {
-  OWNER: 3,
-  ADMIN: 2,
-  MEMBER: 1,
-};
-
-/**
- * Returns the Prisma where-clause fragment that scopes a task query to the
- * caller's current context.
- *
- * - Personal context (teamContext null): `{ teamId: null, userId: actorId }`.
- *   Personal queries explicitly exclude team tasks — closes the pre-Phase-6
- *   leak where `GET /sma/tasks` returned every task the user owned including
- *   team-scoped ones.
- * - Team context + ADMIN/OWNER: `{ teamId = ctx.teamId }` (all team tasks).
- * - Team context + MEMBER: `{ teamId = ctx.teamId, userId = actorId }` —
- *   member sees only own team tasks.
- *
- * Soft-delete is NOT part of the scope — caller must add `isDeleted: false`.
- */
-function taskScope(
-  actorId: string,
-  teamContext: TeamContext | null,
-): Prisma.TaskWhereInput {
-  if (!teamContext) {
-    return { teamId: null, userId: actorId };
-  }
-  if (teamContext.role === TeamRole.MEMBER) {
-    return { teamId: teamContext.teamId, userId: actorId };
-  }
-  return { teamId: teamContext.teamId };
-}
-
-type TaskForAccess = {
-  userId: string;
-  teamId: string | null;
-  isDeleted: boolean;
-};
-
-/**
- * Derives the encrypt/decrypt principal for content scoped to a task
- * (currently `Task.description`). **Always read from the row, never from
- * the actor.** A team admin editing another member's team-task description
- * must re-encrypt under the team DEK so other admins can read it.
- *
- * `Task.teamId` is immutable post-creation — there's no API path that
- * mutates it. Schema strict-mode + service-layer omission in updateTask
- * keep this invariant.
- */
-function principalForTask(task: {
-  userId: string;
-  teamId: string | null;
-}): Principal {
-  return task.teamId
-    ? { type: "team", id: task.teamId }
-    : { type: "user", id: task.userId };
-}
-
-/**
- * Centralized access gate for task CRUD. Throws 404 with a uniform body for
- * every "not accessible" branch.
- */
-function verifyTaskAccess(
-  actorId: string,
-  task: TaskForAccess,
-  teamContext: TeamContext | null,
-  _action: "read" | "mutate",
-): void {
-  if (task.isDeleted) {
-    throw new AppError(TASK_NOT_FOUND_MESSAGE, 404);
-  }
-
-  const isOwner = task.userId === actorId;
-
-  if (!teamContext) {
-    if (task.teamId !== null || !isOwner) {
-      throw new AppError(TASK_NOT_FOUND_MESSAGE, 404);
-    }
-    return;
-  }
-
-  // Team context: task must belong to the same team.
-  if (task.teamId !== teamContext.teamId) {
-    throw new AppError(TASK_NOT_FOUND_MESSAGE, 404);
-  }
-
-  if (teamContext.role === TeamRole.MEMBER && !isOwner) {
-    // MEMBER: own team tasks only. Same rule for read + mutate; tasks
-    // have no participant concept (unlike meetings).
-    throw new AppError(TASK_NOT_FOUND_MESSAGE, 404);
-  }
-  // ADMIN / OWNER: any task in the team is accessible.
-  void ROLE_RANK; // referenced for symmetry; comparisons happen elsewhere
-}
-
-/**
- * One-shot task access gate. Slim-fetches the task, runs verifyTaskAccess,
- * returns the row. Mirrors assertCardAccess / assertMeetingAccess.
- */
-async function assertTaskAccess(
-  actorId: string,
-  taskId: string,
-  teamContext: TeamContext | null,
-  action: "read" | "mutate",
-): Promise<TaskForAccess & { id: string }> {
-  const task = await prisma.task.findUnique({
-    where: { id: taskId },
-    select: {
-      id: true,
-      userId: true,
-      teamId: true,
-      isDeleted: true,
-    },
-  });
-  if (!task) {
-    throw new AppError(TASK_NOT_FOUND_MESSAGE, 404);
-  }
-  verifyTaskAccess(actorId, task, teamContext, action);
-  return task;
-}
+// Phase 6 P5.5.b — task access helpers moved to a dedicated module so other
+// services (currently tagService.ts for task-tag junctions) can gate task
+// access without crossing into the controller layer.
+import {
+  TASK_NOT_FOUND_MESSAGE,
+  taskScope,
+  principalForTask,
+  assertTaskAccess,
+} from "../services/tasks/taskAccess";
 
 // Decrypt description field in a batch of tasks. Phase 6 P5.3 — per-row
 // principal derived from each task's own teamId/userId (rows in the same

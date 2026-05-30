@@ -51,6 +51,7 @@ import {
   renewExpiringChannels,
 } from "../services/googleCalendarPushService";
 import { decrypt } from "../utils/security/crypto";
+import { principalForBooking } from "../services/scheduling/bookingPrincipal";
 
 /** Base URL for the dashboard app — used in email CTAs */
 const APP_BASE_URL = env.FRONTEND_URL;
@@ -409,6 +410,7 @@ export const startWorker = async (): Promise<void> => {
           guestName: true,
           guestEmail: true,
           userId: true,
+          teamId: true,
           eventType: { select: { title: true } },
           meeting: {
             select: {
@@ -430,10 +432,16 @@ export const startWorker = async (): Promise<void> => {
         return { skipped: true };
       }
 
-      // Decrypt guest PII using host's DEK (booking.userId is the host)
+      // Phase 6 P5.4.b — decrypt under the booking's principal. Today
+      // booking.teamId is always null (createBooking writes it in P5.4.c),
+      // so principalForBooking returns {type: "user", id: booking.userId} —
+      // byte-identical to the legacy decrypt(b.*, b.userId) call. Once
+      // createBooking starts setting teamId, this auto-routes to the team
+      // DEK with zero further changes.
+      const bookingPrincipal = principalForBooking(booking);
       const [guestName, guestEmail] = await Promise.all([
-        decrypt(booking.guestName, booking.userId).catch(() => "Guest"),
-        decrypt(booking.guestEmail, booking.userId).catch((err: unknown) => {
+        decrypt(booking.guestName, bookingPrincipal).catch(() => "Guest"),
+        decrypt(booking.guestEmail, bookingPrincipal).catch((err: unknown) => {
           logger.warn(
             "Failed to decrypt guestEmail for booking reminder — skipping",
             {

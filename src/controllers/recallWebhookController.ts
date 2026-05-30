@@ -150,11 +150,15 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
   logger.info("Recall webhook received", { event, botId, statusCode });
 
   // 3. Look up meeting by botId
+  // Phase 6 P5.7 — also select `teamId` so we can forward it to the
+  // FETCH_RECALL_RECORDING job. Without it, the worker bills the host's
+  // personal RECALL hours instead of the team owner's on team meetings.
   const meeting = await prisma.meeting.findFirst({
     where: { recallBotId: botId, isDeleted: false },
     select: {
       id: true,
       createdById: true,
+      teamId: true,
       createdBy: {
         select: {
           settings: {
@@ -180,12 +184,14 @@ export const handleRecallWebhook = async (req: Request, res: Response) => {
     return apiResponse(res, { statusCode: 200, message: "OK" });
   }
 
-  // 5. Dispatch on status
+  // 5. Dispatch on status — pass teamId so the downstream FETCH job can
+  // attribute Recall hours + transcription minutes to the team owner.
   if (statusCode) {
     await handleStatusChange(
       meeting.id,
       statusCode,
       meeting.createdById,
+      meeting.teamId,
       botId,
       event,
     );
@@ -301,6 +307,7 @@ async function handleStatusChange(
   meetingId: string,
   statusCode: string,
   hostUserId: string,
+  teamId: string | null,
   botId: string,
   event: string,
 ) {
@@ -335,9 +342,17 @@ async function handleStatusChange(
         event === "bot.done";
 
       if (shouldQueueRecording) {
+        // Phase 6 P5.7 — carry teamId so the worker can resolve quota
+        // owner via getQuotaOwner({userId: hostUserId, teamId}) and bill
+        // the team owner instead of the host on team meetings.
         await getRecallRecordingQueue().add(
           JobNames.FETCH_RECALL_RECORDING,
-          { botId, meetingId, hostUserId },
+          {
+            botId,
+            meetingId,
+            hostUserId,
+            ...(teamId ? { teamId } : {}),
+          },
           {
             jobId: `recall-recording-${meetingId}`,
             attempts: 8,
@@ -349,6 +364,7 @@ async function handleStatusChange(
         logger.info("Meeting COMPLETED, Recall recording fetch queued", {
           meetingId,
           botId,
+          teamId,
           event,
         });
       } else {

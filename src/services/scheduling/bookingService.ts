@@ -15,7 +15,9 @@ import {
   decrypt,
   blindIndex,
   prismaBytes,
+  type Principal,
 } from "../../utils/security/crypto";
+import { principalForBooking } from "./bookingPrincipal";
 
 // ── Timezone helpers ───────────────────────────────────────────────────────────
 
@@ -75,13 +77,24 @@ function getDateInTz(utcDate: Date, tz: string): string {
 
 // ── Booking creation ──────────────────────────────────────────────────────────
 
+/**
+ * Insert the ORGANIZER (host) + ATTENDEE (guest) participant rows for a
+ * newly created booking-driven Meeting.
+ *
+ * Phase 6 P5.4.c — `bookingPrincipal` drives ATTENDEE.guestEmail encryption
+ * so that for team event types the guest email is stored under the team DEK
+ * (matches Booking.guestEmail + Meeting.teamId principals — all three derive
+ * from `EventType.teamId`). `hostUserId` is still used for the ORGANIZER
+ * `userId` FK; it does NOT drive encryption anymore.
+ */
 async function ensureBookingMeetingParticipants(
   tx: Prisma.TransactionClient,
   meetingId: string,
   hostUserId: string,
   guestEmail: string, // plaintext
+  bookingPrincipal: Principal,
 ) {
-  const encGuestEmail = await encrypt(guestEmail, hostUserId);
+  const encGuestEmail = await encrypt(guestEmail, bookingPrincipal);
   const guestEmailBidx = prismaBytes(blindIndex(guestEmail));
 
   await tx.meetingParticipant.createMany({
@@ -154,6 +167,7 @@ export async function createBooking(data: CreateBookingInput) {
             maxPerDay: true,
             meetingLink: true,
             availabilityScheduleId: true,
+            teamId: true,
           },
         });
         if (!eventType) throw new AppError("Event type not found", 404);
@@ -388,6 +402,18 @@ export async function createBooking(data: CreateBookingInput) {
           }
         }
 
+        // Phase 6 P5.4.c — derive the booking's encryption principal from
+        // the resolved EventType. Team event types produce team-scoped
+        // bookings + meetings, encrypted under the team DEK. Personal event
+        // types stay under the host's user DEK (eventType.teamId === null).
+        // Booking.teamId / Meeting.teamId / MeetingParticipant.guestEmail
+        // all derive from the same EventType.teamId so decrypt at read-time
+        // resolves to the same key.
+        const bookingPrincipal = principalForBooking({
+          userId: user.id,
+          teamId: eventType.teamId,
+        });
+
         // n. Create Meeting first
         const meeting = await tx.meeting.create({
           data: {
@@ -397,6 +423,7 @@ export async function createBooking(data: CreateBookingInput) {
             endTime,
             timezone: tz,
             createdById: user.id,
+            teamId: eventType.teamId,
           },
           select: { id: true },
         });
@@ -406,14 +433,16 @@ export async function createBooking(data: CreateBookingInput) {
           meeting.id,
           user.id,
           data.guestEmail,
+          bookingPrincipal,
         );
 
-        // Encrypt booking PII under the host's DEK
+        // Encrypt booking PII under the booking's principal (team DEK if
+        // team-scoped, user DEK otherwise).
         const [encGuestName, encGuestEmail, encGuestNote] = await Promise.all([
-          encrypt(data.guestName, user.id),
-          encrypt(data.guestEmail, user.id),
+          encrypt(data.guestName, bookingPrincipal),
+          encrypt(data.guestEmail, bookingPrincipal),
           data.guestNote
-            ? encrypt(data.guestNote, user.id)
+            ? encrypt(data.guestNote, bookingPrincipal)
             : Promise.resolve(undefined),
         ]);
 
@@ -422,6 +451,7 @@ export async function createBooking(data: CreateBookingInput) {
           data: {
             eventTypeId: eventType.id,
             userId: user.id,
+            teamId: eventType.teamId,
             meetingId: meeting.id,
             guestName: encGuestName,
             guestEmail: encGuestEmail,
@@ -533,6 +563,7 @@ export async function cancelBookingAsGuest(bookingId: string, reason?: string) {
       status: true,
       meetingId: true,
       userId: true,
+      teamId: true,
       googleEventId: true,
       guestName: true,
       guestEmail: true,
@@ -607,10 +638,13 @@ export async function cancelBookingAsGuest(bookingId: string, reason?: string) {
       (booking.user.settings?.bookingEmailsEnabled ?? true);
 
     if (emailsEnabled) {
-      // Decrypt guest PII using host's DEK (guests have no Crelyzor account)
+      // Phase 6 P5.4.b — decrypt under the booking's principal so team
+      // bookings (post-P5.4.c) read with the team DEK and personal bookings
+      // continue under the host's user DEK.
+      const bookingPrincipal = principalForBooking(booking);
       const [guestName, guestEmail] = await Promise.all([
-        decrypt(booking.guestName, booking.userId).catch(() => "Guest"),
-        decrypt(booking.guestEmail, booking.userId).catch(() => ""),
+        decrypt(booking.guestName, bookingPrincipal).catch(() => "Guest"),
+        decrypt(booking.guestEmail, bookingPrincipal).catch(() => ""),
       ]);
 
       const cancelledSubject = bookingCancelledSubject({
@@ -679,6 +713,7 @@ export async function getPublicBooking(
       timezone: true,
       guestName: true,
       userId: true,
+      teamId: true,
       eventType: {
         select: {
           title: true,
@@ -708,13 +743,17 @@ export async function getPublicBooking(
     throw new AppError("Booking not found", 404);
   }
 
-  const guestName = await decrypt(booking.guestName, booking.userId).catch(
-    () => "Guest",
-  );
+  // Phase 6 P5.4.b — decrypt under the booking's principal (team DEK if
+  // teamId set, user DEK otherwise) instead of the host's userId.
+  const guestName = await decrypt(
+    booking.guestName,
+    principalForBooking(booking),
+  ).catch(() => "Guest");
 
-  // Strip userId (internal key) from the public response
+  // Strip internal keys (userId, teamId) from the public response
   const {
     userId: _userId,
+    teamId: _teamId,
     guestName: _rawGuestName,
     ...publicBooking
   } = booking;

@@ -1,4 +1,4 @@
-import type { Plan } from "@prisma/client";
+import { Plan, Prisma } from "@prisma/client";
 import prisma from "../../db/prismaClient";
 import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
@@ -59,38 +59,143 @@ export function calculateCredits(
   return Math.max(1, Math.ceil(raw));
 }
 
-// ─── Fetch or Create UserUsage ────────────────────────────────────────────────
+// ─── Phase 6 P5.8 — UserUsage scope split ───────────────────────────────────
+//
+// Each user has multiple UserUsage rows after P5.8:
+//   - `(userId, teamId: null)` — the user's PERSONAL pool. Created lazily.
+//   - `(userId, teamId: <teamId>)` — one row per team the user OWNS, used
+//     when a team admin/member runs work that bills against the team
+//     owner (via getQuotaOwner). Created lazily.
+//
+// Two access patterns:
+//   - **Check (aggregate)**: limits cap TOTAL consumption across all rows
+//     for the payer. `getAggregateUsage(payerId)` sums every row.
+//   - **Deduct (scoped)**: writes land on the specific `(payerId, scopeTeamId)`
+//     row via `getOrCreateScopedUsage`. Multiple team writes don't
+//     overwrite each other; the usage endpoint can break down per team.
+//
+// The semantics are documented at every read/write site so the next
+// reader doesn't confuse the two.
 
-/**
- * Returns the current period's usage record for a user. Creates one if it
- * doesn't exist yet (e.g. new user who hasn't triggered any billable action).
- *
- * resetAt is set to midnight on the 1st of next month (UTC).
- */
-export async function getUserUsage(userId: string) {
-  const existing = await prisma.userUsage.findUnique({ where: { userId } });
-  if (existing) return existing;
-
-  const resetAt = getNextMonthStart();
-  return prisma.userUsage.create({
-    data: {
-      userId,
-      resetAt,
-    },
-  });
-}
+type ScopedUsageRow = {
+  id: string;
+  userId: string;
+  teamId: string | null;
+  transcriptionMinutesUsed: number;
+  recallHoursUsed: number;
+  aiCreditsUsed: number;
+  storageGbUsed: number;
+  periodStart: Date;
+  resetAt: Date;
+  updatedAt: Date;
+};
 
 function getNextMonthStart(): Date {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 }
 
-// ─── Helper: fetch plan + usage together ─────────────────────────────────────
+/**
+ * Phase 6 P5.8 — get-or-create the UserUsage row for a specific scope.
+ *
+ * Race-safe via try/catch on the partial unique violation (P2002). The
+ * partial unique indexes (`UserUsage_user_personal_unique` and
+ * `UserUsage_user_team_unique`) are invisible to Prisma's compound-key
+ * upsert, so we fall back to findFirst → create → P2002 fallback.
+ */
+async function getOrCreateScopedUsage(
+  userId: string,
+  teamId: string | null,
+): Promise<ScopedUsageRow> {
+  const existing = await prisma.userUsage.findFirst({
+    where: { userId, teamId },
+  });
+  if (existing) return existing;
+  try {
+    return await prisma.userUsage.create({
+      data: { userId, teamId, resetAt: getNextMonthStart() },
+    });
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      // Lost the race vs a concurrent create — fetch the row that won.
+      const retry = await prisma.userUsage.findFirst({
+        where: { userId, teamId },
+      });
+      if (retry) return retry;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Phase 6 P5.8 — aggregate consumption across every row for a payer.
+ *
+ * Used by every CHECK function: the payer's plan limit caps TOTAL
+ * consumption (personal + every team they own). Returns zero values
+ * if the payer has no rows yet.
+ */
+async function getAggregateUsage(payerId: string): Promise<{
+  transcriptionMinutesUsed: number;
+  recallHoursUsed: number;
+  aiCreditsUsed: number;
+  storageGbUsed: number;
+}> {
+  const agg = await prisma.userUsage.aggregate({
+    where: { userId: payerId },
+    _sum: {
+      transcriptionMinutesUsed: true,
+      recallHoursUsed: true,
+      aiCreditsUsed: true,
+      storageGbUsed: true,
+    },
+  });
+  return {
+    transcriptionMinutesUsed: agg._sum.transcriptionMinutesUsed ?? 0,
+    recallHoursUsed: agg._sum.recallHoursUsed ?? 0,
+    aiCreditsUsed: agg._sum.aiCreditsUsed ?? 0,
+    storageGbUsed: agg._sum.storageGbUsed ?? 0,
+  };
+}
+
+/**
+ * Returns the actor's aggregate usage + their plan's limits + a reset
+ * timestamp. Drives `GET /billing/usage` and any in-context indicator
+ * that needs to render a single bar per resource.
+ *
+ * P5.8 — shape preserved for backward compat. `periodStart` and `resetAt`
+ * pull from the actor's personal row (creating it lazily if missing) so
+ * the response always has values. Team rows can have different resetAt
+ * dates (created at different times) but we surface the personal row's
+ * cycle as the user's canonical "your month resets on X."
+ */
+export async function getUserUsage(userId: string): Promise<{
+  transcriptionMinutesUsed: number;
+  recallHoursUsed: number;
+  aiCreditsUsed: number;
+  storageGbUsed: number;
+  periodStart: Date;
+  resetAt: Date;
+}> {
+  const [aggregate, personal] = await Promise.all([
+    getAggregateUsage(userId),
+    getOrCreateScopedUsage(userId, null),
+  ]);
+  return {
+    ...aggregate,
+    periodStart: personal.periodStart,
+    resetAt: personal.resetAt,
+  };
+}
+
+// ─── Helper: fetch plan + aggregate usage together ───────────────────────────
 
 async function getPlanAndUsage(userId: string) {
   const [user, usage] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { plan: true } }),
-    getUserUsage(userId),
+    getAggregateUsage(userId),
   ]);
   if (!user) throw new AppError("User not found", 404);
   const limits = getLimitsForPlan(user.plan);
@@ -103,6 +208,8 @@ async function getPlanAndUsage(userId: string) {
  * Phase 6 P5.1.c — billing options accepted by every check/deduct call.
  * When `teamId` is set, `getQuotaOwner` resolves the team owner as the
  * payer; the underlying UserUsage row belongs to the owner, not the actor.
+ * After Phase 6 P5.8 the team's consumption lands on a SEPARATE row from
+ * the owner's personal pool (`(payerId, teamId)` vs `(payerId, null)`).
  */
 export interface MeteringOpts {
   teamId?: string | null;
@@ -113,15 +220,18 @@ export interface MeteringOpts {
  * minutes. Call BEFORE starting a Deepgram transcription job.
  *
  * `opts.teamId` set → payer = team owner (via getQuotaOwner).
- * `opts.teamId` null/omitted → payer = actor (back-compat with Phase 5
- * call sites and personal-context usage).
+ * `opts.teamId` null/omitted → payer = actor.
+ *
+ * P5.8: check aggregates across ALL the payer's rows. The limit covers
+ * personal + every team they own.
  */
 export async function checkTranscription(
   userId: string,
   estimatedMinutes: number,
   opts?: MeteringOpts,
 ): Promise<void> {
-  const payerId = await getQuotaOwner({ userId, teamId: opts?.teamId ?? null });
+  const scopeTeamId = opts?.teamId ?? null;
+  const payerId = await getQuotaOwner({ userId, teamId: scopeTeamId });
   const { limits, usage } = await getPlanAndUsage(payerId);
   if (limits.transcriptionMinutes === -1) return; // unlimited
 
@@ -132,7 +242,7 @@ export async function checkTranscription(
     logger.warn("Transcription limit reached", {
       payerId,
       actorId: userId,
-      teamId: opts?.teamId ?? null,
+      teamId: scopeTeamId,
       used: usage.transcriptionMinutesUsed,
       limit: limits.transcriptionMinutes,
       requested: estimatedMinutes,
@@ -143,21 +253,22 @@ export async function checkTranscription(
 
 /**
  * Deducts actual transcription minutes after a successful Deepgram call
- * against the **payer's** UserUsage row. Call AFTER transcription succeeds.
- * Fail-open: logs error but never throws.
+ * to the **payer's `(payerId, scopeTeamId)` row**. Fail-open.
+ *
+ * P5.8: deduct lands on the scoped row so the team usage endpoint can
+ * report per-team breakdown later.
  */
 export async function deductTranscription(
   userId: string,
   actualMinutes: number,
   opts?: MeteringOpts,
 ): Promise<void> {
+  const scopeTeamId = opts?.teamId ?? null;
   try {
-    const payerId = await getQuotaOwner({
-      userId,
-      teamId: opts?.teamId ?? null,
-    });
+    const payerId = await getQuotaOwner({ userId, teamId: scopeTeamId });
+    const row = await getOrCreateScopedUsage(payerId, scopeTeamId);
     await prisma.userUsage.update({
-      where: { userId: payerId },
+      where: { id: row.id },
       data: {
         transcriptionMinutesUsed: { increment: Math.ceil(actualMinutes) },
       },
@@ -165,13 +276,13 @@ export async function deductTranscription(
     logger.info("Transcription minutes deducted", {
       payerId,
       actorId: userId,
-      teamId: opts?.teamId ?? null,
+      teamId: scopeTeamId,
       minutes: Math.ceil(actualMinutes),
     });
   } catch (err) {
     logger.error("Failed to deduct transcription minutes (non-fatal)", {
       actorId: userId,
-      teamId: opts?.teamId ?? null,
+      teamId: scopeTeamId,
       minutes: actualMinutes,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -184,13 +295,16 @@ export async function deductTranscription(
  * Throws 402 if the user has exceeded their monthly Recall hours.
  * Call BEFORE deploying a Recall bot. estimatedHours is typically the
  * meeting duration in hours (e.g. 1.0 for a 60-min meeting).
+ *
+ * P5.8: same aggregate-check semantics as transcription.
  */
 export async function checkRecall(
   userId: string,
   estimatedHours: number,
   opts?: MeteringOpts,
 ): Promise<void> {
-  const payerId = await getQuotaOwner({ userId, teamId: opts?.teamId ?? null });
+  const scopeTeamId = opts?.teamId ?? null;
+  const payerId = await getQuotaOwner({ userId, teamId: scopeTeamId });
   const { limits, usage } = await getPlanAndUsage(payerId);
 
   if (limits.recallHours === -1) return; // unlimited (BUSINESS)
@@ -206,7 +320,7 @@ export async function checkRecall(
     logger.warn("Recall hours limit reached", {
       payerId,
       actorId: userId,
-      teamId: opts?.teamId ?? null,
+      teamId: scopeTeamId,
       used: usage.recallHoursUsed,
       limit: limits.recallHours,
       requested: estimatedHours,
@@ -216,33 +330,32 @@ export async function checkRecall(
 }
 
 /**
- * Deducts Recall hours against the **payer's** UserUsage row after a bot
- * session completes. Fail-open: logs error but never throws.
+ * Deducts Recall hours to the **payer's `(payerId, scopeTeamId)` row**
+ * after a bot session completes. Fail-open.
  */
 export async function deductRecall(
   userId: string,
   actualHours: number,
   opts?: MeteringOpts,
 ): Promise<void> {
+  const scopeTeamId = opts?.teamId ?? null;
   try {
-    const payerId = await getQuotaOwner({
-      userId,
-      teamId: opts?.teamId ?? null,
-    });
+    const payerId = await getQuotaOwner({ userId, teamId: scopeTeamId });
+    const row = await getOrCreateScopedUsage(payerId, scopeTeamId);
     await prisma.userUsage.update({
-      where: { userId: payerId },
+      where: { id: row.id },
       data: { recallHoursUsed: { increment: actualHours } },
     });
     logger.info("Recall hours deducted", {
       payerId,
       actorId: userId,
-      teamId: opts?.teamId ?? null,
+      teamId: scopeTeamId,
       hours: actualHours,
     });
   } catch (err) {
     logger.error("Failed to deduct Recall hours (non-fatal)", {
       actorId: userId,
-      teamId: opts?.teamId ?? null,
+      teamId: scopeTeamId,
       hours: actualHours,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -257,8 +370,10 @@ export async function deductRecall(
  * - Call AFTER the OpenAI response so we have real token counts.
  * - Uses actual `response.usage.prompt_tokens` + `completion_tokens`.
  * - Throws 402 (AI_CREDITS_EXHAUSTED) if user has no credits remaining BEFORE
- *   the call (pre-check uses current balance vs limit).
+ *   the call (pre-check uses current aggregate balance vs limit).
  * - Deduction fails-open so a DB hiccup never blocks the user's response.
+ *
+ * P5.8: check against payer aggregate; deduct to the scoped row.
  *
  * @param inputTokens   prompt_tokens from OpenAI response
  * @param outputTokens  completion_tokens from OpenAI response
@@ -269,11 +384,9 @@ export async function checkAndDeductCredits(
   outputTokens: number,
   opts?: MeteringOpts,
 ): Promise<void> {
+  const scopeTeamId = opts?.teamId ?? null;
   try {
-    const payerId = await getQuotaOwner({
-      userId,
-      teamId: opts?.teamId ?? null,
-    });
+    const payerId = await getQuotaOwner({ userId, teamId: scopeTeamId });
     const { limits, usage } = await getPlanAndUsage(payerId);
 
     if (limits.aiCredits === -1) return; // unlimited (BUSINESS)
@@ -285,15 +398,16 @@ export async function checkAndDeductCredits(
 
     const creditsToDeduct = calculateCredits(inputTokens, outputTokens);
 
+    const row = await getOrCreateScopedUsage(payerId, scopeTeamId);
     await prisma.userUsage.update({
-      where: { userId: payerId },
+      where: { id: row.id },
       data: { aiCreditsUsed: { increment: creditsToDeduct } },
     });
 
     logger.info("AI credits deducted", {
       payerId,
       actorId: userId,
-      teamId: opts?.teamId ?? null,
+      teamId: scopeTeamId,
       creditsDeducted: creditsToDeduct,
       totalUsed: usage.aiCreditsUsed + creditsToDeduct,
       limit: limits.aiCredits,
@@ -305,7 +419,7 @@ export async function checkAndDeductCredits(
     // DB/unexpected error — fail open so user still gets their response
     logger.error("Failed to check/deduct AI credits (non-fatal)", {
       actorId: userId,
-      teamId: opts?.teamId ?? null,
+      teamId: scopeTeamId,
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -314,12 +428,14 @@ export async function checkAndDeductCredits(
 // ─── Monthly Reset ────────────────────────────────────────────────────────────
 
 /**
- * Resets all usage counters for a single user.
- * Called by the MONTHLY_USAGE_RESET cron job.
+ * Resets ALL usage rows for a single user (across personal + every team
+ * they own). Called by the admin reset endpoint.
+ *
+ * P5.8: changed from `update` to `updateMany` to cover multi-row case.
  */
 export async function resetUserUsage(userId: string): Promise<void> {
   const nextResetAt = getNextMonthStart();
-  await prisma.userUsage.update({
+  await prisma.userUsage.updateMany({
     where: { userId },
     data: {
       transcriptionMinutesUsed: 0,
@@ -334,7 +450,10 @@ export async function resetUserUsage(userId: string): Promise<void> {
 /**
  * Resets all users whose resetAt has passed.
  * Called by the MONTHLY_USAGE_RESET cron job processor.
- * Returns the count of users reset.
+ * Returns the count of rows reset.
+ *
+ * P5.8 note: each scoped row resets independently. Multi-row users (with
+ * teams) get every due row reset on the same cron pass.
  */
 export async function runMonthlyReset(): Promise<number> {
   const now = new Date();
@@ -345,7 +464,7 @@ export async function runMonthlyReset(): Promise<number> {
   });
 
   if (dueCount === 0) {
-    logger.info("Monthly usage reset: no users to reset");
+    logger.info("Monthly usage reset: no rows to reset");
     return 0;
   }
 
@@ -360,7 +479,7 @@ export async function runMonthlyReset(): Promise<number> {
     },
   });
 
-  logger.info(`Monthly usage reset: ${result.count} users reset`, {
+  logger.info(`Monthly usage reset: ${result.count} rows reset`, {
     nextResetAt: nextResetAt.toISOString(),
   });
 
@@ -378,4 +497,7 @@ export const usageService = {
   checkAndDeductCredits,
   resetUserUsage,
   runMonthlyReset,
+  // Phase 6 P5.8 — exposed for the team usage endpoint.
+  getOrCreateScopedUsage,
+  getAggregateUsage,
 };

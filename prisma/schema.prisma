@@ -71,8 +71,10 @@ model User {
   availabilitySchedules AvailabilitySchedule[]
   bookings              Booking[]
 
-  // Billing (Phase 4)
-  usage        UserUsage?
+  // Billing (Phase 4 + Phase 6 P5.8)
+  // P5.8 — `UserUsage` is no longer 1:1 with User. Each user has one
+  // personal row plus one row per team they own. Iterate via `usage[]`.
+  usage        UserUsage[]
   subscription Subscription?
 
   // AI Conversations (Phase 4.2)
@@ -755,10 +757,11 @@ model MeetingAttachment {
 // ================================
 
 model Tag {
-  id     String @id @default(uuid()) @db.Uuid
-  userId String @db.Uuid
+  id     String  @id @default(uuid()) @db.Uuid
+  userId String  @db.Uuid // creator — even on team tags (audit/attribution)
+  teamId String? @db.Uuid // Phase 6 P5.5.a — null for personal tags, set for team-scoped
   name   String
-  color  String @default("#6b7280")
+  color  String  @default("#6b7280")
 
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
@@ -767,14 +770,20 @@ model Tag {
   updatedAt DateTime @updatedAt
 
   user        User         @relation(fields: [userId], references: [id])
+  team        Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
   meetingTags MeetingTag[]
   cardTags    CardTag[]
   taskTags    TaskTag[]
   contactTags ContactTag[]
 
-  @@unique([userId, name])
+  // Phase 6 P5.5.a — `@@unique([userId, name])` dropped in favour of two
+  // partial unique indexes (added in raw SQL by the migration):
+  //   Tag_user_personal_unique: (userId, name) WHERE teamId IS NULL AND isDeleted = false
+  //   Tag_team_unique:          (teamId, name) WHERE teamId IS NOT NULL AND isDeleted = false
+  // Partial indexes let personal "Important" and team "Important" co-exist.
   @@index([userId])
   @@index([userId, isDeleted])
+  @@index([teamId, isDeleted])
 }
 
 model MeetingTag {
@@ -1020,7 +1029,13 @@ model Booking {
 
 model UserUsage {
   id     String @id @default(uuid()) @db.Uuid
-  userId String @unique @db.Uuid
+  // Phase 6 P5.8 — `@unique` dropped; replaced by two partial unique indexes
+  // (added in raw SQL by the migration):
+  //   UserUsage_user_personal_unique: (userId) WHERE teamId IS NULL
+  //   UserUsage_user_team_unique:     (userId, teamId) WHERE teamId IS NOT NULL
+  // Each user now has one row per scope they consume against: their personal
+  // row (teamId null) plus one row per team they own (teamId set).
+  userId String @db.Uuid
 
   // Usage counters — reset monthly by cron job
   transcriptionMinutesUsed Int   @default(0)
@@ -1033,7 +1048,7 @@ model UserUsage {
   resetAt     DateTime // set to first day of next month on creation + after each reset
 
   // Teams (Phase 6) — attribution column for per-team breakdown.
-  // null = consumption against personal (no team context active when metered).
+  // null = consumption against the payer's personal pool.
   teamId String? @db.Uuid
 
   updatedAt DateTime @updatedAt
@@ -1042,6 +1057,7 @@ model UserUsage {
   team Team? @relation(fields: [teamId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([userId, teamId]) // composite for scoped lookups (Phase 6 P5.8)
   @@index([resetAt]) // cron job queries by resetAt to find users to reset
   @@index([teamId])
 }
@@ -1111,6 +1127,7 @@ model Team {
   tasks      Task[]
   eventTypes EventType[]
   bookings   Booking[]
+  tags       Tag[]
   usage      UserUsage[]
 
   @@index([ownerId, isDeleted])

@@ -27,7 +27,7 @@ import * as tagService from "../services/tagService";
  */
 export const listTags = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
-  const tags = await tagService.listTags(userId);
+  const tags = await tagService.listTags(userId, getTeamContext(req));
 
   return apiResponse(res, {
     statusCode: 200,
@@ -41,13 +41,18 @@ export const listTags = async (req: Request, res: Response) => {
  */
 export const createTag = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const validated = createTagSchema.safeParse(req.body);
   if (!validated.success) throw new AppError("Validation failed", 400);
 
-  const tag = await tagService.createTag(userId, validated.data);
+  const tag = await tagService.createTag(userId, validated.data, teamContext);
 
-  logger.info("Tag created", { tagId: tag.id, userId });
+  logger.info("Tag created", {
+    tagId: tag.id,
+    actorId: userId,
+    teamId: teamContext?.teamId ?? null,
+  });
 
   return apiResponse(res, {
     statusCode: 201,
@@ -61,6 +66,7 @@ export const createTag = async (req: Request, res: Response) => {
  */
 export const updateTag = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const params = tagParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid tag ID", 400);
@@ -72,9 +78,14 @@ export const updateTag = async (req: Request, res: Response) => {
     userId,
     params.data.tagId,
     validated.data,
+    teamContext,
   );
 
-  logger.info("Tag updated", { tagId: tag.id, userId });
+  logger.info("Tag updated", {
+    tagId: tag.id,
+    actorId: userId,
+    teamId: teamContext?.teamId ?? null,
+  });
 
   return apiResponse(res, {
     statusCode: 200,
@@ -88,13 +99,12 @@ export const updateTag = async (req: Request, res: Response) => {
  */
 export const deleteTag = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const params = tagParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid tag ID", 400);
 
-  await tagService.deleteTag(userId, params.data.tagId);
-
-  logger.info("Tag deleted", { tagId: params.data.tagId, userId });
+  await tagService.deleteTag(userId, params.data.tagId, teamContext);
 
   return apiResponse(res, { statusCode: 200, message: "Tag deleted" });
 };
@@ -108,7 +118,11 @@ export const getTagItems = async (req: Request, res: Response) => {
   const params = tagParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid tag ID", 400);
 
-  const items = await tagService.getTagItems(userId, params.data.tagId);
+  const items = await tagService.getTagItems(
+    userId,
+    params.data.tagId,
+    getTeamContext(req),
+  );
 
   return apiResponse(res, {
     statusCode: 200,
@@ -200,7 +214,11 @@ export const getCardTags = async (req: Request, res: Response) => {
   const params = cardIdParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid card ID", 400);
 
-  const tags = await tagService.getCardTags(userId, params.data.cardId);
+  const tags = await tagService.getCardTags(
+    userId,
+    params.data.cardId,
+    getTeamContext(req),
+  );
 
   return apiResponse(res, {
     statusCode: 200,
@@ -222,6 +240,7 @@ export const attachTagToCard = async (req: Request, res: Response) => {
     userId,
     params.data.cardId,
     params.data.tagId,
+    getTeamContext(req),
   );
 
   return apiResponse(res, { statusCode: 200, message: "Tag attached to card" });
@@ -240,6 +259,7 @@ export const detachTagFromCard = async (req: Request, res: Response) => {
     userId,
     params.data.cardId,
     params.data.tagId,
+    getTeamContext(req),
   );
 
   return apiResponse(res, {
@@ -261,7 +281,11 @@ export const getTaskTags = async (req: Request, res: Response) => {
   const params = taskIdParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid task ID", 400);
 
-  const tags = await tagService.getTaskTags(userId, params.data.taskId);
+  const tags = await tagService.getTaskTags(
+    userId,
+    params.data.taskId,
+    getTeamContext(req),
+  );
 
   return apiResponse(res, {
     statusCode: 200,
@@ -283,6 +307,7 @@ export const attachTagToTask = async (req: Request, res: Response) => {
     userId,
     params.data.taskId,
     params.data.tagId,
+    getTeamContext(req),
   );
 
   return apiResponse(res, {
@@ -304,6 +329,7 @@ export const detachTagFromTask = async (req: Request, res: Response) => {
     userId,
     params.data.taskId,
     params.data.tagId,
+    getTeamContext(req),
   );
 
   return apiResponse(res, {
@@ -325,7 +351,12 @@ export const getContactTags = async (req: Request, res: Response) => {
   const params = contactIdParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid contact ID", 400);
 
-  const tags = await tagService.getContactTags(userId, params.data.contactId);
+  const tags = await tagService.getContactTags(
+    userId,
+    params.data.cardId,
+    params.data.contactId,
+    getTeamContext(req),
+  );
 
   return apiResponse(res, {
     statusCode: 200,
@@ -345,8 +376,10 @@ export const attachTagToContact = async (req: Request, res: Response) => {
 
   await tagService.attachTagToContact(
     userId,
+    params.data.cardId,
     params.data.contactId,
     params.data.tagId,
+    getTeamContext(req),
   );
 
   return apiResponse(res, {
@@ -366,8 +399,10 @@ export const detachTagFromContact = async (req: Request, res: Response) => {
 
   await tagService.detachTagFromContact(
     userId,
+    params.data.cardId,
     params.data.contactId,
     params.data.tagId,
+    getTeamContext(req),
   );
 
   return apiResponse(res, {

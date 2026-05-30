@@ -10,7 +10,10 @@ import { noteSchema, notesQuerySchema } from "../validators/noteSchema";
 import { apiResponse } from "../utils/globalResponseHandler";
 import * as conversationService from "../services/ai/askAIConversationService";
 import { encrypt, decrypt } from "../utils/security/crypto";
-import { assertMeetingAccess } from "../services/meetings/meetingService";
+import {
+  assertMeetingAccess,
+  principalForMeeting,
+} from "../services/meetings/meetingService";
 import { getTeamContext } from "../middleware/teamContext";
 
 const uuidSchema = z.string().uuid();
@@ -29,11 +32,15 @@ export const getSummary = async (req: Request, res: Response) => {
 
   if (!userId) throw new AppError("Unauthorized", 401);
 
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
-  if (!meeting) throw new AppError("Meeting not found", 404);
+  // Phase 6 P5.6 — team-aware access + per-meeting decrypt principal so
+  // team meetings (encrypted under team DEK) render correctly for any admin.
+  const meeting = await assertMeetingAccess(
+    userId,
+    meetingId,
+    getTeamContext(req),
+    "read",
+  );
+  const meetingPrincipal = principalForMeeting(meeting);
 
   const summary = await prisma.meetingAISummary.findFirst({
     where: { meetingId, isDeleted: false },
@@ -42,9 +49,9 @@ export const getSummary = async (req: Request, res: Response) => {
   if (!summary) throw new AppError("No AI summary found for this meeting", 404);
 
   const [summaryText, keyPoints] = await Promise.all([
-    decrypt(summary.summary, userId),
+    decrypt(summary.summary, meetingPrincipal),
     summary.keyPoints
-      ? decrypt(summary.keyPoints, userId)
+      ? decrypt(summary.keyPoints, meetingPrincipal)
           .then((s) => {
             try {
               return JSON.parse(s) as string[];
@@ -81,11 +88,16 @@ export const regenerateSummary = async (req: Request, res: Response) => {
 
   if (!userId) throw new AppError("Unauthorized", 401);
 
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
-  if (!meeting) throw new AppError("Meeting not found", 404);
+  // Phase 6 P5.6 — team-aware access + transcript decrypt via meeting
+  // principal (team DEK on team meetings, user DEK otherwise).
+  const teamContext = getTeamContext(req);
+  const meeting = await assertMeetingAccess(
+    userId,
+    meetingId,
+    teamContext,
+    "mutate",
+  );
+  const meetingPrincipal = principalForMeeting(meeting);
 
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
@@ -98,13 +110,17 @@ export const regenerateSummary = async (req: Request, res: Response) => {
   }
 
   const fullText = transcript.fullText
-    ? await decrypt(transcript.fullText, userId)
+    ? await decrypt(transcript.fullText, meetingPrincipal)
     : "";
 
   const { summary: summaryText, keyPoints } =
-    await aiService.generateSummaryAndKeyPoints(meetingId, fullText, userId, {
-      requireKeyPoints: true,
-    });
+    await aiService.generateSummaryAndKeyPoints(
+      meetingId,
+      fullText,
+      userId,
+      { requireKeyPoints: true },
+      teamContext,
+    );
 
   return apiResponse(res, {
     statusCode: 200,
@@ -125,11 +141,14 @@ export const regenerateTitle = async (req: Request, res: Response) => {
 
   if (!userId) throw new AppError("Unauthorized", 401);
 
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
-  if (!meeting) throw new AppError("Meeting not found", 404);
+  // Phase 6 P5.6 — team-aware access + meeting principal for decrypt.
+  const meeting = await assertMeetingAccess(
+    userId,
+    meetingId,
+    getTeamContext(req),
+    "mutate",
+  );
+  const meetingPrincipal = principalForMeeting(meeting);
 
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },
@@ -142,7 +161,7 @@ export const regenerateTitle = async (req: Request, res: Response) => {
   }
 
   const transcriptFullText = transcript.fullText
-    ? await decrypt(transcript.fullText, userId)
+    ? await decrypt(transcript.fullText, meetingPrincipal)
     : "";
   const title = await aiService.generateMeetingTitle(
     meetingId,
@@ -284,8 +303,15 @@ export const askAI = async (req: Request, res: Response) => {
     );
   }
 
-  // askAI handles its own response (SSE stream) — do not use apiResponse here
-  await aiService.askAI(meetingId, userId, validated.data.question, res);
+  // askAI handles its own response (SSE stream) — do not use apiResponse here.
+  // Phase 6 P5.6 — thread teamContext so aiService gates via assertMeetingAccess.
+  await aiService.askAI(
+    meetingId,
+    userId,
+    validated.data.question,
+    res,
+    getTeamContext(req),
+  );
 };
 
 /**
@@ -308,6 +334,7 @@ export const generateContent = async (req: Request, res: Response) => {
     meetingId,
     userId,
     validated.data.type,
+    getTeamContext(req),
   );
 
   return apiResponse(res, {
@@ -328,7 +355,11 @@ export const getGeneratedContents = async (req: Request, res: Response) => {
   const userId = req.user?.userId;
   if (!userId) throw new AppError("Unauthorized", 401);
 
-  const contents = await aiService.getGeneratedContents(meetingId, userId);
+  const contents = await aiService.getGeneratedContents(
+    meetingId,
+    userId,
+    getTeamContext(req),
+  );
   return apiResponse(res, {
     statusCode: 200,
     message: "Generated contents fetched",
@@ -390,12 +421,10 @@ export const getAskAIHistory = async (req: Request, res: Response) => {
   const userId = req.user?.userId;
   if (!userId) throw new AppError("Unauthorized", 401);
 
-  // Verify the meeting belongs to the caller
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
-  if (!meeting) throw new AppError("Meeting not found", 404);
+  // Phase 6 P5.6 — team-aware access. Conversation rows are per-(userId,
+  // meetingId) so each member's Ask AI history stays private even on team
+  // meetings.
+  await assertMeetingAccess(userId, meetingId, getTeamContext(req), "read");
 
   const messages = await conversationService.getMessages(userId, meetingId);
 
@@ -417,11 +446,9 @@ export const clearAskAIHistory = async (req: Request, res: Response) => {
   const userId = req.user?.userId;
   if (!userId) throw new AppError("Unauthorized", 401);
 
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
-  if (!meeting) throw new AppError("Meeting not found", 404);
+  // Phase 6 P5.6 — team-aware access. Clearing is per-(userId, meetingId);
+  // an actor under team ctx can only clear their own conversation.
+  await assertMeetingAccess(userId, meetingId, getTeamContext(req), "mutate");
 
   await conversationService.clearMessages(userId, meetingId);
 

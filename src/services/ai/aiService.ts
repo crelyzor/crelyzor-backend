@@ -8,27 +8,57 @@ import { getRedisClient } from "../../config/redisClient";
 import { checkAndDeductCredits } from "../billing/usageService";
 import * as conversationService from "./askAIConversationService";
 import { encrypt, decrypt } from "../../utils/security/crypto";
-import { principalForMeeting } from "../meetings/meetingService";
+import {
+  assertMeetingAccess,
+  principalForMeeting,
+} from "../meetings/meetingService";
+import type { TeamContext } from "../../middleware/authMiddleware";
 
 const MAX_PIPELINE_CHARS = 150000; // ~37.5k tokens — Gemini 1M context handles full meetings
 const MAX_ASK_AI_CHARS = 50000; // ~12.5k tokens for Ask AI context
 
-// Phase 6 P5.1.c.ii — loads the minimum meeting fields needed to derive the
-// encryption principal + the billing teamId. Uses the existing personal-
-// ownership filter (createdById = userId, !isDeleted) so behaviour is
-// identical to the pre-Phase-6 lookups. Returns the raw row so callers can
-// thread it into `principalForMeeting` and through `checkAndDeductCredits`
-// in one place.
+// Phase 6 P5.6 — central meeting-meta loader for the AI service.
+//
+// Behaviour by `teamContext`:
+//  - `undefined` (default — preserves worker call-sites that have no actor
+//    role): legacy personal-ownership filter `createdById = userId`. The
+//    worker invokes processTranscriptWithAI with the meeting owner's userId
+//    + no team context; that owner is always the creator, so the legacy
+//    gate continues to work for personal meetings AND for team meetings
+//    whose owner is the queueing user.
+//  - `null` (explicit personal HTTP scope): same effect via
+//    assertMeetingAccess — caller must be the creator with no team.
+//  - team context: assertMeetingAccess enforces the team-scope + role
+//    rules from P5.1.a so any team admin / OWNER (and MEMBER on own
+//    meetings) can run AI operations on a teammate's team meeting.
+//
+// Returns the meeting principal + the raw teamId so callers can thread
+// both `principalForMeeting` and `checkAndDeductCredits({teamId})` from a
+// single fetch.
 async function loadMeetingMeta(
   meetingId: string,
   userId: string,
+  teamContext?: TeamContext | null,
+  action: "read" | "mutate" = "read",
 ): Promise<{ teamId: string | null; createdById: string }> {
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { teamId: true, createdById: true },
-  });
-  if (!meeting) throw new AppError("Meeting not found", 404);
-  return meeting;
+  // HTTP callers always pass `teamContext` (possibly null). Worker callers
+  // pass `undefined` to opt into the legacy createdById gate. The branch
+  // collapses to a uniform shape internally.
+  if (teamContext === undefined) {
+    const meeting = await prisma.meeting.findFirst({
+      where: { id: meetingId, createdById: userId, isDeleted: false },
+      select: { teamId: true, createdById: true },
+    });
+    if (!meeting) throw new AppError("Meeting not found", 404);
+    return meeting;
+  }
+  const meeting = await assertMeetingAccess(
+    userId,
+    meetingId,
+    teamContext,
+    action,
+  );
+  return { teamId: meeting.teamId, createdById: meeting.createdById };
 }
 
 type AIUsageStats = {
@@ -92,24 +122,28 @@ export const generateSummary = async (
   meetingId: string,
   transcriptText: string,
   userId: string,
+  teamContext?: TeamContext | null,
 ): Promise<string> => {
   if (!process.env.GEMINI_API_KEY) {
     throw new AppError("GEMINI_API_KEY is required for AI features", 503);
   }
 
-  // Phase 6 P5.1.c.ii — include teamId + createdById so we can derive the
-  // meeting principal for encryption below.
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: {
-      title: true,
-      description: true,
-      teamId: true,
-      createdById: true,
-    },
+  // Phase 6 P5.6 — gate via assertMeetingAccess when teamContext is provided;
+  // worker path (teamContext === undefined) falls back to legacy gate.
+  const meetingMeta = await loadMeetingMeta(
+    meetingId,
+    userId,
+    teamContext,
+    "mutate",
+  );
+  // Fetch title/description separately — the access gate verifies access,
+  // and we keep this fetch unfiltered because the row was just authorised.
+  const meeting = await prisma.meeting.findUnique({
+    where: { id: meetingId },
+    select: { title: true, description: true },
   });
   if (!meeting) throw new AppError("Meeting not found", 404);
-  const meetingPrincipal = principalForMeeting(meeting);
+  const meetingPrincipal = principalForMeeting(meetingMeta);
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
   const systemContent =
@@ -162,6 +196,7 @@ export const extractKeyPoints = async (
   meetingId: string,
   transcriptText: string,
   userId: string,
+  teamContext?: TeamContext | null,
 ): Promise<string[]> => {
   if (!process.env.GEMINI_API_KEY) {
     throw new AppError("GEMINI_API_KEY is required for AI features", 503);
@@ -213,9 +248,13 @@ Return ONLY a JSON array, no other text.`;
     );
   }
 
-  // Phase 6 P5.1.c.ii — encrypt under the meeting principal (team DEK on
-  // team meetings, user DEK otherwise).
-  const meetingMeta = await loadMeetingMeta(meetingId, userId);
+  // Phase 6 P5.6 — gate via assertMeetingAccess when teamContext provided.
+  const meetingMeta = await loadMeetingMeta(
+    meetingId,
+    userId,
+    teamContext,
+    "mutate",
+  );
   const meetingPrincipal = principalForMeeting(meetingMeta);
   const encryptedKeyPoints = await encrypt(
     JSON.stringify(keyPoints),
@@ -260,24 +299,25 @@ export const generateSummaryAndKeyPoints = async (
   transcriptText: string,
   userId: string,
   options?: { requireKeyPoints?: boolean },
+  teamContext?: TeamContext | null,
 ): Promise<SummaryAndKeyPointsResult> => {
   if (!process.env.GEMINI_API_KEY) {
     throw new AppError("GEMINI_API_KEY is required for AI features", 503);
   }
 
-  // Phase 6 P5.1.c.ii — include teamId + createdById so we can derive the
-  // meeting principal for encryption below.
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: {
-      title: true,
-      description: true,
-      teamId: true,
-      createdById: true,
-    },
+  // Phase 6 P5.6 — gate via assertMeetingAccess when teamContext provided.
+  const meetingMeta = await loadMeetingMeta(
+    meetingId,
+    userId,
+    teamContext,
+    "mutate",
+  );
+  const meeting = await prisma.meeting.findUnique({
+    where: { id: meetingId },
+    select: { title: true, description: true },
   });
   if (!meeting) throw new AppError("Meeting not found", 404);
-  const meetingPrincipal = principalForMeeting(meeting);
+  const meetingPrincipal = principalForMeeting(meetingMeta);
 
   const capped = transcriptText.slice(0, MAX_PIPELINE_CHARS);
   const systemContent =
@@ -345,10 +385,20 @@ ${capped}`;
       error: err instanceof Error ? err.message : String(err),
     });
 
-    summary = await generateSummary(meetingId, transcriptText, userId);
+    summary = await generateSummary(
+      meetingId,
+      transcriptText,
+      userId,
+      teamContext,
+    );
     keyPoints = [];
     try {
-      keyPoints = await extractKeyPoints(meetingId, transcriptText, userId);
+      keyPoints = await extractKeyPoints(
+        meetingId,
+        transcriptText,
+        userId,
+        teamContext,
+      );
     } catch (keyPointErr) {
       if (options?.requireKeyPoints) {
         throw new AppError("Failed to extract key points", 502);
@@ -391,6 +441,7 @@ export const extractTasks = async (
   meetingId: string,
   transcriptText: string,
   userId: string,
+  teamContext?: TeamContext | null,
 ): Promise<ExtractedTask[]> => {
   if (!process.env.GEMINI_API_KEY) {
     throw new AppError("GEMINI_API_KEY is required for AI features", 503);
@@ -463,7 +514,12 @@ Return ONLY a JSON array, no other text.`;
     // would route decrypt to user DEK and the description would be
     // permanently unreadable. The P5.3 backfill migration heals existing
     // broken rows shipped between P5.1.c.ii and this fix.
-    const meetingMeta = await loadMeetingMeta(meetingId, userId);
+    const meetingMeta = await loadMeetingMeta(
+      meetingId,
+      userId,
+      teamContext,
+      "mutate",
+    );
     const meetingPrincipal = principalForMeeting(meetingMeta);
     const encryptedTasks = await Promise.all(
       tasks.map(async (task) => ({
@@ -561,12 +617,16 @@ ${transcriptText.slice(0, 3000)}`;
 export const processTranscriptWithAI = async (
   meetingId: string,
   userId: string,
+  teamContext?: TeamContext | null,
 ): Promise<AIProcessingResult> => {
-  // Phase 6 P5.1.c.ii — orchestrator derives meetingPrincipal once and
-  // reuses it for every decrypt/encrypt site below. Without this, an
-  // ADMIN running re-processing on a team meeting would decrypt against
-  // their personal DEK and fail.
-  const meetingMeta = await loadMeetingMeta(meetingId, userId);
+  // Phase 6 P5.6 — orchestrator gate. Worker call site passes `undefined`
+  // for legacy createdById gate; HTTP callers pass null/team ctx.
+  const meetingMeta = await loadMeetingMeta(
+    meetingId,
+    userId,
+    teamContext,
+    "mutate",
+  );
   const meetingPrincipal = principalForMeeting(meetingMeta);
 
   const transcript = await prisma.meetingTranscript.findFirst({
@@ -624,12 +684,19 @@ export const processTranscriptWithAI = async (
       meetingId,
       fullText,
       userId,
+      undefined,
+      teamContext,
     );
     summary = summaryAndKeyPoints.summary;
     keyPoints = summaryAndKeyPoints.keyPoints;
   } else if (keyPoints.length === 0) {
     try {
-      keyPoints = await extractKeyPoints(meetingId, fullText, userId);
+      keyPoints = await extractKeyPoints(
+        meetingId,
+        fullText,
+        userId,
+        teamContext,
+      );
     } catch (err) {
       logger.error("extractKeyPoints failed during backfill (non-fatal)", {
         meetingId,
@@ -669,7 +736,12 @@ export const processTranscriptWithAI = async (
 
   if (tasks.length === 0) {
     try {
-      const extracted = await extractTasks(meetingId, fullText, userId);
+      const extracted = await extractTasks(
+        meetingId,
+        fullText,
+        userId,
+        teamContext,
+      );
       return { summary, keyPoints, tasks: extracted };
     } catch (taskErr) {
       logger.error("extractTasks failed (non-fatal)", {
@@ -807,13 +879,20 @@ export const askAI = async (
   userId: string,
   question: string,
   res: Response,
+  teamContext?: TeamContext | null,
 ): Promise<void> => {
   await checkAskAIRateLimit(userId);
 
-  // Phase 6 P5.1.c.ii — include teamId + createdById so we can derive the
-  // meeting principal for decrypt below.
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
+  // Phase 6 P5.6 — gate via assertMeetingAccess (read) when teamContext
+  // is provided. Fetch title separately for the prompt.
+  const meetingMeta = await loadMeetingMeta(
+    meetingId,
+    userId,
+    teamContext,
+    "read",
+  );
+  const meeting = await prisma.meeting.findUnique({
+    where: { id: meetingId },
     select: {
       id: true,
       title: true,
@@ -825,7 +904,7 @@ export const askAI = async (
   if (!meeting) {
     throw new AppError("Meeting not found", 404);
   }
-  const meetingPrincipal = principalForMeeting(meeting);
+  const meetingPrincipal = principalForMeeting(meetingMeta);
 
   // Cap segments to avoid decrypting far more than MAX_ASK_AI_CHARS needs.
   // At ~150 chars/segment, 500 segments ≈ 75k chars — 1.5× the 50k MAX_ASK_AI_CHARS buffer.
@@ -997,18 +1076,21 @@ export const generateContent = async (
   meetingId: string,
   userId: string,
   type: AIContentType,
+  teamContext?: TeamContext | null,
 ): Promise<string> => {
   if (!process.env.GEMINI_API_KEY) {
     throw new AppError("GEMINI_API_KEY is required for AI features", 500);
   }
 
-  // Phase 6 P5.1.c.ii — include teamId + createdById for the principal.
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true, teamId: true, createdById: true },
-  });
-  if (!meeting) throw new AppError("Meeting not found", 404);
-  const meetingPrincipal = principalForMeeting(meeting);
+  // Phase 6 P5.6 — gate via assertMeetingAccess(mutate) when teamContext
+  // provided. Worker path falls back to legacy createdById gate.
+  const meetingMeta = await loadMeetingMeta(
+    meetingId,
+    userId,
+    teamContext,
+    "mutate",
+  );
+  const meetingPrincipal = principalForMeeting(meetingMeta);
 
   const cached = await prisma.meetingAIContent.findUnique({
     where: { meetingId_type: { meetingId, type } },
@@ -1064,7 +1146,7 @@ export const generateContent = async (
     usage?.promptTokenCount ??
       Math.ceil((systemContent.length + prompt.length) / 4),
     usage?.candidatesTokenCount ?? Math.ceil(content.length / 4),
-    { teamId: meeting.teamId },
+    { teamId: meetingMeta.teamId },
   );
 
   const encryptedContent = await encrypt(content, meetingPrincipal);
@@ -1081,14 +1163,17 @@ export const generateContent = async (
 export const getGeneratedContents = async (
   meetingId: string,
   userId: string,
+  teamContext?: TeamContext | null,
 ): Promise<{ type: string; content: string }[]> => {
-  // Phase 6 P5.1.c.ii — include teamId + createdById for the principal.
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true, teamId: true, createdById: true },
-  });
-  if (!meeting) throw new AppError("Meeting not found", 404);
-  const meetingPrincipal = principalForMeeting(meeting);
+  // Phase 6 P5.6 — gate via assertMeetingAccess(read) when teamContext
+  // provided. Worker path falls back to legacy createdById gate.
+  const meetingMeta = await loadMeetingMeta(
+    meetingId,
+    userId,
+    teamContext,
+    "read",
+  );
+  const meetingPrincipal = principalForMeeting(meetingMeta);
 
   const rows = await prisma.meetingAIContent.findMany({
     where: { meetingId },

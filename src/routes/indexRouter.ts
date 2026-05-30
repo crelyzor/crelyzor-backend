@@ -21,6 +21,7 @@ import adminRouter from "./adminRoutes";
 import notificationRouter from "./notificationRoutes";
 import teamRouter from "./teamRoutes";
 import publicInviteRouter from "./publicInviteRoutes";
+import publicTeamRouter from "./publicTeamRoutes";
 
 const indexRouter = Router();
 
@@ -63,6 +64,8 @@ indexRouter.use("/public", publicCardRouter);
 indexRouter.use("/public", publicMeetingRouter);
 indexRouter.use("/public", publicSchedulingRouter);
 indexRouter.use("/public", publicBookingsRouter);
+// Phase 6 P6 — public team profile + team scheduling endpoints.
+indexRouter.use("/public", publicTeamRouter);
 
 // ========================================
 // 🤖 SMA (Smart Meeting Assistant) ROUTES

@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { AppError } from "../utils/errors/AppError";
 import { apiResponse } from "../utils/globalResponseHandler";
+import { getTeamContext } from "../middleware/teamContext";
 import {
   listBookingsQuerySchema,
   bookingIdParamSchema,
@@ -11,6 +12,7 @@ import * as bookingManagementService from "../services/scheduling/bookingManagem
 
 export const listBookings = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const query = listBookingsQuerySchema.safeParse(req.query);
   if (!query.success) throw new AppError("Validation failed", 400);
@@ -18,6 +20,7 @@ export const listBookings = async (req: Request, res: Response) => {
   const result = await bookingManagementService.listBookings(
     userId,
     query.data,
+    teamContext,
   );
 
   return apiResponse(res, {
@@ -29,6 +32,7 @@ export const listBookings = async (req: Request, res: Response) => {
 
 export const confirmBooking = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const params = bookingIdParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid booking ID", 400);
@@ -36,6 +40,7 @@ export const confirmBooking = async (req: Request, res: Response) => {
   const booking = await bookingManagementService.confirmBooking(
     userId,
     params.data.id,
+    teamContext,
   );
 
   return apiResponse(res, {
@@ -47,6 +52,7 @@ export const confirmBooking = async (req: Request, res: Response) => {
 
 export const declineBooking = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const params = bookingIdParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid booking ID", 400);
@@ -58,6 +64,7 @@ export const declineBooking = async (req: Request, res: Response) => {
     userId,
     params.data.id,
     body.data.reason,
+    teamContext,
   );
 
   return apiResponse(res, {
@@ -69,6 +76,7 @@ export const declineBooking = async (req: Request, res: Response) => {
 
 export const cancelBooking = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  const teamContext = getTeamContext(req);
 
   const params = bookingIdParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid booking ID", 400);
@@ -80,6 +88,7 @@ export const cancelBooking = async (req: Request, res: Response) => {
     userId,
     params.data.id,
     body.data.reason,
+    teamContext,
   );
 
   return apiResponse(res, {
