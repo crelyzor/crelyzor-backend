@@ -1028,9 +1028,9 @@ Dev notes: `docs/dev-notes/phase-6-p3-per-team-dek.md`. Files: `src/utils/securi
 - [x] Extend `cryptoService.getDek()` to accept `Principal = { type: 'user' | 'team', id: string }`. Backward-compatible string overload routes to `{ type: 'user', id }` via `toPrincipal()`.
 - [x] DEK cache key is `${type}:${id}:${version}` with trailing-colon eviction prefix (prefix-boundary test asserts `team:abc1` does not evict `team:abc123:*`).
 - [x] Encrypt/decrypt helpers accept Principal-or-string. JSDoc nudges new code to the explicit Principal form so P5 team-scoped writes don't silently default to user DEK.
-- [ ] Bull job payload schemas updated to carry `{ userId, teamId? }`. → **Moved to P4** (bundled with `getQuotaOwner` resolver).
+- [x] Bull job payload schemas updated to carry `{ userId, teamId? }`. → Shipped in P4 (`TranscriptionJobData`, `AIProcessingJobData`, etc.).
 - [x] Crypto unit tests added: principal isolation, prefix-boundary eviction, multi-version eviction, KMS-failure rawDek zeroing, plus string-overload safety. All 35 security tests green (25 existing + 10 new).
-- [ ] `keyRotationService` extended to rotate team DEKs on demand. → **Deferred to P9** (admin endpoint not in P3 scope per spec).
+- [ ] `keyRotationService` — rotate team DEKs on demand. Deferred to future admin endpoint (Phase 6+ follow-up).
 - [x] Backfill: not required — existing rows have `teamId = null` and stay on user DEK.
 - [x] `generateAndWrapDek()` extracted helper — zeroes rawDek on KMS failure, caller owns success-path zeroing. Used by `initDekForNewUser` + `teamService.createTeam`.
 - [x] Team-DEK-null path throws `AppError 500` + `logger.error("team.dek.missing", { teamId })` (fail closed; never falls back to user DEK).
@@ -1043,10 +1043,10 @@ Dev notes: `docs/dev-notes/phase-6-p4-team-context-middleware.md`. Files: `src/m
 
 - [x] **`resolveTeamContext`** — reads `X-Team-Id`; null on absent; 400 on bad UUID; 403 (identical body) on non-member / soft-deleted / missing team; populates `req.teamContext`.
 - [x] **`verifyTeamRole(minRole)`** — factory: `'ADMIN'` allows ADMIN + OWNER, `'OWNER'` allows OWNER only. Uses `getTeamContext` typed accessor (throws if `resolveTeamContext` is not mounted upstream).
-- [ ] **`verifyTeamMember`** — **dropped.** `/teams/:teamId/*` controllers keep their inline `getRole` pattern from P1/P2 — one source of truth instead of two parallel patterns.
+- [x] **`verifyTeamMember`** — dropped by design. `/teams/:teamId/*` controllers use inline `getRole` pattern.
 - [x] **`getQuotaOwner({ userId, teamId?, req? })`** → `Promise<string>` — returns ownerId or userId; fail-loud on missing/soft-deleted team (no silent fallback to per-user actor). Request-scoped memoization via `req[Symbol.for("crelyzor.teamQuotaCache")]`.
-- [ ] **Wire `getQuotaOwner` into transcription/AI/storage/Recall metering** — **deferred to per-service P5 sub-tasks** (P5.1 wires meetings/transcription/AI; P5.7 wires Recall webhooks). Follows P3 precedent of deferring caller cutover to P5.
-- [ ] **`UserUsage` `groupBy(['userId','teamId'])`** — **deferred to P5.8** (Usage endpoint). The multi-row-per-user restructure needs `userId @unique` dropped + compound `@@unique([userId, teamId])`; that schema debate belongs with the breakdown endpoint, not the middleware.
+- [x] **Wire `getQuotaOwner` into transcription/AI/storage/Recall metering** — shipped in P5.1 (meetings/transcription/AI) + P5.7 (Recall webhooks).
+- [x] **`UserUsage` multi-row-per-user** — shipped in P5.8 (partial unique indexes, per-team rows, `GET /teams/:teamId/usage`).
 - [x] Bull job interfaces (`TranscriptionJobData`, `AIProcessingJobData`, `RecallBotJobData`, `RecallRecordingJobData`, `BookingReminderJobData`) gain optional `teamId?: string`. Header comment documents worker contract: must call `getQuotaOwner` at job start; never trust a `teamId` without re-resolving.
 - [x] 7 vitest cases (`getQuotaOwner` 4 branches + per-request cache + Request-isolation); full security suite 47/47 green.
 
