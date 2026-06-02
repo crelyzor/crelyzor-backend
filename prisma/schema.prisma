@@ -1118,6 +1118,10 @@ model Team {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  inviteLinkToken     String?   @unique
+  inviteLinkEnabled   Boolean   @default(false)
+  inviteLinkExpiresAt DateTime?
+
   owner      User             @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   members    TeamMember[]
   invites    TeamInvite[]
