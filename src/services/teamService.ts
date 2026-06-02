@@ -189,33 +189,6 @@ export async function createTeam(
     rawDek.fill(0);
   }
 
-  // Post-commit: create the team's default Card fail-open.
-  // Skips HTML rendering (cardService renders inside its own tx with async I/O);
-  // the placeholder Card is editable via existing PATCH /cards/:id which fills HTML.
-  // Slug is derived as `team-${input.slug}` to avoid collision with owner's personal
-  // cards which are unique per (userId, slug). Reconciliation: failure here logs at
-  // warn — owner can manually create cards from the dashboard.
-  try {
-    await prisma.card.create({
-      data: {
-        userId,
-        teamId: team.id,
-        slug: `team-${input.slug}`,
-        displayName: input.name,
-        isActive: true,
-        isDefault: false,
-      },
-      select: { id: true },
-    });
-  } catch (err) {
-    logger.warn("teamService: auto team-card creation failed", {
-      teamId: team.id,
-      ownerId: userId,
-      slug: `team-${input.slug}`,
-      err,
-    });
-  }
-
   logger.info("Team created", {
     teamId: team.id,
     ownerId: userId,

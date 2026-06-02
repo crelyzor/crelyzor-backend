@@ -34,6 +34,7 @@ export const corsOptions: CorsOptions = {
     "X-Requested-With",
     "Accept",
     "Origin",
+    "X-Team-Id",
   ],
   preflightContinue: false,
   optionsSuccessStatus: 204,
