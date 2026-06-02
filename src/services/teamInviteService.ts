@@ -862,3 +862,161 @@ export async function declineInviteByTeam(actorId: string, teamId: string) {
 
   logger.info("Team invite declined (by team)", { actorId, teamId });
 }
+
+// ── getInviteLink ────────────────────────────────────────────────────────────
+
+export async function getInviteLink(
+  actorId: string,
+  teamId: string,
+): Promise<{
+  enabled: boolean;
+  token: string | null;
+  linkUrl: string | null;
+  expiresAt: string | null;
+}> {
+  const role = await getRole(actorId, teamId);
+  if (!role || ROLE_RANK[role] < ROLE_RANK.ADMIN) {
+    throw new AppError("Only admins and owners can manage the invite link", 403);
+  }
+
+  const team = await prisma.team.findFirst({
+    where: { id: teamId, isDeleted: false },
+    select: {
+      inviteLinkToken: true,
+      inviteLinkEnabled: true,
+      inviteLinkExpiresAt: true,
+    },
+  });
+
+  if (!team) throw new AppError("Team not found", 404);
+
+  const token = team.inviteLinkEnabled ? team.inviteLinkToken : null;
+  const linkUrl = token ? `${env.FRONTEND_URL}/invite/link/${token}` : null;
+
+  return {
+    enabled: team.inviteLinkEnabled,
+    token,
+    linkUrl,
+    expiresAt: team.inviteLinkExpiresAt?.toISOString() ?? null,
+  };
+}
+
+// ── generateInviteLink ───────────────────────────────────────────────────────
+
+export async function generateInviteLink(
+  actorId: string,
+  teamId: string,
+): Promise<{
+  enabled: boolean;
+  token: string;
+  linkUrl: string;
+  expiresAt: string | null;
+}> {
+  const role = await getRole(actorId, teamId);
+  if (!role || ROLE_RANK[role] < ROLE_RANK.ADMIN) {
+    throw new AppError("Only admins and owners can generate the invite link", 403);
+  }
+
+  const token = generateToken();
+
+  await prisma.team.update({
+    where: { id: teamId, isDeleted: false },
+    data: {
+      inviteLinkToken: token,
+      inviteLinkEnabled: true,
+      inviteLinkExpiresAt: null,
+    },
+  });
+
+  logger.info("Team invite link generated", { teamId, actorId });
+
+  return {
+    enabled: true,
+    token,
+    linkUrl: `${env.FRONTEND_URL}/invite/link/${token}`,
+    expiresAt: null,
+  };
+}
+
+// ── revokeInviteLink ─────────────────────────────────────────────────────────
+
+export async function revokeInviteLink(
+  actorId: string,
+  teamId: string,
+): Promise<void> {
+  const role = await getRole(actorId, teamId);
+  if (!role || ROLE_RANK[role] < ROLE_RANK.ADMIN) {
+    throw new AppError("Only admins and owners can revoke the invite link", 403);
+  }
+
+  await prisma.team.update({
+    where: { id: teamId, isDeleted: false },
+    data: {
+      inviteLinkEnabled: false,
+      inviteLinkToken: null,
+    },
+  });
+
+  logger.info("Team invite link revoked", { teamId, actorId });
+}
+
+// ── joinByLink ───────────────────────────────────────────────────────────────
+
+export async function joinByLink(
+  actorId: string,
+  token: string,
+): Promise<{
+  membership: {
+    teamId: string;
+    role: TeamRole;
+    team: { id: string; name: string; slug: string };
+  };
+}> {
+  await loadActor(actorId);
+
+  const team = await prisma.team.findFirst({
+    where: {
+      inviteLinkToken: token,
+      inviteLinkEnabled: true,
+      isDeleted: false,
+    },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      inviteLinkExpiresAt: true,
+    },
+  });
+
+  if (!team) throw new AppError("This invite link is invalid or has been revoked", 404);
+
+  if (team.inviteLinkExpiresAt && team.inviteLinkExpiresAt < new Date()) {
+    throw new AppError("This invite link has expired", 410);
+  }
+
+  const existing = await prisma.teamMember.findFirst({
+    where: { teamId: team.id, userId: actorId, isDeleted: false },
+  });
+  if (existing) throw new AppError("You are already a member of this team", 409);
+
+  await prisma.teamMember.upsert({
+    where: { teamId_userId: { teamId: team.id, userId: actorId } },
+    create: { teamId: team.id, userId: actorId, role: "MEMBER" },
+    update: { isDeleted: false, deletedAt: null, role: "MEMBER" },
+  });
+
+  await tryCreateMemberTeamCard(actorId, team.id, team.slug, team.name);
+
+  // Fan-out TEAM_MEMBER_JOINED to existing team members (fail-open).
+  await publishMemberJoinedAfterAccept(actorId, team.id);
+
+  logger.info("User joined team via invite link", { teamId: team.id, actorId });
+
+  return {
+    membership: {
+      teamId: team.id,
+      role: "MEMBER",
+      team: { id: team.id, name: team.name, slug: team.slug },
+    },
+  };
+}
