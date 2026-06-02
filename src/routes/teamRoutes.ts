@@ -41,6 +41,18 @@ const inviteRespondLimiter = userRateLimit(
   60 * 60 * 1000,
   "teams:invite-respond",
 );
+// Join-by-link is a one-shot action; tight limit to prevent brute-forcing tokens.
+const inviteLinkJoinLimiter = userRateLimit(
+  10,
+  60 * 60 * 1000,
+  "teams:invite-link-join",
+);
+// Generate/revoke is an admin action — very infrequent.
+const inviteLinkMutateLimiter = userRateLimit(
+  20,
+  60 * 60 * 1000,
+  "teams:invite-link-mutate",
+);
 
 // ── Team CRUD ────────────────────────────────────────────────────────────────
 router.get("/", readLimiter, teamController.listMine);
@@ -48,6 +60,13 @@ router.post("/", createLimiter, teamController.create);
 // Phase 6 P13 — invitee-side pending invites. Must be registered BEFORE the
 // `/:teamId/*` family below, otherwise Express matches `me` as a `:teamId`.
 router.get("/me/invites", readLimiter, teamInviteController.listMine);
+// Phase 6 P16 — join-by-link. Must be registered BEFORE the /:teamId/* family
+// below, otherwise Express matches "join-by-link" as a :teamId param.
+router.post(
+  "/join-by-link/:token",
+  inviteLinkJoinLimiter,
+  teamInviteController.joinByLink,
+);
 router.patch("/:teamId", readLimiter, teamController.update);
 router.delete("/:teamId", readLimiter, teamController.remove);
 router.post(
@@ -90,6 +109,22 @@ router.delete(
   "/:teamId/invites/:inviteId",
   memberMutateLimiter,
   teamInviteController.cancel,
+);
+// ── Invite link (Phase 6 P16) ────────────────────────────────────────────────
+router.get(
+  "/:teamId/invite-link",
+  readLimiter,
+  teamInviteController.getInviteLink,
+);
+router.post(
+  "/:teamId/invite-link/generate",
+  inviteLinkMutateLimiter,
+  teamInviteController.generateInviteLink,
+);
+router.delete(
+  "/:teamId/invite-link",
+  inviteLinkMutateLimiter,
+  teamInviteController.revokeInviteLink,
 );
 router.post(
   "/:teamId/invites/accept",

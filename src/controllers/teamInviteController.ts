@@ -124,3 +124,60 @@ export const declineByTeam = async (req: Request, res: Response) => {
     message: "Invite declined",
   });
 };
+
+// ── Invite link (Phase 6 P16) ─────────────────────────────────────────────
+
+export const getInviteLink = async (req: Request, res: Response) => {
+  const actorId = req.user!.userId;
+  const params = teamIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid team id", 400);
+
+  const data = await teamInviteService.getInviteLink(actorId, params.data.teamId);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Invite link fetched",
+    data,
+  });
+};
+
+export const generateInviteLink = async (req: Request, res: Response) => {
+  const actorId = req.user!.userId;
+  const params = teamIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid team id", 400);
+
+  const data = await teamInviteService.generateInviteLink(actorId, params.data.teamId);
+
+  return apiResponse(res, {
+    statusCode: 201,
+    message: "Invite link generated",
+    data,
+  });
+};
+
+export const revokeInviteLink = async (req: Request, res: Response) => {
+  const actorId = req.user!.userId;
+  const params = teamIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid team id", 400);
+
+  await teamInviteService.revokeInviteLink(actorId, params.data.teamId);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Invite link revoked",
+  });
+};
+
+export const joinByLink = async (req: Request, res: Response) => {
+  const actorId = req.user!.userId;
+  const token = req.params.token as string;
+  if (!token) throw new AppError("Missing invite token", 400);
+
+  const data = await teamInviteService.joinByLink(actorId, token);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Joined team",
+    data,
+  });
+};
