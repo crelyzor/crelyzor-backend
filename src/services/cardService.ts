@@ -435,6 +435,7 @@ export const cardService = {
       where: { id: cardId },
       include: {
         _count: { select: { contacts: true, views: true } },
+        team: { select: { id: true, slug: true } },
       },
     });
 
