@@ -4,6 +4,7 @@ import * as teamController from "../controllers/teamController";
 import * as teamMemberController from "../controllers/teamMemberController";
 import * as teamInviteController from "../controllers/teamInviteController";
 import * as teamUsageController from "../controllers/teamUsageController";
+import * as teamCardController from "../controllers/teamCardController";
 
 const router = Router();
 
@@ -67,6 +68,7 @@ router.post(
   inviteLinkJoinLimiter,
   teamInviteController.joinByLink,
 );
+router.get("/:teamId", readLimiter, teamController.getOne);
 router.patch("/:teamId", readLimiter, teamController.update);
 router.delete("/:teamId", readLimiter, teamController.remove);
 router.post(
@@ -78,6 +80,9 @@ router.post(
 // ── Usage breakdown (Phase 6 P5.8) ───────────────────────────────────────────
 // ADMIN+ only; controller enforces the role check.
 router.get("/:teamId/usage", readLimiter, teamUsageController.getUsage);
+
+// ── Cards (Phase 6 P17) ───────────────────────────────────────────────────────
+router.get("/:teamId/cards", readLimiter, teamCardController.getCards);
 
 // ── Members (Phase 6 P2.a) ───────────────────────────────────────────────────
 router.get("/:teamId/members", readLimiter, teamMemberController.list);
