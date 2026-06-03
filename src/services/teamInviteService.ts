@@ -996,8 +996,17 @@ export async function joinByLink(
 
   const existing = await prisma.teamMember.findFirst({
     where: { teamId: team.id, userId: actorId, isDeleted: false },
+    select: { role: true },
   });
-  if (existing) throw new AppError("You are already a member of this team", 409);
+  if (existing) {
+    return {
+      membership: {
+        teamId: team.id,
+        role: existing.role,
+        team: { id: team.id, name: team.name, slug: team.slug },
+      },
+    };
+  }
 
   await prisma.teamMember.upsert({
     where: { teamId_userId: { teamId: team.id, userId: actorId } },

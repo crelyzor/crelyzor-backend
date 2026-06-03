@@ -5,6 +5,7 @@ import {
   createInviteSchema,
   inviteIdParamSchema,
   teamIdParamSchema,
+  tokenParamSchema,
 } from "../validators/teamSchema";
 import * as teamInviteService from "../services/teamInviteService";
 
@@ -170,10 +171,10 @@ export const revokeInviteLink = async (req: Request, res: Response) => {
 
 export const joinByLink = async (req: Request, res: Response) => {
   const actorId = req.user!.userId;
-  const token = req.params.token as string;
-  if (!token) throw new AppError("Missing invite token", 400);
+  const params = tokenParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid invite token", 400);
 
-  const data = await teamInviteService.joinByLink(actorId, token);
+  const data = await teamInviteService.joinByLink(actorId, params.data.token);
 
   return apiResponse(res, {
     statusCode: 200,
