@@ -34,6 +34,10 @@ import {
   principalForTask,
   assertTaskAccess,
 } from "../services/tasks/taskAccess";
+import {
+  assertAssigneeIsMember,
+  notifyTaskAssigned,
+} from "../services/tasks/taskAssignmentService";
 
 // Decrypt description field in a batch of tasks. Phase 6 P5.3 — per-row
 // principal derived from each task's own teamId/userId (rows in the same
@@ -68,6 +72,7 @@ const taskInclude = {
     orderBy: { tag: { name: "asc" } },
   },
   card: { select: { id: true, displayName: true, slug: true } },
+  assignee: { select: { id: true, name: true, avatarUrl: true } },
 } satisfies Prisma.TaskInclude;
 
 function flattenTags<
@@ -79,15 +84,21 @@ function flattenTags<
       type: string;
       isDeleted: boolean;
     } | null;
+    assignee?: { id: string; name: string | null; avatarUrl: string | null } | null;
   },
 >(task: T) {
-  const { taskTags, meeting, ...rest } = task;
+  const { taskTags, meeting, assignee, ...rest } = task;
   // Strip soft-deleted meetings from task responses
   const cleanMeeting =
     meeting && !meeting.isDeleted
       ? (({ isDeleted: _d, ...m }) => m)(meeting)
       : null;
-  return { ...rest, meeting: cleanMeeting, tags: taskTags.map((tt) => tt.tag) };
+  return {
+    ...rest,
+    meeting: cleanMeeting,
+    tags: taskTags.map((tt) => tt.tag),
+    assigneeAvatarUrl: assignee?.avatarUrl ?? null,
+  };
 }
 
 /**
@@ -398,6 +409,7 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
     status,
     transcriptContext,
     durationMinutes,
+    assigneeId,
   } = validated.data;
 
   // Phase 6 P5.3 — team-aware verification on every linked entity. Each
@@ -452,6 +464,12 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
     contextTeamId;
   const taskPrincipal = principalForTask({ userId, teamId: taskTeamId });
 
+  let assigneeName: string | null = null;
+  if (assigneeId) {
+    if (!taskTeamId) throw new AppError("Cannot assign a personal task", 400);
+    assigneeName = await assertAssigneeIsMember(assigneeId, taskTeamId);
+  }
+
   const encryptedDescriptionStandalone = description
     ? await encrypt(description, taskPrincipal)
     : undefined;
@@ -472,6 +490,7 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
       ...(cardId && { cardId }),
       ...(transcriptContext && { transcriptContext }),
       ...(durationMinutes !== undefined && { durationMinutes }),
+      ...(assigneeId && { assigneeId, assigneeName }),
     },
   });
 
@@ -502,6 +521,15 @@ export const createStandaloneTask = async (req: Request, res: Response) => {
         data: { googleEventId: taskRef },
       });
     }
+  }
+
+  if (assigneeId) {
+    await notifyTaskAssigned({
+      taskId: task.id,
+      taskTitle: task.title,
+      assigneeId,
+      assignedByUserId: userId,
+    });
   }
 
   logger.info("Standalone task created", { taskId: task.id, userId });
@@ -551,6 +579,7 @@ export const updateTask = async (req: Request, res: Response) => {
       priority: true,
       meetingId: true,
       cardId: true,
+      assigneeId: true,
     },
   });
 
@@ -583,6 +612,7 @@ export const updateTask = async (req: Request, res: Response) => {
     durationMinutes,
     blockInCalendar,
     recurringRule,
+    assigneeId,
   } = validated.data;
 
   // Verify card access if cardId is being set (not cleared). Phase 6 P5.3 —
@@ -592,6 +622,16 @@ export const updateTask = async (req: Request, res: Response) => {
     const card = await assertCardAccess(userId, cardId, teamContext, "read");
     if (card.teamId !== existing.teamId) {
       throw new AppError("Card is in a different scope", 404);
+    }
+  }
+
+  let resolvedAssigneeName: string | null | undefined;
+  if (assigneeId !== undefined) {
+    if (assigneeId === null) {
+      resolvedAssigneeName = null;
+    } else {
+      if (!existing.teamId) throw new AppError("Cannot assign a personal task", 400);
+      resolvedAssigneeName = await assertAssigneeIsMember(assigneeId, existing.teamId);
     }
   }
 
@@ -642,6 +682,10 @@ export const updateTask = async (req: Request, res: Response) => {
       ...(transcriptContext !== undefined && { transcriptContext }),
       ...(durationMinutes !== undefined && { durationMinutes }),
       ...(recurringRule !== undefined && { recurringRule }),
+      ...(assigneeId !== undefined && {
+        assigneeId,
+        assigneeName: resolvedAssigneeName,
+      }),
       // Clear googleEventId when scheduledTime is explicitly removed
       ...(clearingScheduledTime && { googleEventId: null }),
     },
@@ -786,6 +830,17 @@ export const updateTask = async (req: Request, res: Response) => {
         err,
       });
     }
+  }
+
+  const assigneeChanged =
+    assigneeId !== undefined && assigneeId !== null && assigneeId !== existing.assigneeId;
+  if (assigneeChanged) {
+    await notifyTaskAssigned({
+      taskId: task.id,
+      taskTitle: task.title,
+      assigneeId,
+      assignedByUserId: userId,
+    });
   }
 
   logger.info("Task updated", { taskId, userId });
