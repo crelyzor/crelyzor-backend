@@ -59,6 +59,7 @@ model User {
   meetingStateChanges   MeetingStateHistory[] @relation("MeetingStateChanges")
   meetingSpeakers       MeetingSpeaker[]
   tasks                 Task[]
+  assignedTasks         Task[]    @relation("TaskAssignee")
   meetingShares         MeetingShare[]
   tags                  Tag[]
   meetingAttachments    MeetingAttachment[]
@@ -408,6 +409,10 @@ model Task {
   // Teams (Phase 6) — null = personal task
   teamId String? @db.Uuid
 
+  // Task assignment (Phase 6 — Teams)
+  assigneeId   String? @db.Uuid
+  assigneeName String? // Snapshot at assignment time — survives membership removal
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   isDeleted Boolean   @default(false)
@@ -422,6 +427,7 @@ model Task {
   card              Card?     @relation(fields: [cardId], references: [id], onDelete: SetNull)
   recurringParent   Task?     @relation("RecurringTasks", fields: [recurringParentId], references: [id], onDelete: SetNull)
   recurringChildren Task[]    @relation("RecurringTasks")
+  assignee          User?     @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([meetingId])
@@ -439,6 +445,7 @@ model Task {
   @@index([googleEventId])
   @@index([recurringParentId])
   @@index([teamId, isDeleted, createdAt(sort: Desc)]) // team dashboard hot path
+  @@index([assigneeId])
 }
 
 model TaskTag {
@@ -632,7 +639,8 @@ model Card {
   isActive  Boolean @default(true) // can be paused
 
   // Teams (Phase 6) — null = personal card
-  teamId String? @db.Uuid
+  teamId     String?  @db.Uuid
+  isTeamCard Boolean  @default(false) // true = designated team card; only one per team
 
   // Soft delete
   isDeleted Boolean   @default(false)
@@ -862,6 +870,7 @@ model UserSettings {
   inAppBookingEnabled       Boolean @default(true) // booking received/cancelled/reminder
   inAppMeetingReadyEnabled  Boolean @default(true) // AI processing complete
   inAppTaskDueEnabled       Boolean @default(true) // task due soon
+  inAppTaskAssignedEnabled  Boolean @default(true) // task assigned to me
 
   // Soft delete
   isDeleted Boolean   @default(false)
@@ -1306,6 +1315,7 @@ enum NotificationType {
   BOOKING_REMINDER
   MEETING_AI_COMPLETE
   TASK_DUE_SOON
+  TASK_ASSIGNED
 }
 
 // ─── Notifications (Phase 4.9) ────────────────────────────────────────────────
