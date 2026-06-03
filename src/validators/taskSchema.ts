@@ -20,6 +20,7 @@ export const createStandaloneTaskSchema = createTaskSchema.extend({
   cardId: z.string().uuid("Invalid cardId").optional(),
   status: z.enum(["TODO", "IN_PROGRESS", "DONE"]).optional(),
   transcriptContext: z.string().max(2000).optional(),
+  assigneeId: z.string().uuid("Invalid assigneeId").nullable().optional(),
 });
 
 const recurringRuleField = z
@@ -40,6 +41,7 @@ export const updateTaskSchema = z.object({
   durationMinutes: z.number().int().min(5).max(480).nullable().optional(),
   blockInCalendar: z.boolean().optional(),
   recurringRule: recurringRuleField,
+  assigneeId: z.string().uuid("Invalid assigneeId").nullable().optional(),
 });
 
 export const listTasksQuerySchema = z.object({

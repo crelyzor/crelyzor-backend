@@ -65,6 +65,7 @@ export const createCardSchema = z
     templateId: templateIdField,
     showQr: z.boolean().optional(),
     isDefault: z.boolean().optional(),
+    isTeamCard: z.boolean().optional(),
   })
   .strict();
 
