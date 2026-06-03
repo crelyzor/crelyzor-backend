@@ -23,6 +23,7 @@ const PREF_MAP = {
   BOOKING_REMINDER: "inAppBookingEnabled",
   MEETING_AI_COMPLETE: "inAppMeetingReadyEnabled",
   TASK_DUE_SOON: "inAppTaskDueEnabled",
+  TASK_ASSIGNED: "inAppTaskAssignedEnabled",
 } as const satisfies Record<NotificationType, string>;
 
 export async function createNotification(
@@ -41,6 +42,7 @@ export async function createNotification(
         inAppBookingEnabled: true,
         inAppMeetingReadyEnabled: true,
         inAppTaskDueEnabled: true,
+        inAppTaskAssignedEnabled: true,
       },
     });
 

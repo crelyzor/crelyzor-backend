@@ -25,6 +25,7 @@ const SETTINGS_SELECT = {
   inAppBookingEnabled: true,
   inAppMeetingReadyEnabled: true,
   inAppTaskDueEnabled: true,
+  inAppTaskAssignedEnabled: true,
   isDeleted: true,
   createdAt: true,
   updatedAt: true,
