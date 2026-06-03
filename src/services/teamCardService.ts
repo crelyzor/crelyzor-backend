@@ -65,17 +65,13 @@ export async function getTeamCards(
   // Team card = owner's first card in this team (isDefault preferred)
   const teamCard = allCards.find((c) => c.userId === ownerId) ?? null;
 
-  // Member cards = non-owner members only (owner is already represented by teamCard above)
-  const cardByUserId = new Map(
-    allCards.filter((c) => c.userId !== ownerId).map((c) => [c.userId, c]),
-  );
-  const memberCards: TeamCardEntry[] = allMembers
-    .filter((m) => m.userId !== ownerId)
-    .map((m) => ({
-      member: m.user,
-      role: m.role,
-      card: cardByUserId.get(m.userId) ?? null,
-    }));
+  // Member cards = ALL members so the grid shows the full team roster
+  const cardByUserId = new Map(allCards.map((c) => [c.userId, c]));
+  const memberCards: TeamCardEntry[] = allMembers.map((m) => ({
+    member: m.user,
+    role: m.role,
+    card: cardByUserId.get(m.userId) ?? null,
+  }));
 
   return { teamCard, memberCards };
 }
