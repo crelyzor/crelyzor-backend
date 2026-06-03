@@ -65,14 +65,9 @@ export async function getTeamCards(
   // Team card = owner's first card in this team (isDefault preferred)
   const teamCard = allCards.find((c) => c.userId === ownerId) ?? null;
 
-  // Member cards = all non-owner members cross-joined with their cards
-  const cardByUserId = new Map(
-    allCards
-      .filter((c) => c.userId !== ownerId)
-      .map((c) => [c.userId, c]),
-  );
-  const nonOwnerMembers = allMembers.filter((m) => m.userId !== ownerId);
-  const memberCards: TeamCardEntry[] = nonOwnerMembers.map((m) => ({
+  // Member cards = ALL members (including owner) cross-joined with their cards
+  const cardByUserId = new Map(allCards.map((c) => [c.userId, c]));
+  const memberCards: TeamCardEntry[] = allMembers.map((m) => ({
     member: m.user,
     role: m.role,
     card: cardByUserId.get(m.userId) ?? null,
