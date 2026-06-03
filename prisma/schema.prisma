@@ -1147,14 +1147,15 @@ model Team {
 }
 
 model TeamMember {
-  id        String    @id @default(uuid()) @db.Uuid
-  teamId    String    @db.Uuid
-  userId    String    @db.Uuid
-  role      TeamRole  @default(MEMBER)
-  joinedAt  DateTime  @default(now())
-  isDeleted Boolean   @default(false)
-  deletedAt DateTime?
-  updatedAt DateTime  @updatedAt
+  id          String    @id @default(uuid()) @db.Uuid
+  teamId      String    @db.Uuid
+  userId      String    @db.Uuid
+  role        TeamRole  @default(MEMBER)
+  designation String?
+  joinedAt    DateTime  @default(now())
+  isDeleted   Boolean   @default(false)
+  deletedAt   DateTime?
+  updatedAt   DateTime  @updatedAt
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

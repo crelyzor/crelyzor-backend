@@ -200,6 +200,27 @@ export async function createTeam(
 
 // ── listMyTeams ───────────────────────────────────────────────────────────────
 
+export async function getTeamById(
+  userId: string,
+  teamId: string,
+): Promise<PublicTeam & { owner: { id: string; name: string | null; email: string; plan: Plan } | null }> {
+  const role = await getRole(userId, teamId);
+  if (!role) throw ErrorFactory.notFound("Team");
+
+  const team = await prisma.team.findUnique({
+    where: { id: teamId, isDeleted: false },
+    select: {
+      ...teamPublicSelect,
+      owner: {
+        select: { id: true, name: true, email: true, plan: true },
+      },
+    },
+  });
+
+  if (!team) throw ErrorFactory.notFound("Team");
+  return team;
+}
+
 export async function listMyTeams(
   userId: string,
 ): Promise<Array<{ role: TeamRole; team: PublicTeam }>> {

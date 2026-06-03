@@ -22,3 +22,22 @@ export const slugUsernameParamSchema = z.object({
     .max(80)
     .regex(slugPattern, "username must be lowercase alphanumeric with hyphens"),
 });
+
+export const slugCardSlugParamSchema = z.object({
+  slug: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(slugPattern, "slug must be lowercase alphanumeric with hyphens"),
+  cardSlug: z.string().min(1).max(120),
+});
+
+export const slugUsernameCardSlugParamSchema = z.object({
+  slug: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(slugPattern, "slug must be lowercase alphanumeric with hyphens"),
+  username: z.string().min(1).max(80),
+  cardSlug: z.string().min(1).max(120),
+});

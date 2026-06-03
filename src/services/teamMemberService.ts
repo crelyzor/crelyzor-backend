@@ -7,7 +7,10 @@ import {
   publishTeamMemberLeft,
   publishTeamMemberRoleChanged,
 } from "./teamEventService";
-import type { UpdateMemberRoleInput } from "../validators/teamSchema";
+import type {
+  UpdateMemberRoleInput,
+  UpdateMemberDesignationInput,
+} from "../validators/teamSchema";
 
 // Public projection for member rows. Never includes isDeleted/deletedAt.
 // User.email is plaintext (login identifier) and is exposed to fellow
@@ -15,6 +18,7 @@ import type { UpdateMemberRoleInput } from "../validators/teamSchema";
 const memberPublicSelect = {
   id: true,
   role: true,
+  designation: true,
   joinedAt: true,
   user: {
     select: {
@@ -138,6 +142,39 @@ export async function changeMemberRole(
   });
 
   return result;
+}
+
+// ── updateDesignation ─────────────────────────────────────────────────────────
+// Admin+ can set anyone's designation. Members can set their own.
+
+export async function updateDesignation(
+  actorId: string,
+  teamId: string,
+  targetUserId: string,
+  input: UpdateMemberDesignationInput,
+) {
+  const actorRole = await getRole(actorId, teamId);
+  if (!actorRole) throw new AppError(NOT_FOUND_MESSAGE, 404);
+
+  const isSelf = actorId === targetUserId;
+  const isAdminOrAbove = ROLE_RANK[actorRole] >= ROLE_RANK.ADMIN;
+  if (!isSelf && !isAdminOrAbove) {
+    throw new AppError("Only admins or the owner can set designations", 403);
+  }
+
+  const target = await prisma.teamMember.findFirst({
+    where: { teamId, userId: targetUserId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!target) throw new AppError(NOT_FOUND_MESSAGE, 404);
+
+  const updated = await prisma.teamMember.update({
+    where: { id: target.id },
+    data: { designation: input.designation },
+    select: memberPublicSelect,
+  });
+
+  return updated;
 }
 
 // ── removeMember ──────────────────────────────────────────────────────────────

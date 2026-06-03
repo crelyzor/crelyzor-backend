@@ -32,4 +32,16 @@ publicTeamRouter.get(
   publicTeamController.getTeamMemberSchedulingProfile,
 );
 
+// Team card public pages
+publicTeamRouter.get(
+  "/teams/:slug/cards/:cardSlug",
+  apiLimiter,
+  publicTeamController.getTeamCard,
+);
+publicTeamRouter.get(
+  "/teams/:slug/:username/cards/:cardSlug",
+  apiLimiter,
+  publicTeamController.getTeamMemberCard,
+);
+
 export default publicTeamRouter;

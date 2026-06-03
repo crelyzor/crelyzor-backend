@@ -82,6 +82,14 @@ export const updateMemberRoleSchema = z.object({
   role: z.enum(["ADMIN", "MEMBER"]),
 });
 
+export const updateMemberDesignationSchema = z.object({
+  designation: z.string().max(100).nullable(),
+});
+
+export type UpdateMemberDesignationInput = z.infer<
+  typeof updateMemberDesignationSchema
+>;
+
 // ── Invites ──────────────────────────────────────────────────────────────────
 
 const inviteRoleSchema = z.enum(["ADMIN", "MEMBER"]);

@@ -365,6 +365,13 @@ export const cardService = {
           });
         }
 
+        if (data.isTeamCard && teamId) {
+          await tx.card.updateMany({
+            where: { teamId, isTeamCard: true },
+            data: { isTeamCard: false },
+          });
+        }
+
         const card = await tx.card.create({
           data: {
             userId,
@@ -381,9 +388,8 @@ export const cardService = {
             templateId,
             showQr,
             isDefault,
-            // Phase 6 P5.2.a — write teamId from caller's context so the
-            // card is bound to the team for all subsequent reads.
             teamId,
+            isTeamCard: data.isTeamCard && teamId ? true : false,
           },
         });
 

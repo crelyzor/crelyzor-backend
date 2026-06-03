@@ -91,6 +91,11 @@ router.patch(
   memberMutateLimiter,
   teamMemberController.updateRole,
 );
+router.patch(
+  "/:teamId/members/:userId/designation",
+  memberMutateLimiter,
+  teamMemberController.updateDesignation,
+);
 router.delete(
   "/:teamId/members/:userId",
   memberMutateLimiter,

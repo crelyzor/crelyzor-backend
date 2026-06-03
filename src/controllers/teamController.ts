@@ -23,6 +23,20 @@ export const create = async (req: Request, res: Response) => {
   });
 };
 
+export const getOne = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+  const params = teamIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid team id", 400);
+
+  const team = await teamService.getTeamById(userId, params.data.teamId);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Team fetched",
+    data: { team },
+  });
+};
+
 export const listMine = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
   const teams = await teamService.listMyTeams(userId);
