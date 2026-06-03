@@ -21,6 +21,7 @@ const cardSelect = {
   htmlContent: true,
   htmlBackContent: true,
   isDefault: true,
+  isTeamCard: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -29,9 +30,9 @@ const cardSelect = {
 export type TeamCardRow = Prisma.CardGetPayload<{ select: typeof cardSelect }>;
 
 export interface TeamCardEntry {
-  member: { id: string; name: string | null; avatarUrl: string | null };
+  member: { id: string; name: string | null; username: string | null; avatarUrl: string | null; designation: string | null };
   role: TeamRole;
-  card: TeamCardRow | null;
+  cards: TeamCardRow[];
 }
 
 // All team members (OWNER, ADMIN, MEMBER) see all cards in the team.
@@ -51,26 +52,31 @@ export async function getTeamCards(
     }),
     prisma.teamMember.findMany({
       where: { teamId, isDeleted: false },
-      include: {
-        user: { select: { id: true, name: true, avatarUrl: true } },
+      select: {
+        role: true,
+        designation: true,
+        userId: true,
+        user: { select: { id: true, name: true, username: true, avatarUrl: true } },
       },
       orderBy: { joinedAt: "asc" },
     }),
   ]);
 
-  const ownerMember = allMembers.find((m) => m.role === "OWNER");
-  if (!ownerMember) throw new AppError("Team not found", 404);
-  const ownerId = ownerMember.userId;
+  // Team card = the card explicitly designated with isTeamCard: true
+  const teamCard = allCards.find((c) => c.isTeamCard) ?? null;
 
-  // Team card = owner's first card in this team (isDefault preferred)
-  const teamCard = allCards.find((c) => c.userId === ownerId) ?? null;
-
-  // Member cards = ALL members so the grid shows the full team roster
-  const cardByUserId = new Map(allCards.map((c) => [c.userId, c]));
+  // Member cards = per-member personal cards only (team card excluded)
+  const cardsByUserId = new Map<string, TeamCardRow[]>();
+  for (const c of allCards) {
+    if (c.isTeamCard) continue;
+    const list = cardsByUserId.get(c.userId) ?? [];
+    list.push(c);
+    cardsByUserId.set(c.userId, list);
+  }
   const memberCards: TeamCardEntry[] = allMembers.map((m) => ({
-    member: m.user,
+    member: { ...m.user, designation: m.designation },
     role: m.role,
-    card: cardByUserId.get(m.userId) ?? null,
+    cards: cardsByUserId.get(m.userId) ?? [],
   }));
 
   return { teamCard, memberCards };
