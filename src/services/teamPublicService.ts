@@ -29,6 +29,7 @@ export interface PublicTeamMember {
     avatarUrl: string | null;
   };
   role: TeamRole;
+  designation: string | null;
   teamCard: {
     slug: string;
     displayName: string;
@@ -75,6 +76,7 @@ export async function getPublicTeamProfile(
     where: { teamId: team.id, isDeleted: false },
     select: {
       role: true,
+      designation: true,
       joinedAt: true,
       user: {
         select: {
@@ -105,6 +107,7 @@ export async function getPublicTeamProfile(
         avatarUrl: m.user.avatarUrl,
       },
       role: m.role,
+      designation: m.designation,
       teamCard: m.user.cards[0]
         ? {
             slug: m.user.cards[0].slug,
@@ -301,5 +304,138 @@ export async function getPublicTeamMemberSchedulingProfile(
       timezone: user.timezone,
     },
     eventTypes,
+  };
+}
+
+// ── Public team card endpoints ─────────────────────────────────────────────
+
+const publicCardSelect = {
+  id: true,
+  slug: true,
+  displayName: true,
+  title: true,
+  bio: true,
+  avatarUrl: true,
+  coverUrl: true,
+  links: true,
+  contactFields: true,
+  theme: true,
+  templateId: true,
+  showQr: true,
+  htmlContent: true,
+  htmlBackContent: true,
+  isTeamCard: true,
+  isDefault: true,
+} as const;
+
+export interface PublicTeamCardData {
+  card: typeof publicCardSelect extends Record<string, unknown>
+    ? Record<string, unknown>
+    : never;
+  team: { name: string; slug: string };
+  member?: { name: string | null; username: string; designation: string | null };
+}
+
+/**
+ * GET /public/teams/:slug/cards/:cardSlug — fetch a team card by slug.
+ * isTeamCard=true card or any card scoped to the team with a matching slug.
+ */
+export async function getPublicTeamCard(slug: string, cardSlug: string) {
+  const team = await prisma.team.findFirst({
+    where: { slug, isDeleted: false },
+    select: { id: true, name: true, slug: true },
+  });
+  if (!team) throw new AppError(NOT_FOUND_MESSAGE, 404);
+
+  const [card, allMembers, memberCards] = await Promise.all([
+    prisma.card.findFirst({
+      where: { teamId: team.id, slug: cardSlug, isDeleted: false, isActive: true },
+      select: publicCardSelect,
+    }),
+    prisma.teamMember.findMany({
+      where: { teamId: team.id, isDeleted: false },
+      select: {
+        designation: true,
+        userId: true,
+        user: {
+          select: { id: true, name: true, username: true, avatarUrl: true },
+        },
+      },
+      orderBy: { joinedAt: "asc" },
+    }),
+    prisma.card.findMany({
+      where: { teamId: team.id, isDeleted: false, isActive: true, isTeamCard: false },
+      select: { userId: true, slug: true, isDefault: true },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+    }),
+  ]);
+
+  if (!card) throw new AppError("Card not found", 404);
+
+  // Default (first) card slug per member
+  const defaultSlugByUserId = new Map<string, string>();
+  for (const mc of memberCards) {
+    if (!defaultSlugByUserId.has(mc.userId)) {
+      defaultSlugByUserId.set(mc.userId, mc.slug);
+    }
+  }
+
+  const members = allMembers.map((m) => ({
+    name: m.user.name,
+    username: m.user.username,
+    avatarUrl: m.user.avatarUrl,
+    designation: m.designation,
+    cardSlug: defaultSlugByUserId.get(m.user.id) ?? null,
+  }));
+
+  return { card, team: { name: team.name, slug: team.slug }, members };
+}
+
+/**
+ * GET /public/teams/:slug/:username/cards/:cardSlug — fetch a member's card.
+ */
+export async function getPublicTeamMemberCard(
+  slug: string,
+  username: string,
+  cardSlug: string,
+) {
+  const team = await prisma.team.findFirst({
+    where: { slug, isDeleted: false },
+    select: { id: true, name: true, slug: true },
+  });
+  if (!team) throw new AppError(NOT_FOUND_MESSAGE, 404);
+
+  const user = await prisma.user.findFirst({
+    where: { username, isDeleted: false },
+    select: { id: true, name: true, username: true },
+  });
+  if (!user || !user.username) throw new AppError(NOT_FOUND_MESSAGE, 404);
+
+  const membership = await prisma.teamMember.findFirst({
+    where: { teamId: team.id, userId: user.id, isDeleted: false },
+    select: { designation: true },
+  });
+  if (!membership) throw new AppError(NOT_FOUND_MESSAGE, 404);
+
+  const card = await prisma.card.findFirst({
+    where: {
+      teamId: team.id,
+      userId: user.id,
+      slug: cardSlug,
+      isDeleted: false,
+      isActive: true,
+    },
+    select: publicCardSelect,
+  });
+  if (!card) throw new AppError("Card not found", 404);
+
+  return {
+    card,
+    team: { name: team.name, slug: team.slug },
+    member: {
+      name: user.name,
+      username: user.username,
+      designation: membership.designation,
+    },
   };
 }
