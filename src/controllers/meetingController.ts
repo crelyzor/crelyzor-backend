@@ -15,6 +15,8 @@ import {
   getMeetingsWithoutPaginationSchema,
   updateMeetingSchema,
 } from "../validators/meetingSchema";
+import { principalForMeeting } from "../services/meetings/meetingService";
+import { decrypt } from "../utils/security/crypto";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -311,10 +313,22 @@ export class MeetingController {
         },
       });
 
+      // Decrypt guestEmail for each participant before sending
+      const principal = principalForMeeting(meeting!);
+      const participants = await Promise.all(
+        (meeting!.participants ?? []).map(async (p) => {
+          if (!p.guestEmail) return p;
+          const decrypted = await decrypt(p.guestEmail, principal).catch(
+            () => null,
+          );
+          return { ...p, guestEmail: decrypted };
+        }),
+      );
+
       apiResponse(res, {
         statusCode: 200,
         message: "Meeting details retrieved successfully",
-        data: meeting,
+        data: { ...meeting, participants },
       });
     } catch (error) {
       globalErrorHandler(
