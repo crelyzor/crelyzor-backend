@@ -12,6 +12,10 @@ import { logger } from "../../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
 import { getAudioDuration } from "../../utils/audio/getAudioDuration";
 import { AppError } from "../../utils/errors/AppError";
+import {
+  assertMeetingAccess,
+} from "../meetings/meetingService";
+import type { TeamContext } from "../../middleware/authMiddleware";
 
 export interface UploadRecordingInput {
   meetingId: string;
@@ -163,24 +167,18 @@ export const uploadRecording = async (
 };
 
 /**
- * Get recordings for a meeting (scoped to meeting owner)
+ * Get recordings for a meeting. Read access is granted to all team members
+ * for team meetings; personal meetings require creator or participant access.
  */
 export const getRecordings = async (
   meetingId: string,
   userId: string,
+  teamContext: TeamContext | null,
 ): Promise<RecordingResponse[]> => {
-  // Verify meeting ownership
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true },
-  });
-
-  if (!meeting) {
-    throw new AppError("Meeting not found", 404);
-  }
+  await assertMeetingAccess(userId, meetingId, teamContext, "read");
 
   const recordings = await prisma.meetingRecording.findMany({
-    where: { meetingId, isDeleted: false, meeting: { createdById: userId } },
+    where: { meetingId, isDeleted: false },
     orderBy: { uploadedAt: "desc" },
     take: 20,
   });
@@ -274,20 +272,15 @@ export const deleteRecording = async (
 };
 
 /**
- * Trigger AI processing for a meeting (scoped to meeting owner)
+ * Trigger AI processing for a meeting.
+ * Requires mutate access (team MEMBER: creator-only; ADMIN/OWNER: any team meeting).
  */
 export const triggerAIProcessing = async (
   meetingId: string,
   userId: string,
+  teamContext: TeamContext | null,
 ): Promise<void> => {
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true, createdById: true },
-  });
-
-  if (!meeting) {
-    throw new AppError("Meeting not found", 404);
-  }
+  const meeting = await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
 
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },

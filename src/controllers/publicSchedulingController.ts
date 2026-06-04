@@ -7,6 +7,7 @@ import {
   usernameParamSchema,
 } from "../validators/schedulingPublicSchema";
 import * as slotService from "../services/scheduling/slotService";
+import prisma from "../db/prismaClient";
 
 /**
  * GET /public/scheduling/slots/:username/:eventTypeSlug?date=YYYY-MM-DD
@@ -22,9 +23,19 @@ export const getPublicSlots = async (req: Request, res: Response) => {
   if (!query.success) throw new AppError("Validation failed", 400);
 
   const { username, eventTypeSlug } = params.data;
-  const { date } = query.data;
+  const { date, teamSlug } = query.data;
 
-  const result = await slotService.getSlots(username, eventTypeSlug, date);
+  let teamId: string | null | undefined = undefined;
+  if (teamSlug) {
+    const team = await prisma.team.findFirst({
+      where: { slug: teamSlug, isDeleted: false },
+      select: { id: true },
+    });
+    if (!team) throw new AppError("Team not found", 404);
+    teamId = team.id;
+  }
+
+  const result = await slotService.getSlots(username, eventTypeSlug, date, teamId);
 
   return apiResponse(res, {
     statusCode: 200,

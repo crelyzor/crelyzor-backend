@@ -42,6 +42,14 @@ export const createBookingSchema = z
 
     rescheduleBookingId: z.string().uuid().optional(),
 
+    // Present only when booking a team-scoped event type
+    teamSlug: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(/^[a-zA-Z0-9_-]+$/)
+      .optional(),
+
     // Validated IANA timezone string (e.g. "America/New_York")
     guestTimezone: z.string().refine((tz) => {
       try {

@@ -4,6 +4,7 @@ import { speakerService } from "../services/speaker/speakerService";
 import { renameSpeakerSchema } from "../validators/speakerSchema";
 import { AppError } from "../utils/errors/AppError";
 import { apiResponse } from "../utils/globalResponseHandler";
+import { getTeamContext } from "../middleware/teamContext";
 
 const uuidSchema = z.string().uuid();
 
@@ -16,7 +17,7 @@ export const getSpeakers = async (req: Request, res: Response) => {
     throw new AppError("Invalid meetingId", 400);
   const userId = req.user!.userId;
 
-  const speakers = await speakerService.getSpeakers(meetingId, userId);
+  const speakers = await speakerService.getSpeakers(meetingId, userId, getTeamContext(req));
 
   return apiResponse(res, {
     statusCode: 200,
@@ -47,6 +48,7 @@ export const renameSpeaker = async (req: Request, res: Response) => {
     speakerId,
     parsed.data,
     userId,
+    getTeamContext(req),
   );
 
   return apiResponse(res, {

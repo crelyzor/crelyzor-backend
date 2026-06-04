@@ -21,7 +21,6 @@ const cardSelect = {
   htmlContent: true,
   htmlBackContent: true,
   isDefault: true,
-  isTeamCard: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -40,7 +39,7 @@ export interface TeamCardEntry {
 export async function getTeamCards(
   teamId: string,
   actorId: string,
-): Promise<{ teamCard: TeamCardRow | null; memberCards: TeamCardEntry[] }> {
+): Promise<{ memberCards: TeamCardEntry[] }> {
   const role = await getRole(actorId, teamId);
   if (!role) throw new AppError("Team not found", 404);
 
@@ -48,7 +47,7 @@ export async function getTeamCards(
     prisma.card.findMany({
       where: { teamId, isDeleted: false },
       select: cardSelect,
-      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+      orderBy: { createdAt: "asc" },
     }),
     prisma.teamMember.findMany({
       where: { teamId, isDeleted: false },
@@ -62,22 +61,16 @@ export async function getTeamCards(
     }),
   ]);
 
-  // Team card = the card explicitly designated with isTeamCard: true
-  const teamCard = allCards.find((c) => c.isTeamCard) ?? null;
-
-  // Member cards = per-member personal cards only (team card excluded)
-  const cardsByUserId = new Map<string, TeamCardRow[]>();
+  const cardByUserId = new Map<string, TeamCardRow>();
   for (const c of allCards) {
-    if (c.isTeamCard) continue;
-    const list = cardsByUserId.get(c.userId) ?? [];
-    list.push(c);
-    cardsByUserId.set(c.userId, list);
+    cardByUserId.set(c.userId, c);
   }
+
   const memberCards: TeamCardEntry[] = allMembers.map((m) => ({
     member: { ...m.user, designation: m.designation },
     role: m.role,
-    cards: cardsByUserId.get(m.userId) ?? [],
+    cards: cardByUserId.has(m.userId) ? [cardByUserId.get(m.userId)!] : [],
   }));
 
-  return { teamCard, memberCards };
+  return { memberCards };
 }

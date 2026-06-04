@@ -39,11 +39,12 @@ const ROLE_RANK: Record<TeamRole, number> = {
  * - Personal context (teamContext null): meeting must be personal (`teamId IS NULL`)
  *   AND the actor must be the creator OR a participant — mirrors the
  *   pre-Phase-6 personal visibility behaviour.
- * - Team context + ADMIN/OWNER: `teamId = ctx.teamId` (all team meetings).
- * - Team context + MEMBER: `teamId = ctx.teamId AND (createdById = actorId OR
- *   participants.some(userId = actorId))` — only meetings the member created
- *   or was invited to. (Mutations apply a stricter creator-only rule via
- *   verifyMeetingAccess; this scope is for reads.)
+ * - Team context (any role): `teamId = ctx.teamId` — all team members can read
+ *   all meetings in the team. Mutation access is enforced separately by
+ *   verifyMeetingAccess (MEMBER can only mutate meetings they created).
+ *
+ * VOICE_NOTE queries must pass `null` as teamContext regardless of the caller's
+ * active team — voice notes are always personal and never team-scoped.
  *
  * Soft-delete is NOT part of the scope — caller must add `isDeleted: false`
  * explicitly so writes that need to inspect deleted rows still compose
@@ -56,15 +57,6 @@ function meetingScope(
   if (!teamContext) {
     return {
       teamId: null,
-      OR: [
-        { createdById: actorId },
-        { participants: { some: { userId: actorId } } },
-      ],
-    };
-  }
-  if (teamContext.role === TeamRole.MEMBER) {
-    return {
-      teamId: teamContext.teamId,
       OR: [
         { createdById: actorId },
         { participants: { some: { userId: actorId } } },
@@ -144,19 +136,14 @@ export function verifyMeetingAccess(
     throw new AppError(NOT_FOUND_MESSAGE, 404);
   }
 
-  if (teamContext.role === TeamRole.MEMBER) {
-    if (action === "mutate") {
-      // Hard rule: MEMBER can mutate only meetings they created. Being a
-      // participant does NOT grant edit rights — a MEMBER invited to an
-      // ADMIN's meeting must not be able to mutate it.
-      if (!isCreator) throw new AppError(NOT_FOUND_MESSAGE, 404);
-      return;
-    }
-    if (!isCreator && !isParticipant) {
-      throw new AppError(NOT_FOUND_MESSAGE, 404);
-    }
+  if (teamContext.role === TeamRole.MEMBER && action === "mutate") {
+    // Hard rule: MEMBER can mutate only meetings they created. Being a
+    // participant does NOT grant edit rights — a MEMBER invited to an
+    // ADMIN's meeting must not be able to mutate it.
+    if (!isCreator) throw new AppError(NOT_FOUND_MESSAGE, 404);
+    return;
   }
-  // ADMIN / OWNER: any meeting in the team is accessible (read or mutate).
+  // MEMBER read + ADMIN/OWNER any action: any meeting in the team is accessible.
   void ROLE_RANK; // keep referenced for symmetry; comparisons happen elsewhere
 }
 
@@ -261,6 +248,9 @@ const meetingListInclude = {
   },
   booking: {
     select: { id: true, status: true },
+  },
+  createdBy: {
+    select: { id: true, name: true, avatarUrl: true },
   },
 } satisfies Prisma.MeetingInclude;
 
@@ -410,7 +400,8 @@ export const meetingService = {
             createdById,
             // Phase 6 P5.1.a — write teamId from caller's context so the
             // meeting is bound to the team for all subsequent reads.
-            teamId: teamContext?.teamId ?? null,
+            // VOICE_NOTE is always personal regardless of team context.
+            teamId: type === MeetingType.VOICE_NOTE ? null : (teamContext?.teamId ?? null),
           },
         });
         // Encryption principal is derived from the meeting row, never from
@@ -1155,9 +1146,12 @@ export const meetingService = {
       teamContext = null,
     } = params;
 
+    // Voice notes are always personal — ignore team context so they remain
+    // visible regardless of which workspace is active.
+    const effectiveContext = type === MeetingType.VOICE_NOTE ? null : teamContext;
     const where: Prisma.MeetingWhereInput = {
       isDeleted: false,
-      ...meetingScope(userId, teamContext),
+      ...meetingScope(userId, effectiveContext),
     };
 
     if (status) where.status = status;
@@ -1204,9 +1198,12 @@ export const meetingService = {
       teamContext = null,
     } = params;
 
+    // Voice notes are always personal — ignore team context so they remain
+    // visible regardless of which workspace is active.
+    const effectiveContext = type === MeetingType.VOICE_NOTE ? null : teamContext;
     const where: Prisma.MeetingWhereInput = {
       isDeleted: false,
-      ...meetingScope(userId, teamContext),
+      ...meetingScope(userId, effectiveContext),
     };
 
     if (status) where.status = status;

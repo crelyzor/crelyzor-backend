@@ -13,6 +13,7 @@ import {
   updateSummary,
   mergeConsecutiveSpeakerSegments,
 } from "../services/smaEditService";
+import { getTeamContext } from "../middleware/teamContext";
 import { z } from "zod";
 
 const uuidSchema = z.string().uuid();
@@ -29,6 +30,7 @@ export const getTranscript = async (req: Request, res: Response) => {
   const transcript = await transcriptionService.getTranscript(
     meetingId,
     userId,
+    getTeamContext(req),
   );
 
   if (!transcript) {
@@ -63,6 +65,7 @@ export const patchSegment = async (req: Request, res: Response) => {
     segmentId,
     body.data.text,
     userId,
+    getTeamContext(req),
   );
 
   return apiResponse(res, {
@@ -89,7 +92,7 @@ export const patchSummary = async (req: Request, res: Response) => {
       400,
     );
 
-  const result = await updateSummary(meetingId, body.data, userId);
+  const result = await updateSummary(meetingId, body.data, userId, getTeamContext(req));
 
   return apiResponse(res, {
     statusCode: 200,
@@ -110,6 +113,7 @@ export const mergeConsecutiveSegments = async (req: Request, res: Response) => {
   const result = await mergeConsecutiveSpeakerSegments(
     meetingIdResult.data,
     userId,
+    getTeamContext(req),
   );
 
   return apiResponse(res, {
@@ -131,6 +135,7 @@ export const getTranscriptionStatus = async (req: Request, res: Response) => {
   const transcript = await transcriptionService.getTranscript(
     meetingId,
     userId,
+    getTeamContext(req),
   );
 
   return apiResponse(res, {
@@ -155,7 +160,7 @@ export const regenerateTranscript = async (req: Request, res: Response) => {
   const meetingId = meetingIdResult.data;
   const userId = req.user!.userId;
 
-  await transcriptionService.regenerateTranscript(meetingId, userId);
+  await transcriptionService.regenerateTranscript(meetingId, userId, undefined, getTeamContext(req));
 
   logger.info("Transcript regeneration triggered", { meetingId, userId });
 
@@ -184,6 +189,7 @@ export const changeLanguage = async (req: Request, res: Response) => {
     meetingId,
     userId,
     body.data.language,
+    getTeamContext(req),
   );
 
   logger.info("Language change triggered", {

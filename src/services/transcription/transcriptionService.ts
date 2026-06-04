@@ -13,7 +13,11 @@ import {
   deductTranscription,
 } from "../billing/usageService";
 import { encrypt, decrypt } from "../../utils/security/crypto";
-import { principalForMeeting } from "../meetings/meetingService";
+import {
+  principalForMeeting,
+  assertMeetingAccess,
+} from "../meetings/meetingService";
+import type { TeamContext } from "../../middleware/authMiddleware";
 
 const DEEPGRAM_MODEL = "nova-3"; // Upgraded to nova-3 (multilingual) at Phase 4 start — better accuracy, 45+ languages
 
@@ -263,6 +267,7 @@ export const regenerateTranscript = async (
   meetingId: string,
   userId: string,
   language?: string,
+  teamContext?: TeamContext | null,
 ): Promise<void> => {
   if (!isTranscriptionEnabled()) {
     throw new AppError(
@@ -271,9 +276,18 @@ export const regenerateTranscript = async (
     );
   }
 
-  // Ownership + recording check
+  // Verify access (mutate: MEMBER can only regenerate their own meeting; ADMIN/OWNER any team meeting)
+  if (teamContext !== undefined) {
+    await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
+  }
+
+  // Fetch recording + transcription status
   const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
+    where: {
+      id: meetingId,
+      isDeleted: false,
+      ...(teamContext === undefined ? { createdById: userId } : {}),
+    },
     select: {
       id: true,
       transcriptionStatus: true,
@@ -340,22 +354,26 @@ export const regenerateTranscript = async (
 };
 
 /**
- * Get transcript for a meeting (scoped to meeting owner).
- * Decrypts segment text before returning.
+ * Get transcript for a meeting.
+ * Pass `teamContext` from HTTP requests; pass `undefined` from worker jobs (uses
+ * legacy createdById gate since workers always run as the meeting owner).
  */
-export const getTranscript = async (meetingId: string, userId: string) => {
-  // Phase 6 P5.1.c — fetch teamId so we can derive the meeting principal
-  // for decryption. Access control still uses createdById here (personal
-  // path); the SMA controller layer with resolveTeamContext will mount a
-  // proper assertMeetingAccess in a follow-up (P5.1.b retrofit on this
-  // service was deferred). For now, personal-context decrypts work and
-  // team-context calls fall through to the existing 404 — which the
-  // controller-level guard will replace once it's wired.
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true, teamId: true, createdById: true },
-  });
-  if (!meeting) throw new AppError("Meeting not found", 404);
+export const getTranscript = async (
+  meetingId: string,
+  userId: string,
+  teamContext?: TeamContext | null,
+) => {
+  let meeting: { id: string; teamId: string | null; createdById: string };
+  if (teamContext === undefined) {
+    const row = await prisma.meeting.findFirst({
+      where: { id: meetingId, createdById: userId, isDeleted: false },
+      select: { id: true, teamId: true, createdById: true },
+    });
+    if (!row) throw new AppError("Meeting not found", 404);
+    meeting = row;
+  } else {
+    meeting = await assertMeetingAccess(userId, meetingId, teamContext, "read");
+  }
 
   const meetingPrincipal = principalForMeeting(meeting);
 

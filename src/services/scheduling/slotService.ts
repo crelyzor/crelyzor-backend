@@ -72,6 +72,7 @@ export async function getSlots(
   username: string,
   eventTypeSlug: string,
   date: string,
+  teamId?: string | null,
 ) {
   // 1. Resolve user
   const user = await prisma.user.findFirst({
@@ -110,6 +111,7 @@ export async function getSlots(
       slug: eventTypeSlug,
       isActive: true,
       isDeleted: false,
+      teamId: teamId !== undefined ? teamId : null,
     },
     select: {
       id: true,
@@ -291,7 +293,7 @@ export async function getSchedulingProfile(username: string) {
   }
 
   const eventTypes = await prisma.eventType.findMany({
-    where: { userId: user.id, isActive: true, isDeleted: false },
+    where: { userId: user.id, isActive: true, isDeleted: false, teamId: null },
     select: {
       id: true,
       title: true,

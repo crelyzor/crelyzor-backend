@@ -186,21 +186,6 @@ export async function assertCardAccess(
   return card;
 }
 
-/**
- * Reject MEMBER role on team-context card creation/duplication. Team cards
- * are created either by `teamService.createTeam` (the auto-default card) or
- * by ADMIN+. A MEMBER spamming team cards via this endpoint is not in the
- * design.
- */
-function assertCanCreateTeamCard(teamContext: TeamContext | null): void {
-  if (teamContext && teamContext.role === TeamRole.MEMBER) {
-    throw new AppError(
-      "Only team admins or the owner can create team cards",
-      403,
-    );
-  }
-}
-
 // Helper: build public URL for a card
 function buildPublicUrl(
   username: string,
@@ -294,23 +279,20 @@ export const cardService = {
     data: CreateCardDTO,
     teamContext: TeamContext | null = null,
   ) {
-    // Role check is the first line of the function so it runs before any
-    // DB probe (the slug-conflict lookup below would otherwise leak which
-    // team slugs are taken to a member who is forbidden to create cards).
-    assertCanCreateTeamCard(teamContext);
-
     const teamId = teamContext?.teamId ?? null;
     const slug = data.slug || "default";
 
-    // Parallelize slug conflict check, card count, and username lookup.
-    // Slug uniqueness is per `(userId, slug)` (see Card.@@unique), so the
-    // conflict probe and the card-count both scope to userId. Team cards
-    // owned by the same user still go through this same uniqueness model.
-    const [existing, cardCount, user] = await Promise.all([
+    const [existing, existingTeamCard, cardCount, user] = await Promise.all([
       prisma.card.findFirst({
-        where: { userId, slug, isDeleted: false },
+        where: { userId, slug, teamId, isDeleted: false },
         select: { id: true },
       }),
+      teamId
+        ? prisma.card.findFirst({
+            where: { userId, teamId },
+            select: { id: true, isDeleted: true },
+          })
+        : Promise.resolve(null),
       prisma.card.count({ where: { userId, isDeleted: false } }),
       prisma.user.findUnique({
         where: { id: userId },
@@ -320,6 +302,13 @@ export const cardService = {
 
     if (existing) {
       throw ErrorFactory.conflict(`Card with slug "${slug}" already exists`);
+    }
+    if (existingTeamCard) {
+      if (!existingTeamCard.isDeleted) {
+        throw ErrorFactory.conflict("You already have a card in this team");
+      }
+      // Soft-deleted card occupies the unique slot — hard-delete it to free the constraint.
+      await prisma.card.delete({ where: { id: existingTeamCard.id } });
     }
 
     const isDefault = data.isDefault ?? cardCount === 0;
@@ -365,13 +354,6 @@ export const cardService = {
           });
         }
 
-        if (data.isTeamCard && teamId) {
-          await tx.card.updateMany({
-            where: { teamId, isTeamCard: true },
-            data: { isTeamCard: false },
-          });
-        }
-
         const card = await tx.card.create({
           data: {
             userId,
@@ -389,7 +371,6 @@ export const cardService = {
             showQr,
             isDefault,
             teamId,
-            isTeamCard: data.isTeamCard && teamId ? true : false,
           },
         });
 
@@ -659,9 +640,6 @@ export const cardService = {
     newSlug: string,
     teamContext: TeamContext | null = null,
   ) {
-    // Duplication is effectively a create — apply the same role gate.
-    assertCanCreateTeamCard(teamContext);
-
     await assertCardAccess(userId, cardId, teamContext, "read");
     const card = await prisma.card.findFirst({
       where: { id: cardId, isDeleted: false },
@@ -670,13 +648,23 @@ export const cardService = {
       throw new AppError(NOT_FOUND_MESSAGE, 404);
     }
 
-    // Slug uniqueness on the destination is per (actor, newSlug). The dup
-    // is owned by the actor, so the probe scopes to userId (not card.userId).
-    const existing = await prisma.card.findFirst({
-      where: { userId, slug: newSlug, isDeleted: false },
-    });
+    const teamId = card.teamId;
+    const [existing, existingTeamCard] = await Promise.all([
+      prisma.card.findFirst({
+        where: { userId, slug: newSlug, teamId, isDeleted: false },
+      }),
+      teamId
+        ? prisma.card.findFirst({
+            where: { userId, teamId, isDeleted: false },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+    ]);
     if (existing) {
       throw ErrorFactory.conflict(`Card with slug "${newSlug}" already exists`);
+    }
+    if (existingTeamCard) {
+      throw ErrorFactory.conflict("You already have a card in this team");
     }
 
     // Fetch user for HTML generation (outside transaction — read-only)

@@ -324,7 +324,6 @@ const publicCardSelect = {
   showQr: true,
   htmlContent: true,
   htmlBackContent: true,
-  isTeamCard: true,
   isDefault: true,
 } as const;
 
@@ -338,7 +337,6 @@ export interface PublicTeamCardData {
 
 /**
  * GET /public/teams/:slug/cards/:cardSlug — fetch a team card by slug.
- * isTeamCard=true card or any card scoped to the team with a matching slug.
  */
 export async function getPublicTeamCard(slug: string, cardSlug: string) {
   const team = await prisma.team.findFirst({
@@ -364,9 +362,9 @@ export async function getPublicTeamCard(slug: string, cardSlug: string) {
       orderBy: { joinedAt: "asc" },
     }),
     prisma.card.findMany({
-      where: { teamId: team.id, isDeleted: false, isActive: true, isTeamCard: false },
+      where: { teamId: team.id, isDeleted: false, isActive: true },
       select: { userId: true, slug: true, isDefault: true },
-      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+      orderBy: { createdAt: "asc" },
     }),
   ]);
 

@@ -30,12 +30,12 @@ export const getSlotsParamSchema = z.object({
 
 /**
  * Query params for GET /public/scheduling/slots/:username/:eventTypeSlug?date=...
+ * teamSlug is optional — present only when booking a team-scoped event type.
  */
-export const getSlotsQuerySchema = z
-  .object({
-    date: futureDateString,
-  })
-  .strict();
+export const getSlotsQuerySchema = z.object({
+  date: futureDateString,
+  teamSlug: publicIdentifier.optional(),
+});
 
 /**
  * Path params for GET /public/scheduling/profile/:username

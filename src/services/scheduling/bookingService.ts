@@ -131,6 +131,17 @@ export async function createBooking(data: CreateBookingInput) {
   if (!user) throw new AppError("User not found", 404);
   if (!user.username) throw new AppError("User not found", 404);
 
+  // Resolve teamId from teamSlug when booking a team-scoped event type
+  let resolvedTeamId: string | null | undefined = undefined;
+  if (data.teamSlug) {
+    const team = await prisma.team.findFirst({
+      where: { slug: data.teamSlug, isDeleted: false },
+      select: { id: true },
+    });
+    if (!team) throw new AppError("Team not found", 404);
+    resolvedTeamId = team.id;
+  }
+
   const startTime = new Date(data.startTime);
 
   const result = await prisma
@@ -148,13 +159,16 @@ export async function createBooking(data: CreateBookingInput) {
           throw new AppError("Scheduling is not available for this user", 400);
         }
 
-        // b. Re-read event type inside tx
+        // b. Re-read event type inside tx — scope by teamId when present
         const eventType = await tx.eventType.findFirst({
           where: {
             userId: user.id,
             slug: data.eventTypeSlug,
             isActive: true,
             isDeleted: false,
+            ...(resolvedTeamId !== undefined
+              ? { teamId: resolvedTeamId }
+              : {}),
           },
           select: {
             id: true,

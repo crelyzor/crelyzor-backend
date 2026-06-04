@@ -33,7 +33,6 @@ export interface CreateCardDTO {
   templateId?: string;
   showQr?: boolean;
   isDefault?: boolean;
-  isTeamCard?: boolean;
 }
 
 export interface UpdateCardDTO {

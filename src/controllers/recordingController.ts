@@ -3,6 +3,7 @@ import { z } from "zod";
 import { recordingService } from "../services/recording/recordingService";
 import { ErrorFactory } from "../utils/globalErrorHandler";
 import { apiResponse } from "../utils/globalResponseHandler";
+import { getTeamContext } from "../middleware/teamContext";
 
 const uuidSchema = z.string().uuid();
 
@@ -63,7 +64,7 @@ export const getRecordings = async (req: Request, res: Response) => {
     throw ErrorFactory.unauthorized("User not authenticated");
   }
 
-  const recordings = await recordingService.getRecordings(meetingId, userId);
+  const recordings = await recordingService.getRecordings(meetingId, userId, getTeamContext(req));
 
   return apiResponse(res, {
     statusCode: 200,
@@ -106,7 +107,7 @@ export const triggerAIProcessing = async (req: Request, res: Response) => {
     throw ErrorFactory.unauthorized("User not authenticated");
   }
 
-  await recordingService.triggerAIProcessing(meetingId, userId);
+  await recordingService.triggerAIProcessing(meetingId, userId, getTeamContext(req));
 
   return apiResponse(res, {
     statusCode: 200,

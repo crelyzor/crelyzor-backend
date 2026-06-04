@@ -3,7 +3,11 @@ import { AppError } from "../utils/errors/AppError";
 import { logger } from "../utils/logging/logger";
 import type { PatchSummaryInput } from "../validators/transcriptEditSchema";
 import { encrypt, decrypt } from "../utils/security/crypto";
-import { principalForMeeting } from "./meetings/meetingService";
+import {
+  principalForMeeting,
+  assertMeetingAccess,
+} from "./meetings/meetingService";
+import type { TeamContext } from "../middleware/authMiddleware";
 
 /**
  * Edit a single transcript segment's text.
@@ -14,49 +18,24 @@ export async function updateSegment(
   segmentId: string,
   text: string,
   userId: string,
+  teamContext: TeamContext | null,
 ) {
-  // Phase 6 P5.1.c — fetch the meeting alongside the segment so we can
-  // derive the correct encryption principal. Ownership remains
-  // createdById-scoped here; team-aware access via assertMeetingAccess is
-  // the controller's job (P5.1.b mounted resolveTeamContext upstream;
-  // controller cutover for this endpoint lands with the rest of the
-  // transcript surface).
+  const meeting = await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
+  const meetingPrincipal = principalForMeeting(meeting);
+
   const segment = await prisma.transcriptSegment.findFirst({
     where: {
       id: segmentId,
       transcript: {
-        recording: {
-          meetingId,
-          meeting: {
-            createdById: userId,
-            isDeleted: false,
-          },
-        },
+        recording: { meetingId },
       },
     },
-    select: {
-      id: true,
-      transcript: {
-        select: {
-          recording: {
-            select: {
-              meeting: {
-                select: { teamId: true, createdById: true },
-              },
-            },
-          },
-        },
-      },
-    },
+    select: { id: true },
   });
 
   if (!segment) {
     throw new AppError("Transcript segment not found", 404);
   }
-
-  const meetingPrincipal = principalForMeeting(
-    segment.transcript.recording.meeting,
-  );
   const encryptedText = await encrypt(text, meetingPrincipal);
   await prisma.transcriptSegment.update({
     where: { id: segmentId },
@@ -76,16 +55,9 @@ export async function updateSummary(
   meetingId: string,
   data: PatchSummaryInput,
   userId: string,
+  teamContext: TeamContext | null,
 ) {
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
-    select: { id: true, teamId: true, createdById: true },
-  });
-
-  if (!meeting) {
-    throw new AppError("Meeting not found", 404);
-  }
-
+  const meeting = await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
   const meetingPrincipal = principalForMeeting(meeting);
 
   const summaryUpdateData: {
@@ -146,9 +118,9 @@ export async function updateSummary(
     };
   }
 
-  // Title-only update
+  // Title-only update (access already verified by assertMeetingAccess above)
   await prisma.meeting.update({
-    where: { id: meetingId, createdById: userId },
+    where: { id: meetingId },
     data: { title: data.title },
   });
   logger.info("Meeting title updated via summary edit", { meetingId, userId });
@@ -163,13 +135,14 @@ export async function updateSummary(
 export async function mergeConsecutiveSpeakerSegments(
   meetingId: string,
   userId: string,
+  teamContext: TeamContext | null,
 ) {
-  const meeting = await prisma.meeting.findFirst({
-    where: { id: meetingId, createdById: userId, isDeleted: false },
+  const meetingMeta = await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
+  const meetingPrincipal = principalForMeeting(meetingMeta);
+
+  const meeting = await prisma.meeting.findUnique({
+    where: { id: meetingId },
     select: {
-      id: true,
-      teamId: true,
-      createdById: true,
       recording: {
         select: {
           transcript: {
@@ -196,8 +169,6 @@ export async function mergeConsecutiveSpeakerSegments(
   if (!meeting) {
     throw new AppError("Meeting not found", 404);
   }
-
-  const meetingPrincipal = principalForMeeting(meeting);
   const transcript = meeting.recording?.transcript;
   if (!transcript) {
     throw new AppError("No transcript found for this meeting", 404);

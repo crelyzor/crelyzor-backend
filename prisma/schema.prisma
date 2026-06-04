@@ -638,9 +638,8 @@ model Card {
   isDefault Boolean @default(false) // shown at /username
   isActive  Boolean @default(true) // can be paused
 
-  // Teams (Phase 6) — null = personal card
-  teamId     String?  @db.Uuid
-  isTeamCard Boolean  @default(false) // true = designated team card; only one per team
+  // Teams (Phase 6) — null = personal card. One card per (userId, teamId) pair.
+  teamId String? @db.Uuid
 
   // Soft delete
   isDeleted Boolean   @default(false)
@@ -659,7 +658,9 @@ model Card {
   tasks               Task[]
   meetingParticipants MeetingParticipant[]
 
-  @@unique([userId, slug])
+  @@unique([userId, teamId]) // one card per member per team; personal cards allow multiple (NULL != NULL in PostgreSQL)
+  // Personal-card slug uniqueness is enforced via a partial index in the migration (teamId IS NULL).
+  // Team cards skip slug uniqueness — one-per-team constraint above already ensures no collisions.
   @@index([slug])
   @@index([userId])
   @@index([userId, isActive])
