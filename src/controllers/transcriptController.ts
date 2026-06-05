@@ -92,7 +92,12 @@ export const patchSummary = async (req: Request, res: Response) => {
       400,
     );
 
-  const result = await updateSummary(meetingId, body.data, userId, getTeamContext(req));
+  const result = await updateSummary(
+    meetingId,
+    body.data,
+    userId,
+    getTeamContext(req),
+  );
 
   return apiResponse(res, {
     statusCode: 200,
@@ -160,7 +165,12 @@ export const regenerateTranscript = async (req: Request, res: Response) => {
   const meetingId = meetingIdResult.data;
   const userId = req.user!.userId;
 
-  await transcriptionService.regenerateTranscript(meetingId, userId, undefined, getTeamContext(req));
+  await transcriptionService.regenerateTranscript(
+    meetingId,
+    userId,
+    undefined,
+    getTeamContext(req),
+  );
 
   logger.info("Transcript regeneration triggered", { meetingId, userId });
 

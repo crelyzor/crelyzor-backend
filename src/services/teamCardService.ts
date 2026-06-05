@@ -29,7 +29,13 @@ const cardSelect = {
 export type TeamCardRow = Prisma.CardGetPayload<{ select: typeof cardSelect }>;
 
 export interface TeamCardEntry {
-  member: { id: string; name: string | null; username: string | null; avatarUrl: string | null; designation: string | null };
+  member: {
+    id: string;
+    name: string | null;
+    username: string | null;
+    avatarUrl: string | null;
+    designation: string | null;
+  };
   role: TeamRole;
   cards: TeamCardRow[];
 }
@@ -55,7 +61,9 @@ export async function getTeamCards(
         role: true,
         designation: true,
         userId: true,
-        user: { select: { id: true, name: true, username: true, avatarUrl: true } },
+        user: {
+          select: { id: true, name: true, username: true, avatarUrl: true },
+        },
       },
       orderBy: { joinedAt: "asc" },
     }),

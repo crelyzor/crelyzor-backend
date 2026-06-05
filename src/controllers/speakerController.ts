@@ -17,7 +17,11 @@ export const getSpeakers = async (req: Request, res: Response) => {
     throw new AppError("Invalid meetingId", 400);
   const userId = req.user!.userId;
 
-  const speakers = await speakerService.getSpeakers(meetingId, userId, getTeamContext(req));
+  const speakers = await speakerService.getSpeakers(
+    meetingId,
+    userId,
+    getTeamContext(req),
+  );
 
   return apiResponse(res, {
     statusCode: 200,

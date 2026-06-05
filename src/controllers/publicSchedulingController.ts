@@ -35,7 +35,12 @@ export const getPublicSlots = async (req: Request, res: Response) => {
     teamId = team.id;
   }
 
-  const result = await slotService.getSlots(username, eventTypeSlug, date, teamId);
+  const result = await slotService.getSlots(
+    username,
+    eventTypeSlug,
+    date,
+    teamId,
+  );
 
   return apiResponse(res, {
     statusCode: 200,

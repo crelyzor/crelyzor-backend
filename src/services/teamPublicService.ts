@@ -332,7 +332,11 @@ export interface PublicTeamCardData {
     ? Record<string, unknown>
     : never;
   team: { name: string; slug: string };
-  member?: { name: string | null; username: string; designation: string | null };
+  member?: {
+    name: string | null;
+    username: string;
+    designation: string | null;
+  };
 }
 
 /**
@@ -347,7 +351,12 @@ export async function getPublicTeamCard(slug: string, cardSlug: string) {
 
   const [card, allMembers, memberCards] = await Promise.all([
     prisma.card.findFirst({
-      where: { teamId: team.id, slug: cardSlug, isDeleted: false, isActive: true },
+      where: {
+        teamId: team.id,
+        slug: cardSlug,
+        isDeleted: false,
+        isActive: true,
+      },
       select: publicCardSelect,
     }),
     prisma.teamMember.findMany({

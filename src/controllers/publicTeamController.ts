@@ -65,7 +65,11 @@ export const getTeamCard = async (req: Request, res: Response) => {
   if (!params.success) throw new AppError("Invalid path parameters", 400);
 
   const data = await getPublicTeamCard(params.data.slug, params.data.cardSlug);
-  return apiResponse(res, { statusCode: 200, message: "Team card fetched", data });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Team card fetched",
+    data,
+  });
 };
 
 export const getTeamMemberCard = async (req: Request, res: Response) => {
@@ -77,5 +81,9 @@ export const getTeamMemberCard = async (req: Request, res: Response) => {
     params.data.username,
     params.data.cardSlug,
   );
-  return apiResponse(res, { statusCode: 200, message: "Member card fetched", data });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Member card fetched",
+    data,
+  });
 };

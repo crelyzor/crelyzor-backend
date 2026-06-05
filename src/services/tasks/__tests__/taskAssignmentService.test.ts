@@ -39,7 +39,9 @@ describe("assertAssigneeIsMember", () => {
   it("throws 400 when assignee is not a team member", async () => {
     teamMemberFindFirstMock.mockResolvedValue(null);
 
-    await expect(assertAssigneeIsMember("user-1", "team-1")).rejects.toMatchObject({
+    await expect(
+      assertAssigneeIsMember("user-1", "team-1"),
+    ).rejects.toMatchObject({
       statusCode: 400,
       message: "Assignee is not a member of this team",
     });

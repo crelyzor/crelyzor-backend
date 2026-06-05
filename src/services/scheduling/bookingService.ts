@@ -166,9 +166,7 @@ export async function createBooking(data: CreateBookingInput) {
             slug: data.eventTypeSlug,
             isActive: true,
             isDeleted: false,
-            ...(resolvedTeamId !== undefined
-              ? { teamId: resolvedTeamId }
-              : {}),
+            ...(resolvedTeamId !== undefined ? { teamId: resolvedTeamId } : {}),
           },
           select: {
             id: true,
