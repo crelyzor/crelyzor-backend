@@ -20,7 +20,12 @@ export async function updateSegment(
   userId: string,
   teamContext: TeamContext | null,
 ) {
-  const meeting = await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
+  const meeting = await assertMeetingAccess(
+    userId,
+    meetingId,
+    teamContext,
+    "mutate",
+  );
   const meetingPrincipal = principalForMeeting(meeting);
 
   const segment = await prisma.transcriptSegment.findFirst({
@@ -57,7 +62,12 @@ export async function updateSummary(
   userId: string,
   teamContext: TeamContext | null,
 ) {
-  const meeting = await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
+  const meeting = await assertMeetingAccess(
+    userId,
+    meetingId,
+    teamContext,
+    "mutate",
+  );
   const meetingPrincipal = principalForMeeting(meeting);
 
   const summaryUpdateData: {
@@ -137,7 +147,12 @@ export async function mergeConsecutiveSpeakerSegments(
   userId: string,
   teamContext: TeamContext | null,
 ) {
-  const meetingMeta = await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
+  const meetingMeta = await assertMeetingAccess(
+    userId,
+    meetingId,
+    teamContext,
+    "mutate",
+  );
   const meetingPrincipal = principalForMeeting(meetingMeta);
 
   const meeting = await prisma.meeting.findUnique({

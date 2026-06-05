@@ -12,9 +12,7 @@ import { logger } from "../../utils/logging/logger";
 import { TranscriptionStatus } from "@prisma/client";
 import { getAudioDuration } from "../../utils/audio/getAudioDuration";
 import { AppError } from "../../utils/errors/AppError";
-import {
-  assertMeetingAccess,
-} from "../meetings/meetingService";
+import { assertMeetingAccess } from "../meetings/meetingService";
 import type { TeamContext } from "../../middleware/authMiddleware";
 
 export interface UploadRecordingInput {
@@ -280,7 +278,12 @@ export const triggerAIProcessing = async (
   userId: string,
   teamContext: TeamContext | null,
 ): Promise<void> => {
-  const meeting = await assertMeetingAccess(userId, meetingId, teamContext, "mutate");
+  const meeting = await assertMeetingAccess(
+    userId,
+    meetingId,
+    teamContext,
+    "mutate",
+  );
 
   const transcript = await prisma.meetingTranscript.findFirst({
     where: { isDeleted: false, recording: { meetingId, isDeleted: false } },

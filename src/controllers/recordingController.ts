@@ -64,7 +64,11 @@ export const getRecordings = async (req: Request, res: Response) => {
     throw ErrorFactory.unauthorized("User not authenticated");
   }
 
-  const recordings = await recordingService.getRecordings(meetingId, userId, getTeamContext(req));
+  const recordings = await recordingService.getRecordings(
+    meetingId,
+    userId,
+    getTeamContext(req),
+  );
 
   return apiResponse(res, {
     statusCode: 200,
@@ -107,7 +111,11 @@ export const triggerAIProcessing = async (req: Request, res: Response) => {
     throw ErrorFactory.unauthorized("User not authenticated");
   }
 
-  await recordingService.triggerAIProcessing(meetingId, userId, getTeamContext(req));
+  await recordingService.triggerAIProcessing(
+    meetingId,
+    userId,
+    getTeamContext(req),
+  );
 
   return apiResponse(res, {
     statusCode: 200,

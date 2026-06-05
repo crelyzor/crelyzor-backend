@@ -9,10 +9,7 @@ export const getCards = async (req: Request, res: Response) => {
   const params = teamIdParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid team id", 400);
 
-  const data = await teamCardService.getTeamCards(
-    params.data.teamId,
-    actorId,
-  );
+  const data = await teamCardService.getTeamCards(params.data.teamId, actorId);
 
   return apiResponse(res, {
     statusCode: 200,
