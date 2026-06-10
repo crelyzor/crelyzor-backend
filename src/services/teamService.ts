@@ -66,6 +66,14 @@ export async function getRole(
   return member?.role ?? null;
 }
 
+export async function isSlugAvailable(slug: string): Promise<boolean> {
+  const existing = await prisma.team.findFirst({
+    where: { slug, isDeleted: false },
+    select: { id: true },
+  });
+  return existing === null;
+}
+
 async function readPlanLimit(plan: Exclude<Plan, "FREE">): Promise<number> {
   const row = await prisma.systemConfig.findUnique({
     where: { key: PLAN_LIMIT_KEY[plan] },

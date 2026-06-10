@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { z } from "zod";
 import { AppError } from "../utils/errors/AppError";
 import { apiResponse } from "../utils/globalResponseHandler";
 import {
@@ -8,6 +9,10 @@ import {
   teamIdParamSchema,
 } from "../validators/teamSchema";
 import * as teamService from "../services/teamService";
+
+const checkSlugQuerySchema = z.object({
+  slug: z.string().min(1).max(60),
+});
 
 export const create = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
@@ -78,6 +83,19 @@ export const remove = async (req: Request, res: Response) => {
   return apiResponse(res, {
     statusCode: 200,
     message: "Team deleted",
+  });
+};
+
+export const checkSlug = async (req: Request, res: Response) => {
+  const query = checkSlugQuerySchema.safeParse(req.query);
+  if (!query.success) throw new AppError("Invalid slug", 400);
+
+  const available = await teamService.isSlugAvailable(query.data.slug);
+
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Slug availability checked",
+    data: { slug: query.data.slug, available },
   });
 };
 
