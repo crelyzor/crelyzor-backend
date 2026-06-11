@@ -33,7 +33,8 @@ import {
   getTeamDetail as getAdminTeamDetail,
   adminDeleteTeam,
 } from "../services/admin/adminTeamService";
-import { rotateTeamDek } from "../services/security/keyRotationService";
+import { rotateTeamDek, rotateUserDek, cryptoShredUserData } from "../services/security/keyRotationService";
+import { createLog as createAuditLog } from "../services/admin/adminAuditLogService";
 import {
   configKeyParamSchema,
   updateConfigSchema,
@@ -311,4 +312,40 @@ export const deleteUserHandler = async (req: Request, res: Response) => {
   if (!params.success) throw new AppError("Invalid user id", 400);
   await adminSoftDeleteUser(params.data.id, req.adminId);
   return apiResponse(res, { statusCode: 200, message: "User deleted" });
+};
+
+export const rotateUserDekAdmin = async (req: Request, res: Response) => {
+  const params = adminUserIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid user id", 400);
+
+  const result = await rotateUserDek(params.data.id);
+  await createAuditLog({
+    action: "admin.user.dek.rotate",
+    adminId: req.adminId,
+    targetType: "user",
+    targetId: params.data.id,
+    metadata: { previousVersion: result.previousVersion, newVersion: result.newVersion },
+  });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "User DEK rotated",
+    data: result,
+  });
+};
+
+export const cryptoShredUserAdmin = async (req: Request, res: Response) => {
+  const params = adminUserIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid user id", 400);
+
+  await cryptoShredUserData(params.data.id);
+  await createAuditLog({
+    action: "admin.user.crypto_shred",
+    adminId: req.adminId,
+    targetType: "user",
+    targetId: params.data.id,
+  });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "User data crypto-shredded",
+  });
 };

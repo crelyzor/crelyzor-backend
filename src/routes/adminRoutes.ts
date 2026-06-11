@@ -24,6 +24,8 @@ import {
   getTeamDetailAdmin,
   deleteTeamAdmin,
   rotateTeamDekAdmin,
+  rotateUserDekAdmin,
+  cryptoShredUserAdmin,
 } from "../controllers/adminController";
 
 const adminRouter = Router();
@@ -50,6 +52,8 @@ adminRouter.patch("/users/:id/plan", updatePlan);
 adminRouter.patch("/users/:id/usage/reset", resetUsage);
 adminRouter.patch("/users/:id/suspend", suspendUserHandler);
 adminRouter.delete("/users/:id", deleteUserHandler);
+adminRouter.post("/users/:id/rotate-dek", rotateUserDekAdmin);
+adminRouter.post("/users/:id/crypto-shred", cryptoShredUserAdmin);
 
 // ── Phase 6 P8 — SystemConfig + team admin overrides ──────────────────────
 adminRouter.get("/config", getConfig);
