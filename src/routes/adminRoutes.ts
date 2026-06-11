@@ -26,6 +26,9 @@ import {
   rotateTeamDekAdmin,
   rotateUserDekAdmin,
   cryptoShredUserAdmin,
+  getAuditLog,
+  getHealth,
+  restoreTeamAdmin,
 } from "../controllers/adminController";
 
 const adminRouter = Router();
@@ -63,5 +66,9 @@ adminRouter.get("/teams", getTeamsAdmin);
 adminRouter.get("/teams/:teamId", getTeamDetailAdmin);
 adminRouter.delete("/teams/:teamId", deleteTeamAdmin);
 adminRouter.post("/teams/:teamId/rotate-dek", rotateTeamDekAdmin);
+adminRouter.patch("/teams/:teamId/restore", restoreTeamAdmin);
+
+adminRouter.get("/audit-log", getAuditLog);
+adminRouter.get("/health", getHealth);
 
 export default adminRouter;

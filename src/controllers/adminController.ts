@@ -32,9 +32,11 @@ import {
   listTeams as listAdminTeams,
   getTeamDetail as getAdminTeamDetail,
   adminDeleteTeam,
+  restoreTeam as adminRestoreTeam,
 } from "../services/admin/adminTeamService";
 import { rotateTeamDek, rotateUserDek, cryptoShredUserData } from "../services/security/keyRotationService";
-import { createLog as createAuditLog } from "../services/admin/adminAuditLogService";
+import { createLog as createAuditLog, listLogs } from "../services/admin/adminAuditLogService";
+import { getSystemHealth } from "../services/adminService";
 import {
   configKeyParamSchema,
   updateConfigSchema,
@@ -43,6 +45,7 @@ import {
   teamIdParamSchema as adminTeamIdParamSchema,
   listTeamsQuerySchema,
 } from "../validators/adminTeamSchema";
+import { listAuditLogSchema } from "../validators/adminAuditLogSchema";
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -355,4 +358,31 @@ export const cryptoShredUserAdmin = async (req: Request, res: Response) => {
     statusCode: 200,
     message: "User data crypto-shredded",
   });
+};
+
+export const getAuditLog = async (req: Request, res: Response) => {
+  const parsed = listAuditLogSchema.safeParse(req.query);
+  if (!parsed.success) throw new AppError("Invalid query params", 400);
+
+  const result = await listLogs(parsed.data);
+  return apiResponse(res, { statusCode: 200, message: "Audit log fetched", data: result });
+};
+
+export const getHealth = async (_req: Request, res: Response) => {
+  const result = await getSystemHealth();
+  return apiResponse(res, { statusCode: 200, message: "Health fetched", data: result });
+};
+
+export const restoreTeamAdmin = async (req: Request, res: Response) => {
+  const params = adminTeamIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid team id", 400);
+
+  await adminRestoreTeam(params.data.teamId, req.adminId!);
+  await createAuditLog({
+    action: "admin.team.restore",
+    adminId: req.adminId,
+    targetType: "team",
+    targetId: params.data.teamId,
+  });
+  return apiResponse(res, { statusCode: 200, message: "Team restored" });
 };

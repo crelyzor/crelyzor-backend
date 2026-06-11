@@ -9,6 +9,8 @@ import { sendEmail } from "./email/emailService";
 import { adminInviteTemplate } from "./email/templates/adminInvite";
 import type { Plan } from "@prisma/client";
 import { createLog } from "./admin/adminAuditLogService";
+import { getTranscriptionQueue } from "../config/queue";
+import { getRedisClient } from "../config/redisClient";
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -447,5 +449,30 @@ export async function getPlatformStats() {
       storageGb: usageTotals._sum.storageGbUsed ?? 0,
     },
     encryption: { usersWithDek, totalUsers },
+  };
+}
+
+export async function getSystemHealth() {
+  const queue = getTranscriptionQueue();
+  const [waiting, active, failed, delayed, completed] = await Promise.all([
+    queue.getWaitingCount(),
+    queue.getActiveCount(),
+    queue.getFailedCount(),
+    queue.getDelayedCount(),
+    queue.getCompletedCount(),
+  ]);
+
+  let redisOk = false;
+  try {
+    const redis = getRedisClient();
+    const pong = await redis.ping();
+    redisOk = pong === "PONG";
+  } catch {
+    redisOk = false;
+  }
+
+  return {
+    queue: { waiting, active, failed, delayed, completed },
+    redis: { ok: redisOk },
   };
 }

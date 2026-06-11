@@ -179,3 +179,27 @@ export async function adminDeleteTeam(
     teamSlug: team.slug,
   });
 }
+
+export async function restoreTeam(teamId: string, adminId: string): Promise<void> {
+  const team = await prisma.team.findFirst({
+    where: { id: teamId, isDeleted: true },
+    select: { id: true },
+  });
+  if (!team) throw new AppError("Deleted team not found", 404);
+
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.team.update({
+        where: { id: teamId },
+        data: { isDeleted: false, deletedAt: null },
+      });
+      await tx.teamMember.updateMany({
+        where: { teamId, isDeleted: true },
+        data: { isDeleted: false, deletedAt: null },
+      });
+    },
+    { timeout: 15000 },
+  );
+
+  logger.info("admin.team.restore", { teamId, adminId });
+}
