@@ -62,7 +62,7 @@ export async function removeAdmin(targetId: string, requestingAdminId: string) {
 
       await tx.adminUser.delete({ where: { id: targetId } });
     },
-    { timeout: 10000 },
+    { timeout: 15000 },
   );
 
   await createLog({
@@ -107,7 +107,7 @@ export async function sendInvite(
         select: { name: true },
       });
     },
-    { timeout: 10000 },
+    { timeout: 15000 },
   );
 
   const portalUrl =
@@ -175,7 +175,7 @@ export async function acceptInvite(token: string, password: string) {
       });
       return newAdmin;
     },
-    { timeout: 10000 },
+    { timeout: 15000 },
   );
 
   const secret = process.env.ADMIN_JWT_SECRET!;
