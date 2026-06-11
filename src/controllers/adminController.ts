@@ -10,6 +10,7 @@ import {
   adminUpdatePlanSchema,
   adminInviteSchema,
   adminAcceptInviteSchema,
+  adminUserIdParamSchema,
 } from "../validators/adminSchema";
 import {
   adminLogin,
@@ -295,8 +296,9 @@ export const getStats = async (req: Request, res: Response) => {
 };
 
 export const suspendUserHandler = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const result = await adminSuspendUser(id, req.adminId);
+  const params = adminUserIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid user id", 400);
+  const result = await adminSuspendUser(params.data.id, req.adminId);
   return apiResponse(res, {
     statusCode: 200,
     message: result.isActive ? "User unsuspended" : "User suspended",
@@ -305,7 +307,8 @@ export const suspendUserHandler = async (req: Request, res: Response) => {
 };
 
 export const deleteUserHandler = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  await adminSoftDeleteUser(id, req.adminId);
+  const params = adminUserIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid user id", 400);
+  await adminSoftDeleteUser(params.data.id, req.adminId);
   return apiResponse(res, { statusCode: 200, message: "User deleted" });
 };

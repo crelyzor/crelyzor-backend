@@ -356,23 +356,34 @@ export async function resetUserUsage(userId: string) {
 }
 
 export async function suspendUser(userId: string, adminId?: string) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId, isDeleted: false },
-    select: { id: true, isActive: true },
-  });
-  if (!user) throw new AppError("User not found", 404);
+  const updated = await prisma.$transaction(
+    async (tx) => {
+      const user = await tx.user.findUnique({
+        where: { id: userId, isDeleted: false },
+        select: { id: true, isActive: true },
+      });
+      if (!user) throw new AppError("User not found", 404);
 
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data: { isActive: !user.isActive },
-    select: { id: true, isActive: true },
-  });
+      return tx.user.update({
+        where: { id: userId },
+        data: { isActive: !user.isActive },
+        select: { id: true, isActive: true },
+      });
+    },
+    { timeout: 15000 },
+  );
 
   await createLog({
     action: updated.isActive ? "admin.user.unsuspend" : "admin.user.suspend",
     adminId,
     targetType: "user",
     targetId: userId,
+  });
+
+  logger.info(updated.isActive ? "admin.user.unsuspend" : "admin.user.suspend", {
+    adminId: adminId ?? null,
+    userId,
+    isActive: updated.isActive,
   });
 
   return updated;
