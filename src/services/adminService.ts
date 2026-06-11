@@ -8,6 +8,9 @@ import { getLimitsForPlan } from "./billing/usageService";
 import { sendEmail } from "./email/emailService";
 import { adminInviteTemplate } from "./email/templates/adminInvite";
 import type { Plan } from "@prisma/client";
+import { createLog } from "./admin/adminAuditLogService";
+import { getTranscriptionQueue } from "../config/queue";
+import { getRedisClient } from "../config/redisClient";
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -61,8 +64,15 @@ export async function removeAdmin(targetId: string, requestingAdminId: string) {
 
       await tx.adminUser.delete({ where: { id: targetId } });
     },
-    { timeout: 10000 },
+    { timeout: 15000 },
   );
+
+  await createLog({
+    action: "admin.admin.remove",
+    adminId: requestingAdminId,
+    targetType: "admin",
+    targetId: targetId,
+  });
 
   logger.info("Admin removed", { targetId, removedBy: requestingAdminId });
 }
@@ -99,7 +109,7 @@ export async function sendInvite(
         select: { name: true },
       });
     },
-    { timeout: 10000 },
+    { timeout: 15000 },
   );
 
   const portalUrl =
@@ -167,7 +177,7 @@ export async function acceptInvite(token: string, password: string) {
       });
       return newAdmin;
     },
-    { timeout: 10000 },
+    { timeout: 15000 },
   );
 
   const secret = process.env.ADMIN_JWT_SECRET!;
@@ -245,17 +255,20 @@ export async function getUserDetail(userId: string) {
       name: true,
       email: true,
       plan: true,
+      isActive: true,
       createdAt: true,
       updatedAt: true,
       username: true,
       usage: true,
+      wrappedDek: true,
     },
   });
 
   if (!user) throw new AppError("User not found", 404);
 
   const limits = getLimitsForPlan(user.plan);
-  return { user, limits };
+  const { wrappedDek, ...userWithoutDek } = user;
+  return { user: { ...userWithoutDek, hasDek: wrappedDek !== null }, limits };
 }
 
 export async function updateUserPlan(
@@ -274,6 +287,14 @@ export async function updateUserPlan(
     where: { id: userId },
     data: { plan },
     select: { id: true, email: true, plan: true },
+  });
+
+  await createLog({
+    action: "admin.user.plan.update",
+    adminId,
+    targetType: "user",
+    targetId: userId,
+    metadata: { previousPlan: user.plan, plan },
   });
 
   // Phase 6 P8 — structured audit log entry. `previousPlan` lets a log
@@ -336,25 +357,88 @@ export async function resetUserUsage(userId: string) {
   return personal;
 }
 
+export async function suspendUser(userId: string, adminId?: string) {
+  const updated = await prisma.$transaction(
+    async (tx) => {
+      const user = await tx.user.findUnique({
+        where: { id: userId, isDeleted: false },
+        select: { id: true, isActive: true },
+      });
+      if (!user) throw new AppError("User not found", 404);
+
+      return tx.user.update({
+        where: { id: userId },
+        data: { isActive: !user.isActive },
+        select: { id: true, isActive: true },
+      });
+    },
+    { timeout: 15000 },
+  );
+
+  await createLog({
+    action: updated.isActive ? "admin.user.unsuspend" : "admin.user.suspend",
+    adminId,
+    targetType: "user",
+    targetId: userId,
+  });
+
+  logger.info(
+    updated.isActive ? "admin.user.unsuspend" : "admin.user.suspend",
+    {
+      adminId: adminId ?? null,
+      userId,
+      isActive: updated.isActive,
+    },
+  );
+
+  return updated;
+}
+
+export async function softDeleteUser(userId: string, adminId?: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!user) throw new AppError("User not found", 404);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { isDeleted: true, deletedAt: new Date() },
+  });
+
+  await createLog({
+    action: "admin.user.delete",
+    adminId,
+    targetType: "user",
+    targetId: userId,
+  });
+
+  logger.info("admin.user.delete", { adminId, userId });
+}
+
 // ─── Stats ───────────────────────────────────────────────────────────────────
 
 export async function getPlatformStats() {
-  const [totalUsers, planBreakdown, usageTotals] = await Promise.all([
-    prisma.user.count({ where: { isDeleted: false } }),
-    prisma.user.groupBy({
-      by: ["plan"],
-      where: { isDeleted: false },
-      _count: { id: true },
-    }),
-    prisma.userUsage.aggregate({
-      _sum: {
-        transcriptionMinutesUsed: true,
-        recallHoursUsed: true,
-        aiCreditsUsed: true,
-        storageGbUsed: true,
-      },
-    }),
-  ]);
+  const [totalUsers, planBreakdown, usageTotals, usersWithDek] =
+    await Promise.all([
+      prisma.user.count({ where: { isDeleted: false } }),
+      prisma.user.groupBy({
+        by: ["plan"],
+        where: { isDeleted: false },
+        _count: { id: true },
+      }),
+      prisma.userUsage.aggregate({
+        _sum: {
+          transcriptionMinutesUsed: true,
+          recallHoursUsed: true,
+          aiCreditsUsed: true,
+          storageGbUsed: true,
+        },
+      }),
+      prisma.user.count({
+        where: { isDeleted: false, wrappedDek: { not: null } },
+      }),
+    ]);
 
   const planCounts = { FREE: 0, PRO: 0, BUSINESS: 0 };
   for (const row of planBreakdown) {
@@ -370,5 +454,46 @@ export async function getPlatformStats() {
       aiCredits: usageTotals._sum.aiCreditsUsed ?? 0,
       storageGb: usageTotals._sum.storageGbUsed ?? 0,
     },
+    encryption: { usersWithDek, totalUsers },
+  };
+}
+
+export async function getSystemHealth() {
+  const queue = getTranscriptionQueue();
+
+  let queueCounts = {
+    waiting: -1,
+    active: -1,
+    failed: -1,
+    delayed: -1,
+    completed: -1,
+  };
+  try {
+    const [waiting, active, failed, delayed, completed] = await Promise.all([
+      queue.getWaitingCount(),
+      queue.getActiveCount(),
+      queue.getFailedCount(),
+      queue.getDelayedCount(),
+      queue.getCompletedCount(),
+    ]);
+    queueCounts = { waiting, active, failed, delayed, completed };
+  } catch {
+    logger.warn(
+      "getSystemHealth: queue unreachable, returning sentinel values",
+    );
+  }
+
+  let redisOk = false;
+  try {
+    const redis = getRedisClient();
+    const pong = await redis.ping();
+    redisOk = pong === "PONG";
+  } catch {
+    redisOk = false;
+  }
+
+  return {
+    queue: queueCounts,
+    redis: { ok: redisOk },
   };
 }

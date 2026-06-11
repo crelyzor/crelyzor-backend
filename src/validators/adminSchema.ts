@@ -24,3 +24,7 @@ export const adminAcceptInviteSchema = z.object({
   token: z.string().regex(/^[a-f0-9]{64}$/, "Invalid invite token"),
   password: z.string().min(12, "Password must be at least 12 characters"),
 });
+
+export const adminUserIdParamSchema = z.object({
+  id: z.string().uuid("Invalid user id"),
+});

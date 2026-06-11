@@ -1369,3 +1369,18 @@ model AdminInvite {
   @@index([email])
   @@index([expiresAt])
 }
+
+model AdminAuditLog {
+  id         String    @id @default(uuid()) @db.Uuid
+  action     String
+  adminId    String?   @db.Uuid
+  targetType String?
+  targetId   String?   @db.Uuid
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+
+  @@index([action])
+  @@index([adminId])
+  @@index([targetId])
+  @@index([createdAt(sort: Desc)])
+}

@@ -10,6 +10,7 @@ import {
   adminUpdatePlanSchema,
   adminInviteSchema,
   adminAcceptInviteSchema,
+  adminUserIdParamSchema,
 } from "../validators/adminSchema";
 import {
   adminLogin,
@@ -23,14 +24,26 @@ import {
   sendInvite,
   validateInviteToken,
   acceptInvite,
+  suspendUser as adminSuspendUser,
+  softDeleteUser as adminSoftDeleteUser,
 } from "../services/adminService";
 import { listConfig, updateConfig } from "../services/admin/adminConfigService";
 import {
   listTeams as listAdminTeams,
   getTeamDetail as getAdminTeamDetail,
   adminDeleteTeam,
+  restoreTeam as adminRestoreTeam,
 } from "../services/admin/adminTeamService";
-import { rotateTeamDek } from "../services/security/keyRotationService";
+import {
+  rotateTeamDek,
+  rotateUserDek,
+  cryptoShredUserData,
+} from "../services/security/keyRotationService";
+import {
+  createLog as createAuditLog,
+  listLogs,
+} from "../services/admin/adminAuditLogService";
+import { getSystemHealth } from "../services/adminService";
 import {
   configKeyParamSchema,
   updateConfigSchema,
@@ -39,6 +52,7 @@ import {
   teamIdParamSchema as adminTeamIdParamSchema,
   listTeamsQuerySchema,
 } from "../validators/adminTeamSchema";
+import { listAuditLogSchema } from "../validators/adminAuditLogSchema";
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -266,6 +280,16 @@ export const rotateTeamDekAdmin = async (req: Request, res: Response) => {
   if (!params.success) throw new AppError("Invalid team id", 400);
 
   const result = await rotateTeamDek(params.data.teamId);
+  await createAuditLog({
+    action: "admin.team.dek.rotate",
+    adminId: req.adminId!,
+    targetType: "team",
+    targetId: params.data.teamId,
+    metadata: {
+      previousVersion: result.previousVersion,
+      newVersion: result.newVersion,
+    },
+  });
   return apiResponse(res, {
     statusCode: 200,
     message: "Team DEK rotated",
@@ -290,4 +314,90 @@ export const getStats = async (req: Request, res: Response) => {
     message: "Platform stats fetched",
     data: stats,
   });
+};
+
+export const suspendUserHandler = async (req: Request, res: Response) => {
+  const params = adminUserIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid user id", 400);
+  const result = await adminSuspendUser(params.data.id, req.adminId);
+  return apiResponse(res, {
+    statusCode: 200,
+    message: result.isActive ? "User unsuspended" : "User suspended",
+    data: result,
+  });
+};
+
+export const deleteUserHandler = async (req: Request, res: Response) => {
+  const params = adminUserIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid user id", 400);
+  await adminSoftDeleteUser(params.data.id, req.adminId);
+  return apiResponse(res, { statusCode: 200, message: "User deleted" });
+};
+
+export const rotateUserDekAdmin = async (req: Request, res: Response) => {
+  const params = adminUserIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid user id", 400);
+
+  const result = await rotateUserDek(params.data.id);
+  await createAuditLog({
+    action: "admin.user.dek.rotate",
+    adminId: req.adminId,
+    targetType: "user",
+    targetId: params.data.id,
+    metadata: {
+      previousVersion: result.previousVersion,
+      newVersion: result.newVersion,
+    },
+  });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "User DEK rotated",
+    data: result,
+  });
+};
+
+export const cryptoShredUserAdmin = async (req: Request, res: Response) => {
+  const params = adminUserIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid user id", 400);
+
+  await cryptoShredUserData(params.data.id);
+  await createAuditLog({
+    action: "admin.user.crypto_shred",
+    adminId: req.adminId,
+    targetType: "user",
+    targetId: params.data.id,
+  });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "User data crypto-shredded",
+  });
+};
+
+export const getAuditLog = async (req: Request, res: Response) => {
+  const parsed = listAuditLogSchema.safeParse(req.query);
+  if (!parsed.success) throw new AppError("Invalid query params", 400);
+
+  const result = await listLogs(parsed.data);
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Audit log fetched",
+    data: result,
+  });
+};
+
+export const getHealth = async (_req: Request, res: Response) => {
+  const result = await getSystemHealth();
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Health fetched",
+    data: result,
+  });
+};
+
+export const restoreTeamAdmin = async (req: Request, res: Response) => {
+  const params = adminTeamIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid team id", 400);
+
+  await adminRestoreTeam(params.data.teamId, req.adminId!);
+  return apiResponse(res, { statusCode: 200, message: "Team restored" });
 };
