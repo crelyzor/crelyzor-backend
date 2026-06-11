@@ -22,6 +22,8 @@ export function taskAssignedEmail(p: TaskAssignedParams): string {
   return emailLayout(body);
 }
 
-export function taskAssignedSubject(p: Pick<TaskAssignedParams, "taskTitle">): string {
+export function taskAssignedSubject(
+  p: Pick<TaskAssignedParams, "taskTitle">,
+): string {
   return `You've been assigned: "${p.taskTitle}"`;
 }

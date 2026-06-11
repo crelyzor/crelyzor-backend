@@ -876,7 +876,10 @@ export async function getInviteLink(
 }> {
   const role = await getRole(actorId, teamId);
   if (!role || ROLE_RANK[role] < ROLE_RANK.ADMIN) {
-    throw new AppError("Only admins and owners can manage the invite link", 403);
+    throw new AppError(
+      "Only admins and owners can manage the invite link",
+      403,
+    );
   }
 
   const team = await prisma.team.findFirst({
@@ -914,7 +917,10 @@ export async function generateInviteLink(
 }> {
   const role = await getRole(actorId, teamId);
   if (!role || ROLE_RANK[role] < ROLE_RANK.ADMIN) {
-    throw new AppError("Only admins and owners can generate the invite link", 403);
+    throw new AppError(
+      "Only admins and owners can generate the invite link",
+      403,
+    );
   }
 
   const token = generateToken();
@@ -946,7 +952,10 @@ export async function revokeInviteLink(
 ): Promise<void> {
   const role = await getRole(actorId, teamId);
   if (!role || ROLE_RANK[role] < ROLE_RANK.ADMIN) {
-    throw new AppError("Only admins and owners can revoke the invite link", 403);
+    throw new AppError(
+      "Only admins and owners can revoke the invite link",
+      403,
+    );
   }
 
   await prisma.team.update({
@@ -988,7 +997,8 @@ export async function joinByLink(
     },
   });
 
-  if (!team) throw new AppError("This invite link is invalid or has been revoked", 404);
+  if (!team)
+    throw new AppError("This invite link is invalid or has been revoked", 404);
 
   if (team.inviteLinkExpiresAt && team.inviteLinkExpiresAt < new Date()) {
     throw new AppError("This invite link has expired", 410);

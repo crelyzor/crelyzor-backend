@@ -401,7 +401,10 @@ export const meetingService = {
             // Phase 6 P5.1.a — write teamId from caller's context so the
             // meeting is bound to the team for all subsequent reads.
             // VOICE_NOTE is always personal regardless of team context.
-            teamId: type === MeetingType.VOICE_NOTE ? null : (teamContext?.teamId ?? null),
+            teamId:
+              type === MeetingType.VOICE_NOTE
+                ? null
+                : (teamContext?.teamId ?? null),
           },
         });
         // Encryption principal is derived from the meeting row, never from
@@ -1148,7 +1151,8 @@ export const meetingService = {
 
     // Voice notes are always personal — ignore team context so they remain
     // visible regardless of which workspace is active.
-    const effectiveContext = type === MeetingType.VOICE_NOTE ? null : teamContext;
+    const effectiveContext =
+      type === MeetingType.VOICE_NOTE ? null : teamContext;
     const where: Prisma.MeetingWhereInput = {
       isDeleted: false,
       ...meetingScope(userId, effectiveContext),
@@ -1200,7 +1204,8 @@ export const meetingService = {
 
     // Voice notes are always personal — ignore team context so they remain
     // visible regardless of which workspace is active.
-    const effectiveContext = type === MeetingType.VOICE_NOTE ? null : teamContext;
+    const effectiveContext =
+      type === MeetingType.VOICE_NOTE ? null : teamContext;
     const where: Prisma.MeetingWhereInput = {
       isDeleted: false,
       ...meetingScope(userId, effectiveContext),

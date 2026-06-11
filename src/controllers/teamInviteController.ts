@@ -133,7 +133,10 @@ export const getInviteLink = async (req: Request, res: Response) => {
   const params = teamIdParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid team id", 400);
 
-  const data = await teamInviteService.getInviteLink(actorId, params.data.teamId);
+  const data = await teamInviteService.getInviteLink(
+    actorId,
+    params.data.teamId,
+  );
 
   return apiResponse(res, {
     statusCode: 200,
@@ -147,7 +150,10 @@ export const generateInviteLink = async (req: Request, res: Response) => {
   const params = teamIdParamSchema.safeParse(req.params);
   if (!params.success) throw new AppError("Invalid team id", 400);
 
-  const data = await teamInviteService.generateInviteLink(actorId, params.data.teamId);
+  const data = await teamInviteService.generateInviteLink(
+    actorId,
+    params.data.teamId,
+  );
 
   return apiResponse(res, {
     statusCode: 201,

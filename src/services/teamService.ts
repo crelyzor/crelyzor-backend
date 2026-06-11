@@ -211,7 +211,16 @@ export async function createTeam(
 export async function getTeamById(
   userId: string,
   teamId: string,
-): Promise<PublicTeam & { owner: { id: string; name: string | null; email: string; plan: Plan } | null }> {
+): Promise<
+  PublicTeam & {
+    owner: {
+      id: string;
+      name: string | null;
+      email: string;
+      plan: Plan;
+    } | null;
+  }
+> {
   const role = await getRole(userId, teamId);
   if (!role) throw ErrorFactory.notFound("Team");
 

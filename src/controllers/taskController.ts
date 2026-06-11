@@ -84,7 +84,11 @@ function flattenTags<
       type: string;
       isDeleted: boolean;
     } | null;
-    assignee?: { id: string; name: string | null; avatarUrl: string | null } | null;
+    assignee?: {
+      id: string;
+      name: string | null;
+      avatarUrl: string | null;
+    } | null;
   },
 >(task: T) {
   const { taskTags, meeting, assignee, ...rest } = task;
@@ -630,8 +634,12 @@ export const updateTask = async (req: Request, res: Response) => {
     if (assigneeId === null) {
       resolvedAssigneeName = null;
     } else {
-      if (!existing.teamId) throw new AppError("Cannot assign a personal task", 400);
-      resolvedAssigneeName = await assertAssigneeIsMember(assigneeId, existing.teamId);
+      if (!existing.teamId)
+        throw new AppError("Cannot assign a personal task", 400);
+      resolvedAssigneeName = await assertAssigneeIsMember(
+        assigneeId,
+        existing.teamId,
+      );
     }
   }
 
@@ -833,7 +841,9 @@ export const updateTask = async (req: Request, res: Response) => {
   }
 
   const assigneeChanged =
-    assigneeId !== undefined && assigneeId !== null && assigneeId !== existing.assigneeId;
+    assigneeId !== undefined &&
+    assigneeId !== null &&
+    assigneeId !== existing.assigneeId;
   if (assigneeChanged) {
     await notifyTaskAssigned({
       taskId: task.id,

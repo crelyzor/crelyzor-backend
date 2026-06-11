@@ -2,7 +2,10 @@ import prisma from "../../db/prismaClient";
 import { AppError } from "../../utils/errors/AppError";
 import { createNotification } from "../notificationService";
 import { sendEmail } from "../email/emailService";
-import { taskAssignedEmail, taskAssignedSubject } from "../email/templates/taskAssigned";
+import {
+  taskAssignedEmail,
+  taskAssignedSubject,
+} from "../email/templates/taskAssigned";
 import { env } from "../../config/environment";
 import { logger } from "../../utils/logging/logger";
 
@@ -64,13 +67,23 @@ export async function notifyTaskAssigned(params: NotifyParams): Promise<void> {
       taskId,
     );
   } catch (err) {
-    logger.error("notifyTaskAssigned: in-app notification failed", { taskId, assigneeId, err });
+    logger.error("notifyTaskAssigned: in-app notification failed", {
+      taskId,
+      assigneeId,
+      err,
+    });
   }
 
   try {
     const [assignee, assigner] = await Promise.all([
-      prisma.user.findUnique({ where: { id: assigneeId }, select: { email: true, name: true } }),
-      prisma.user.findUnique({ where: { id: assignedByUserId }, select: { name: true } }),
+      prisma.user.findUnique({
+        where: { id: assigneeId },
+        select: { email: true, name: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: assignedByUserId },
+        select: { name: true },
+      }),
     ]);
 
     if (!assignee?.email) return;
@@ -86,6 +99,10 @@ export async function notifyTaskAssigned(params: NotifyParams): Promise<void> {
       }),
     });
   } catch (err) {
-    logger.error("notifyTaskAssigned: email failed", { taskId, assigneeId, err });
+    logger.error("notifyTaskAssigned: email failed", {
+      taskId,
+      assigneeId,
+      err,
+    });
   }
 }
