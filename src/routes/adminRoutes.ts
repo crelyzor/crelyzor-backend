@@ -15,6 +15,8 @@ import {
   updatePlan,
   resetUsage,
   getStats,
+  suspendUserHandler,
+  deleteUserHandler,
   // Phase 6 P8
   getConfig,
   patchConfig,
@@ -46,6 +48,8 @@ adminRouter.get("/users", getUsers);
 adminRouter.get("/users/:id", getUser);
 adminRouter.patch("/users/:id/plan", updatePlan);
 adminRouter.patch("/users/:id/usage/reset", resetUsage);
+adminRouter.patch("/users/:id/suspend", suspendUserHandler);
+adminRouter.delete("/users/:id", deleteUserHandler);
 
 // ── Phase 6 P8 — SystemConfig + team admin overrides ──────────────────────
 adminRouter.get("/config", getConfig);

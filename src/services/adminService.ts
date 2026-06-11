@@ -253,17 +253,20 @@ export async function getUserDetail(userId: string) {
       name: true,
       email: true,
       plan: true,
+      isActive: true,
       createdAt: true,
       updatedAt: true,
       username: true,
       usage: true,
+      wrappedDek: true,
     },
   });
 
   if (!user) throw new AppError("User not found", 404);
 
   const limits = getLimitsForPlan(user.plan);
-  return { user, limits };
+  const { wrappedDek, ...userWithoutDek } = user;
+  return { user: { ...userWithoutDek, hasDek: wrappedDek !== null }, limits };
 }
 
 export async function updateUserPlan(
@@ -352,10 +355,55 @@ export async function resetUserUsage(userId: string) {
   return personal;
 }
 
+export async function suspendUser(userId: string, adminId?: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId, isDeleted: false },
+    select: { id: true, isActive: true },
+  });
+  if (!user) throw new AppError("User not found", 404);
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { isActive: !user.isActive },
+    select: { id: true, isActive: true },
+  });
+
+  await createLog({
+    action: updated.isActive ? "admin.user.unsuspend" : "admin.user.suspend",
+    adminId,
+    targetType: "user",
+    targetId: userId,
+  });
+
+  return updated;
+}
+
+export async function softDeleteUser(userId: string, adminId?: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!user) throw new AppError("User not found", 404);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { isDeleted: true, deletedAt: new Date() },
+  });
+
+  await createLog({
+    action: "admin.user.delete",
+    adminId,
+    targetType: "user",
+    targetId: userId,
+  });
+
+  logger.info("admin.user.delete", { adminId, userId });
+}
+
 // ─── Stats ───────────────────────────────────────────────────────────────────
 
 export async function getPlatformStats() {
-  const [totalUsers, planBreakdown, usageTotals] = await Promise.all([
+  const [totalUsers, planBreakdown, usageTotals, usersWithDek] = await Promise.all([
     prisma.user.count({ where: { isDeleted: false } }),
     prisma.user.groupBy({
       by: ["plan"],
@@ -370,6 +418,7 @@ export async function getPlatformStats() {
         storageGbUsed: true,
       },
     }),
+    prisma.user.count({ where: { isDeleted: false, wrappedDek: { not: null } } }),
   ]);
 
   const planCounts = { FREE: 0, PRO: 0, BUSINESS: 0 };
@@ -386,5 +435,6 @@ export async function getPlatformStats() {
       aiCredits: usageTotals._sum.aiCreditsUsed ?? 0,
       storageGb: usageTotals._sum.storageGbUsed ?? 0,
     },
+    encryption: { usersWithDek, totalUsers },
   };
 }

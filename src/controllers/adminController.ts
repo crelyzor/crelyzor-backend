@@ -23,6 +23,8 @@ import {
   sendInvite,
   validateInviteToken,
   acceptInvite,
+  suspendUser as adminSuspendUser,
+  softDeleteUser as adminSoftDeleteUser,
 } from "../services/adminService";
 import { listConfig, updateConfig } from "../services/admin/adminConfigService";
 import {
@@ -290,4 +292,20 @@ export const getStats = async (req: Request, res: Response) => {
     message: "Platform stats fetched",
     data: stats,
   });
+};
+
+export const suspendUserHandler = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const result = await adminSuspendUser(id, req.adminId);
+  return apiResponse(res, {
+    statusCode: 200,
+    message: result.isActive ? "User unsuspended" : "User suspended",
+    data: result,
+  });
+};
+
+export const deleteUserHandler = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  await adminSoftDeleteUser(id, req.adminId);
+  return apiResponse(res, { statusCode: 200, message: "User deleted" });
 };
