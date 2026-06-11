@@ -30,6 +30,7 @@ import {
   getTeamDetail as getAdminTeamDetail,
   adminDeleteTeam,
 } from "../services/admin/adminTeamService";
+import { rotateTeamDek } from "../services/security/keyRotationService";
 import {
   configKeyParamSchema,
   updateConfigSchema,
@@ -257,6 +258,18 @@ export const deleteTeamAdmin = async (req: Request, res: Response) => {
   return apiResponse(res, {
     statusCode: 200,
     message: "Team deleted (admin override)",
+  });
+};
+
+export const rotateTeamDekAdmin = async (req: Request, res: Response) => {
+  const params = adminTeamIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new AppError("Invalid team id", 400);
+
+  const result = await rotateTeamDek(params.data.teamId);
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Team DEK rotated",
+    data: result,
   });
 };
 

@@ -57,6 +57,9 @@ const inviteLinkMutateLimiter = userRateLimit(
 
 // ── Team CRUD ────────────────────────────────────────────────────────────────
 router.get("/", readLimiter, teamController.listMine);
+// Must be registered before /:teamId/* to prevent Express from matching
+// "check-slug" as a teamId.
+router.get("/check-slug", readLimiter, teamController.checkSlug);
 router.post("/", createLimiter, teamController.create);
 // Phase 6 P13 — invitee-side pending invites. Must be registered BEFORE the
 // `/:teamId/*` family below, otherwise Express matches `me` as a `:teamId`.
