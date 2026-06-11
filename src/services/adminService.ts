@@ -454,13 +454,20 @@ export async function getPlatformStats() {
 
 export async function getSystemHealth() {
   const queue = getTranscriptionQueue();
-  const [waiting, active, failed, delayed, completed] = await Promise.all([
-    queue.getWaitingCount(),
-    queue.getActiveCount(),
-    queue.getFailedCount(),
-    queue.getDelayedCount(),
-    queue.getCompletedCount(),
-  ]);
+
+  let queueCounts = { waiting: -1, active: -1, failed: -1, delayed: -1, completed: -1 };
+  try {
+    const [waiting, active, failed, delayed, completed] = await Promise.all([
+      queue.getWaitingCount(),
+      queue.getActiveCount(),
+      queue.getFailedCount(),
+      queue.getDelayedCount(),
+      queue.getCompletedCount(),
+    ]);
+    queueCounts = { waiting, active, failed, delayed, completed };
+  } catch {
+    logger.warn("getSystemHealth: queue unreachable, returning sentinel values");
+  }
 
   let redisOk = false;
   try {
@@ -472,7 +479,7 @@ export async function getSystemHealth() {
   }
 
   return {
-    queue: { waiting, active, failed, delayed, completed },
+    queue: queueCounts,
     redis: { ok: redisOk },
   };
 }

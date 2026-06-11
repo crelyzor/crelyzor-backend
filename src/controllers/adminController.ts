@@ -378,11 +378,5 @@ export const restoreTeamAdmin = async (req: Request, res: Response) => {
   if (!params.success) throw new AppError("Invalid team id", 400);
 
   await adminRestoreTeam(params.data.teamId, req.adminId!);
-  await createAuditLog({
-    action: "admin.team.restore",
-    adminId: req.adminId,
-    targetType: "team",
-    targetId: params.data.teamId,
-  });
   return apiResponse(res, { statusCode: 200, message: "Team restored" });
 };

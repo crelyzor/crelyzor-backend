@@ -202,4 +202,11 @@ export async function restoreTeam(teamId: string, adminId: string): Promise<void
   );
 
   logger.info("admin.team.restore", { teamId, adminId });
+
+  await createLog({
+    action: "admin.team.restore",
+    adminId,
+    targetType: "team",
+    targetId: teamId,
+  });
 }
