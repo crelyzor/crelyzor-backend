@@ -16,7 +16,7 @@ import { evictDek } from "../../utils/security/dekCache";
 import { logger } from "../../utils/logging/logger";
 
 export interface RotationResult {
-  teamId: string;
+  id: string;
   previousVersion: number;
   newVersion: number;
 }
@@ -61,7 +61,7 @@ export async function rotateTeamDek(teamId: string): Promise<RotationResult> {
 
   logger.info("team.dek.rotated", { teamId, previousVersion, newVersion });
 
-  return { teamId, previousVersion, newVersion };
+  return { id: teamId, previousVersion, newVersion };
 }
 
 export async function rotateUserDek(userId: string): Promise<RotationResult> {
@@ -102,7 +102,7 @@ export async function rotateUserDek(userId: string): Promise<RotationResult> {
 
   evictDek({ type: "user", id: userId });
   logger.info("user.dek.rotated", { userId, previousVersion, newVersion });
-  return { teamId: userId, previousVersion, newVersion };
+  return { id: userId, previousVersion, newVersion };
 }
 
 export async function cryptoShredUserData(userId: string): Promise<void> {

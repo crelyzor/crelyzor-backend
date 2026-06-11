@@ -270,6 +270,13 @@ export const rotateTeamDekAdmin = async (req: Request, res: Response) => {
   if (!params.success) throw new AppError("Invalid team id", 400);
 
   const result = await rotateTeamDek(params.data.teamId);
+  await createAuditLog({
+    action: "admin.team.dek.rotate",
+    adminId: req.adminId!,
+    targetType: "team",
+    targetId: params.data.teamId,
+    metadata: { previousVersion: result.previousVersion, newVersion: result.newVersion },
+  });
   return apiResponse(res, {
     statusCode: 200,
     message: "Team DEK rotated",
