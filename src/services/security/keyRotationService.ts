@@ -11,10 +11,7 @@
  */
 import prisma from "../../db/prismaClient";
 import { AppError } from "../../utils/errors/AppError";
-import {
-  generateAndWrapDek,
-  prismaBytes,
-} from "../../utils/security/crypto";
+import { generateAndWrapDek, prismaBytes } from "../../utils/security/crypto";
 import { evictDek } from "../../utils/security/dekCache";
 import { logger } from "../../utils/logging/logger";
 
