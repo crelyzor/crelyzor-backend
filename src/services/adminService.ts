@@ -8,6 +8,7 @@ import { getLimitsForPlan } from "./billing/usageService";
 import { sendEmail } from "./email/emailService";
 import { adminInviteTemplate } from "./email/templates/adminInvite";
 import type { Plan } from "@prisma/client";
+import { createLog } from "./admin/adminAuditLogService";
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,13 @@ export async function removeAdmin(targetId: string, requestingAdminId: string) {
     },
     { timeout: 10000 },
   );
+
+  await createLog({
+    action: "admin.admin.remove",
+    adminId: requestingAdminId,
+    targetType: "admin",
+    targetId: targetId,
+  });
 
   logger.info("Admin removed", { targetId, removedBy: requestingAdminId });
 }
@@ -274,6 +282,14 @@ export async function updateUserPlan(
     where: { id: userId },
     data: { plan },
     select: { id: true, email: true, plan: true },
+  });
+
+  await createLog({
+    action: "admin.user.plan.update",
+    adminId,
+    targetType: "user",
+    targetId: userId,
+    metadata: { previousPlan: user.plan, plan },
   });
 
   // Phase 6 P8 — structured audit log entry. `previousPlan` lets a log

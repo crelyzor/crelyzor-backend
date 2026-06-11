@@ -10,6 +10,7 @@ import { Prisma } from "@prisma/client";
 import prisma from "../../db/prismaClient";
 import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
+import { createLog } from "./adminAuditLogService";
 
 const NOT_FOUND_MESSAGE = "Team not found";
 
@@ -163,6 +164,13 @@ export async function adminDeleteTeam(
     },
     { timeout: 15000 },
   );
+
+  await createLog({
+    action: "admin.team.delete",
+    adminId,
+    targetType: "team",
+    targetId: teamId,
+  });
 
   logger.info("admin.team.delete", {
     adminId,
