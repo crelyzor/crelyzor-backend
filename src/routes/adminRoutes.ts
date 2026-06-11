@@ -21,6 +21,7 @@ import {
   getTeamsAdmin,
   getTeamDetailAdmin,
   deleteTeamAdmin,
+  rotateTeamDekAdmin,
 } from "../controllers/adminController";
 
 const adminRouter = Router();
@@ -53,5 +54,6 @@ adminRouter.patch("/config/:key", patchConfig);
 adminRouter.get("/teams", getTeamsAdmin);
 adminRouter.get("/teams/:teamId", getTeamDetailAdmin);
 adminRouter.delete("/teams/:teamId", deleteTeamAdmin);
+adminRouter.post("/teams/:teamId/rotate-dek", rotateTeamDekAdmin);
 
 export default adminRouter;

@@ -1030,7 +1030,7 @@ Dev notes: `docs/dev-notes/phase-6-p3-per-team-dek.md`. Files: `src/utils/securi
 - [x] Encrypt/decrypt helpers accept Principal-or-string. JSDoc nudges new code to the explicit Principal form so P5 team-scoped writes don't silently default to user DEK.
 - [x] Bull job payload schemas updated to carry `{ userId, teamId? }`. → Shipped in P4 (`TranscriptionJobData`, `AIProcessingJobData`, etc.).
 - [x] Crypto unit tests added: principal isolation, prefix-boundary eviction, multi-version eviction, KMS-failure rawDek zeroing, plus string-overload safety. All 35 security tests green (25 existing + 10 new).
-- [ ] `keyRotationService` — rotate team DEKs on demand. Deferred to future admin endpoint (Phase 6+ follow-up).
+- [x] `keyRotationService` — `rotateTeamDek(teamId)` in `src/services/security/keyRotationService.ts`. KMS-wraps new DEK outside the transaction, writes new `Team.wrappedDek` + `Team.dekVersion`, creates `TeamDekHistory` entry, evicts old DEK from cache. Admin endpoint: `POST /admin/teams/:teamId/rotate-dek`.
 - [x] Backfill: not required — existing rows have `teamId = null` and stay on user DEK.
 - [x] `generateAndWrapDek()` extracted helper — zeroes rawDek on KMS failure, caller owns success-path zeroing. Used by `initDekForNewUser` + `teamService.createTeam`.
 - [x] Team-DEK-null path throws `AppError 500` + `logger.error("team.dek.missing", { teamId })` (fail closed; never falls back to user DEK).
