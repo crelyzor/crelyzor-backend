@@ -180,7 +180,10 @@ export async function adminDeleteTeam(
   });
 }
 
-export async function restoreTeam(teamId: string, adminId: string): Promise<void> {
+export async function restoreTeam(
+  teamId: string,
+  adminId: string,
+): Promise<void> {
   const team = await prisma.team.findFirst({
     where: { id: teamId, isDeleted: true },
     select: { id: true },

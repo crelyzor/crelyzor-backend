@@ -32,7 +32,9 @@ export async function listLogs(opts: {
   const { page, pageSize, action, targetId } = opts;
   const skip = (page - 1) * pageSize;
   const where = {
-    ...(action ? { action: { contains: action, mode: "insensitive" as const } } : {}),
+    ...(action
+      ? { action: { contains: action, mode: "insensitive" as const } }
+      : {}),
     ...(targetId ? { targetId } : {}),
   };
 
@@ -46,5 +48,11 @@ export async function listLogs(opts: {
     prisma.adminAuditLog.count({ where }),
   ]);
 
-  return { logs, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+  return {
+    logs,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.ceil(total / pageSize),
+  };
 }

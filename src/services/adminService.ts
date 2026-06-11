@@ -382,11 +382,14 @@ export async function suspendUser(userId: string, adminId?: string) {
     targetId: userId,
   });
 
-  logger.info(updated.isActive ? "admin.user.unsuspend" : "admin.user.suspend", {
-    adminId: adminId ?? null,
-    userId,
-    isActive: updated.isActive,
-  });
+  logger.info(
+    updated.isActive ? "admin.user.unsuspend" : "admin.user.suspend",
+    {
+      adminId: adminId ?? null,
+      userId,
+      isActive: updated.isActive,
+    },
+  );
 
   return updated;
 }
@@ -416,23 +419,26 @@ export async function softDeleteUser(userId: string, adminId?: string) {
 // ─── Stats ───────────────────────────────────────────────────────────────────
 
 export async function getPlatformStats() {
-  const [totalUsers, planBreakdown, usageTotals, usersWithDek] = await Promise.all([
-    prisma.user.count({ where: { isDeleted: false } }),
-    prisma.user.groupBy({
-      by: ["plan"],
-      where: { isDeleted: false },
-      _count: { id: true },
-    }),
-    prisma.userUsage.aggregate({
-      _sum: {
-        transcriptionMinutesUsed: true,
-        recallHoursUsed: true,
-        aiCreditsUsed: true,
-        storageGbUsed: true,
-      },
-    }),
-    prisma.user.count({ where: { isDeleted: false, wrappedDek: { not: null } } }),
-  ]);
+  const [totalUsers, planBreakdown, usageTotals, usersWithDek] =
+    await Promise.all([
+      prisma.user.count({ where: { isDeleted: false } }),
+      prisma.user.groupBy({
+        by: ["plan"],
+        where: { isDeleted: false },
+        _count: { id: true },
+      }),
+      prisma.userUsage.aggregate({
+        _sum: {
+          transcriptionMinutesUsed: true,
+          recallHoursUsed: true,
+          aiCreditsUsed: true,
+          storageGbUsed: true,
+        },
+      }),
+      prisma.user.count({
+        where: { isDeleted: false, wrappedDek: { not: null } },
+      }),
+    ]);
 
   const planCounts = { FREE: 0, PRO: 0, BUSINESS: 0 };
   for (const row of planBreakdown) {
@@ -455,7 +461,13 @@ export async function getPlatformStats() {
 export async function getSystemHealth() {
   const queue = getTranscriptionQueue();
 
-  let queueCounts = { waiting: -1, active: -1, failed: -1, delayed: -1, completed: -1 };
+  let queueCounts = {
+    waiting: -1,
+    active: -1,
+    failed: -1,
+    delayed: -1,
+    completed: -1,
+  };
   try {
     const [waiting, active, failed, delayed, completed] = await Promise.all([
       queue.getWaitingCount(),
@@ -466,7 +478,9 @@ export async function getSystemHealth() {
     ]);
     queueCounts = { waiting, active, failed, delayed, completed };
   } catch {
-    logger.warn("getSystemHealth: queue unreachable, returning sentinel values");
+    logger.warn(
+      "getSystemHealth: queue unreachable, returning sentinel values",
+    );
   }
 
   let redisOk = false;

@@ -34,8 +34,15 @@ import {
   adminDeleteTeam,
   restoreTeam as adminRestoreTeam,
 } from "../services/admin/adminTeamService";
-import { rotateTeamDek, rotateUserDek, cryptoShredUserData } from "../services/security/keyRotationService";
-import { createLog as createAuditLog, listLogs } from "../services/admin/adminAuditLogService";
+import {
+  rotateTeamDek,
+  rotateUserDek,
+  cryptoShredUserData,
+} from "../services/security/keyRotationService";
+import {
+  createLog as createAuditLog,
+  listLogs,
+} from "../services/admin/adminAuditLogService";
 import { getSystemHealth } from "../services/adminService";
 import {
   configKeyParamSchema,
@@ -278,7 +285,10 @@ export const rotateTeamDekAdmin = async (req: Request, res: Response) => {
     adminId: req.adminId!,
     targetType: "team",
     targetId: params.data.teamId,
-    metadata: { previousVersion: result.previousVersion, newVersion: result.newVersion },
+    metadata: {
+      previousVersion: result.previousVersion,
+      newVersion: result.newVersion,
+    },
   });
   return apiResponse(res, {
     statusCode: 200,
@@ -334,7 +344,10 @@ export const rotateUserDekAdmin = async (req: Request, res: Response) => {
     adminId: req.adminId,
     targetType: "user",
     targetId: params.data.id,
-    metadata: { previousVersion: result.previousVersion, newVersion: result.newVersion },
+    metadata: {
+      previousVersion: result.previousVersion,
+      newVersion: result.newVersion,
+    },
   });
   return apiResponse(res, {
     statusCode: 200,
@@ -365,12 +378,20 @@ export const getAuditLog = async (req: Request, res: Response) => {
   if (!parsed.success) throw new AppError("Invalid query params", 400);
 
   const result = await listLogs(parsed.data);
-  return apiResponse(res, { statusCode: 200, message: "Audit log fetched", data: result });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Audit log fetched",
+    data: result,
+  });
 };
 
 export const getHealth = async (_req: Request, res: Response) => {
   const result = await getSystemHealth();
-  return apiResponse(res, { statusCode: 200, message: "Health fetched", data: result });
+  return apiResponse(res, {
+    statusCode: 200,
+    message: "Health fetched",
+    data: result,
+  });
 };
 
 export const restoreTeamAdmin = async (req: Request, res: Response) => {
