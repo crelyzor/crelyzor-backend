@@ -10,6 +10,7 @@ import { Prisma } from "@prisma/client";
 import prisma from "../../db/prismaClient";
 import { AppError } from "../../utils/errors/AppError";
 import { logger } from "../../utils/logging/logger";
+import { createLog } from "./adminAuditLogService";
 
 const NOT_FOUND_MESSAGE = "Team not found";
 
@@ -164,10 +165,51 @@ export async function adminDeleteTeam(
     { timeout: 15000 },
   );
 
+  await createLog({
+    action: "admin.team.delete",
+    adminId,
+    targetType: "team",
+    targetId: teamId,
+  });
+
   logger.info("admin.team.delete", {
     adminId,
     teamId: team.id,
     teamName: team.name,
     teamSlug: team.slug,
+  });
+}
+
+export async function restoreTeam(
+  teamId: string,
+  adminId: string,
+): Promise<void> {
+  const team = await prisma.team.findFirst({
+    where: { id: teamId, isDeleted: true },
+    select: { id: true },
+  });
+  if (!team) throw new AppError("Deleted team not found", 404);
+
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.team.update({
+        where: { id: teamId },
+        data: { isDeleted: false, deletedAt: null },
+      });
+      await tx.teamMember.updateMany({
+        where: { teamId, isDeleted: true },
+        data: { isDeleted: false, deletedAt: null },
+      });
+    },
+    { timeout: 15000 },
+  );
+
+  logger.info("admin.team.restore", { teamId, adminId });
+
+  await createLog({
+    action: "admin.team.restore",
+    adminId,
+    targetType: "team",
+    targetId: teamId,
   });
 }

@@ -15,6 +15,8 @@ import {
   updatePlan,
   resetUsage,
   getStats,
+  suspendUserHandler,
+  deleteUserHandler,
   // Phase 6 P8
   getConfig,
   patchConfig,
@@ -22,6 +24,11 @@ import {
   getTeamDetailAdmin,
   deleteTeamAdmin,
   rotateTeamDekAdmin,
+  rotateUserDekAdmin,
+  cryptoShredUserAdmin,
+  getAuditLog,
+  getHealth,
+  restoreTeamAdmin,
 } from "../controllers/adminController";
 
 const adminRouter = Router();
@@ -46,6 +53,10 @@ adminRouter.get("/users", getUsers);
 adminRouter.get("/users/:id", getUser);
 adminRouter.patch("/users/:id/plan", updatePlan);
 adminRouter.patch("/users/:id/usage/reset", resetUsage);
+adminRouter.patch("/users/:id/suspend", suspendUserHandler);
+adminRouter.delete("/users/:id", deleteUserHandler);
+adminRouter.post("/users/:id/rotate-dek", rotateUserDekAdmin);
+adminRouter.post("/users/:id/crypto-shred", cryptoShredUserAdmin);
 
 // ── Phase 6 P8 — SystemConfig + team admin overrides ──────────────────────
 adminRouter.get("/config", getConfig);
@@ -55,5 +66,9 @@ adminRouter.get("/teams", getTeamsAdmin);
 adminRouter.get("/teams/:teamId", getTeamDetailAdmin);
 adminRouter.delete("/teams/:teamId", deleteTeamAdmin);
 adminRouter.post("/teams/:teamId/rotate-dek", rotateTeamDekAdmin);
+adminRouter.patch("/teams/:teamId/restore", restoreTeamAdmin);
+
+adminRouter.get("/audit-log", getAuditLog);
+adminRouter.get("/health", getHealth);
 
 export default adminRouter;
