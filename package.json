@@ -59,7 +59,7 @@
     "googleapis": "^173.0.0",
     "helmet": "^8.2.0",
     "ical.js": "^2.2.1",
-    "ioredis": "^5.10.1",
+    "ioredis": "^5.11.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
     "nanoid": "^5.1.6",
