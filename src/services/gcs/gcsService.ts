@@ -19,7 +19,13 @@ const getStorage = (): Storage => {
     const projectId = process.env.GCS_PROJECT_ID;
     if (projectId) options.projectId = projectId;
 
-    // Auth via Application Default Credentials (gcloud ADC on local, VM identity on GCE)
+    // Prefer an explicit service-account key file when provided. This lets v4
+    // signed URLs be signed locally with the key's private_key — no
+    // iam.serviceAccountTokenCreator role required. Falls back to Application
+    // Default Credentials (gcloud ADC on local, VM identity on GCE) otherwise.
+    const keyFile = process.env.GCS_KEY_FILE;
+    if (keyFile) options.keyFilename = keyFile;
+
     storage = new Storage(options);
   }
   return storage;
