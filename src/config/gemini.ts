@@ -6,7 +6,10 @@ import {
 import { logger } from "../utils/logging/logger";
 import { AppError } from "../utils/errors/AppError";
 
-export const GEMINI_MODEL = "gemini-2.5-flash";
+// Overridable via env so the model can be swapped without a code deploy.
+// gemini-2.5-flash is blocked for new API users, so default to the
+// auto-updating latest stable flash alias.
+export const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
 
 export const DEFAULT_GENERATION_CONFIG: GenerationConfig = {
   temperature: 0.3,
